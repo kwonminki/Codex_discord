@@ -34,6 +34,7 @@ const normalMutateCommands = new Set([
 ]);
 const dangerousCommands = new Set(["rm", "rmdir"]);
 const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env", "command", "exec"]);
+const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
 
 interface ShellScanResult {
   segments: string[];
@@ -76,6 +77,8 @@ function scanShell(command: string): ShellScanResult {
     if (mode === "double") {
       if (character === '"') {
         mode = "normal";
+      } else if (character === "`" || (character === "$" && command[index + 1] === "(")) {
+        return { segments: [command], hasDangerousControlSyntax: true };
       } else {
         current += character;
       }
@@ -205,6 +208,16 @@ function normalizeExecutableToken(token: string): string {
   return path.basename(token);
 }
 
+function stripShellAssignments(tokens: string[]): string[] {
+  let index = 0;
+
+  while (index < tokens.length && shellAssignmentPattern.test(tokens[index])) {
+    index += 1;
+  }
+
+  return tokens.slice(index);
+}
+
 function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
   if (left.tier === "dangerous-mutate" || right.tier === "dangerous-mutate") {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
@@ -218,7 +231,7 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
 }
 
 function classifySingleCommand(command: string): CommandClassification {
-  const tokens = tokenizeShellWords(command);
+  const tokens = stripShellAssignments(tokenizeShellWords(command));
   const token = normalizeExecutableToken(tokens[0] ?? "");
   const isGitHardReset =
     token === "git" && tokens.includes("reset") && tokens.includes("--hard");
@@ -282,6 +295,22 @@ function tryRealpath(targetPath: string): string | null {
   }
 }
 
+function findDeepestExistingPath(targetPath: string): string | null {
+  let currentPath = targetPath;
+
+  while (!fs.existsSync(currentPath)) {
+    const parentPath = path.dirname(currentPath);
+
+    if (parentPath === currentPath) {
+      return null;
+    }
+
+    currentPath = parentPath;
+  }
+
+  return currentPath;
+}
+
 export function parseDiscordMessageCommand(input: {
   mode: ChannelMode;
   content: string;
@@ -317,12 +346,16 @@ export function updateCwd(workspaceRoot: string, currentCwd: string, requestedPa
     throw new Error("Path escapes workspace root");
   }
 
-  if (fs.existsSync(normalizedRoot) && fs.existsSync(resolved)) {
+  if (fs.existsSync(normalizedRoot)) {
     const realRoot = tryRealpath(normalizedRoot);
-    const realTarget = tryRealpath(resolved);
+    const deepestExistingPath = findDeepestExistingPath(resolved);
 
-    if (realRoot !== null && realTarget !== null && !isWithinRoot(realTarget, realRoot)) {
-      throw new Error("Path escapes workspace root");
+    if (realRoot !== null && deepestExistingPath !== null) {
+      const realTarget = tryRealpath(deepestExistingPath);
+
+      if (realTarget !== null && !isWithinRoot(realTarget, realRoot)) {
+        throw new Error("Path escapes workspace root");
+      }
     }
   }
 

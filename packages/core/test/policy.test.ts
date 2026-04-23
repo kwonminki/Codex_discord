@@ -31,6 +31,10 @@ describe("command policy", () => {
     expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("ls & rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("echo hi\nrm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("FOO=bar rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("PATH=/usr/bin git reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand('echo "$(rm -rf /)"').tier).toBe("dangerous-mutate");
+    expect(classifyCommand('echo "`rm -rf /`"').tier).toBe("dangerous-mutate");
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\treset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\nreset --hard HEAD").tier).toBe("dangerous-mutate");
@@ -92,5 +96,17 @@ describe("command policy", () => {
     expect(() => updateCwd(workspaceRoot, workspaceRoot, "outside-link")).toThrow(
       "Path escapes workspace root",
     );
+  });
+
+  it("blocks symlinked parent paths even when the final child does not exist", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-"));
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-outside-"));
+    const symlinkPath = path.join(workspaceRoot, "outside-link");
+
+    fs.symlinkSync(outsideRoot, symlinkPath);
+
+    expect(() =>
+      updateCwd(workspaceRoot, workspaceRoot, "outside-link/nonexistent-child"),
+    ).toThrow("Path escapes workspace root");
   });
 });
