@@ -18,9 +18,15 @@ describe("command policy", () => {
 
   it("treats shell wrappers and control operators as dangerous mutate commands", () => {
     expect(classifyCommand("sudo rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("command rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("exec rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand('bash -lc "rm -rf /"').tier).toBe("dangerous-mutate");
     expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
+  });
+
+  it("keeps simple pipelines readable when every segment is safe read", () => {
+    expect(classifyCommand("ls | grep foo").tier).toBe("safe-read");
   });
 
   it("allows bare commands only in shell-admin channels", () => {

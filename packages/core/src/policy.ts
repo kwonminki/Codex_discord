@@ -19,7 +19,7 @@ export interface AuthorizationResult {
   reason?: string;
 }
 
-const safeReadCommands = new Set(["ls", "tree", "pwd", "cat", "find"]);
+const safeReadCommands = new Set(["ls", "tree", "pwd", "cat", "find", "grep"]);
 const normalMutateCommands = new Set([
   "mkdir",
   "touch",
@@ -33,20 +33,32 @@ const normalMutateCommands = new Set([
   "node",
 ]);
 const dangerousCommands = new Set(["rm", "rmdir"]);
-const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env"]);
-const dangerousShellSyntax = /&&|\|\||;|\||`|\$\(/;
+const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env", "command", "exec"]);
+const dangerousControlSyntax = /&&|\|\||;|`|\$\(/;
 
 export function firstToken(command: string): string {
   return command.trim().split(/\s+/)[0] ?? "";
 }
 
-export function classifyCommand(command: string): CommandClassification {
+function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
+  if (left.tier === "dangerous-mutate" || right.tier === "dangerous-mutate") {
+    return { tier: "dangerous-mutate", requiresConfirmation: true };
+  }
+
+  if (left.tier === "normal-mutate" || right.tier === "normal-mutate") {
+    return { tier: "normal-mutate", requiresConfirmation: false };
+  }
+
+  return { tier: "safe-read", requiresConfirmation: false };
+}
+
+function classifySingleCommand(command: string): CommandClassification {
   const token = firstToken(command);
 
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
-    dangerousShellSyntax.test(command) ||
+    dangerousControlSyntax.test(command) ||
     command.includes("--force") ||
     command.includes(" reset --hard")
   ) {
@@ -62,6 +74,26 @@ export function classifyCommand(command: string): CommandClassification {
   }
 
   return { tier: "normal-mutate", requiresConfirmation: false };
+}
+
+export function classifyCommand(command: string): CommandClassification {
+  if (dangerousControlSyntax.test(command)) {
+    return { tier: "dangerous-mutate", requiresConfirmation: true };
+  }
+
+  if (command.includes("|")) {
+    return command
+      .split("|")
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+      .map(classifySingleCommand)
+      .reduce(
+        (accumulator, classification) => mergeTiers(accumulator, classification),
+        { tier: "safe-read", requiresConfirmation: false } as CommandClassification,
+      );
+  }
+
+  return classifySingleCommand(command);
 }
 
 function isWithinRoot(candidatePath: string, rootPath: string): boolean {
