@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
+import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type { DirectConnectConfig } from "./connectConfig.js";
@@ -24,7 +25,7 @@ export function createDirectControlClient(config: DirectConnectConfig): ControlA
           hostname: config.direct.computerId,
           status: "online",
           allowedRoleIds: [...config.discord.allowedRoleIds],
-          capabilities: ["shell", "codex-import"],
+          capabilities: ["shell", "codex-import", "codex-chat"],
           workspaces: [
             {
               id: config.direct.workspaceId,
@@ -117,6 +118,17 @@ export function createDirectControlClient(config: DirectConnectConfig): ControlA
       }
 
       const result = await runWorkspaceCommand(input.payload);
+      return { jobId: randomUUID(), result };
+    },
+    async submitCodexPrompt(input) {
+      if (input.computerId !== config.direct.computerId) {
+        return { jobId: randomUUID(), error: { message: "Computer is offline" } };
+      }
+
+      const result = await runCodexPrompt({
+        ...input.payload,
+        codexHome: config.direct.codexHome,
+      });
       return { jobId: randomUUID(), result };
     },
   };

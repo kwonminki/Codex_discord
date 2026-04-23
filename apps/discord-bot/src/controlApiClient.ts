@@ -9,6 +9,14 @@ export interface RunCommandJobPayload {
   confirmedDangerous: boolean;
 }
 
+export interface RunCodexPromptJobPayload {
+  workspaceRoot: string;
+  cwd: string;
+  prompt: string;
+  timeoutMs: number;
+  sessionId: string | null;
+}
+
 export type ControlApiJobResponse =
   | { jobId: string; result: unknown }
   | { jobId: string; error: { message: string } };
@@ -16,6 +24,11 @@ export type ControlApiJobResponse =
 export interface SubmitCommandJobInput {
   computerId: string;
   payload: RunCommandJobPayload;
+}
+
+export interface SubmitCodexPromptInput {
+  computerId: string;
+  payload: RunCodexPromptJobPayload;
 }
 
 export interface ListCodexSessionsInput {
@@ -125,6 +138,7 @@ export interface ControlApiClient {
   recordCommandAudit(input: RecordCommandAuditInput): Promise<CommandAuditResponse>;
   linkCodexSession(input: LinkCodexSessionInput): Promise<LinkedCodexSessionResponse>;
   listCodexSessions(input: ListCodexSessionsInput): Promise<ControlApiJobResponse>;
+  submitCodexPrompt(input: SubmitCodexPromptInput): Promise<ControlApiJobResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -318,6 +332,28 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       if (!response.ok) {
         const errorBody = body as ControlApiErrorResponse;
         const message = errorBody.error?.message ?? "Control API job request failed";
+        throw new Error(message);
+      }
+
+      return body as ControlApiJobResponse;
+    },
+    async submitCodexPrompt(promptInput) {
+      const response = await fetch(
+        `${baseUrl}/computers/${encodeURIComponent(promptInput.computerId)}/jobs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            type: "run-codex-prompt",
+            payload: promptInput.payload,
+          }),
+        },
+      );
+      const body = (await response.json()) as ControlApiJobResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API Codex prompt request failed";
         throw new Error(message);
       }
 

@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { listNativeCodexSessions } from "./codexAdapter.js";
+import { runCodexPrompt } from "./codexRunner.js";
 import { runWorkspaceCommand } from "./runner.js";
 
 export interface AgentConfig {
@@ -45,6 +46,10 @@ export async function handleAgentJob(job: AgentJob) {
   if (job.type === "list-codex-sessions") {
     const payload = job.payload as { codexHome: string };
     return listNativeCodexSessions(payload.codexHome);
+  }
+
+  if (job.type === "run-codex-prompt") {
+    return runCodexPrompt(job.payload as Parameters<typeof runCodexPrompt>[0]);
   }
 
   throw new Error("Unsupported agent job type");

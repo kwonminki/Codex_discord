@@ -31,6 +31,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      submitCodexPrompt: vi.fn(),
       updateChannelCwd,
       recordCommandAudit,
     });
@@ -109,6 +110,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      submitCodexPrompt: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -151,6 +153,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      submitCodexPrompt: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit,
     });
@@ -208,6 +211,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      submitCodexPrompt: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -260,6 +264,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => null,
       submitCommandJob,
+      submitCodexPrompt: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -284,5 +289,75 @@ describe("createDiscordMessageHandler", () => {
 
     expect(reply).not.toHaveBeenCalled();
     expect(submitCommandJob).not.toHaveBeenCalled();
+  });
+
+  it("submits a Codex prompt and edits the queued reply with the answer", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const submitCommandJob = vi.fn();
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "이 프로젝트는 Discord에서 Codex를 제어하는 브리지입니다.",
+        sessionId: "codex-session-1",
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "codex 이 프로젝트 설명해줘",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+
+    expect(submitCommandJob).not.toHaveBeenCalled();
+    expect(submitCodexPrompt).toHaveBeenCalledWith({
+      computerId: "computer-1",
+      payload: {
+        workspaceRoot: "/repo",
+        cwd: "/repo",
+        prompt: "이 프로젝트 설명해줘",
+        timeoutMs: 300_000,
+        sessionId: null,
+      },
+    });
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            title: "Codex is working",
+            color: 0x3498db,
+          }),
+        ],
+      }),
+    ]);
+    expect(edits).toEqual([
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            title: "Codex replied",
+            color: 0x2ecc71,
+            description: "이 프로젝트는 Discord에서 Codex를 제어하는 브리지입니다.",
+          }),
+        ],
+      }),
+    ]);
   });
 });

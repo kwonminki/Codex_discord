@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCommandAck, formatCommandResultUpdate, formatDenied } from "./responses.js";
+import {
+  formatCodexAck,
+  formatCodexResultUpdate,
+  formatCommandAck,
+  formatCommandResultUpdate,
+  formatDenied,
+  formatHelp,
+} from "./responses.js";
 
 describe("responses", () => {
   it("formats command acknowledgements as a Discord embed", () => {
@@ -115,6 +122,115 @@ describe("responses", () => {
           color: 0xe74c3c,
           description: "`use 'backticks' [at]everyone`",
         },
+      ],
+    });
+  });
+
+  it("formats Codex prompts as Discord embeds", () => {
+    expect(
+      formatCodexAck({
+        computerDisplayName: "Local Dev",
+        workspaceDisplayName: "CodexDiscordConnecter",
+        cwd: "/repo",
+        prompt: "README를 요약해줘",
+      }),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        {
+          title: "Codex is working",
+          color: 0x3498db,
+          fields: [
+            {
+              name: "Target",
+              value: "`Local Dev` / `CodexDiscordConnecter`",
+              inline: false,
+            },
+            {
+              name: "Working directory",
+              value: "`/repo`",
+              inline: false,
+            },
+            {
+              name: "Prompt",
+              value: "```text\nREADME를 요약해줘\n```",
+              inline: false,
+            },
+            {
+              name: "Status",
+              value: "`thinking`",
+              inline: true,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("formats Codex answers as a readable Discord embed", () => {
+    expect(
+      formatCodexResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "CodexDiscordConnecter",
+          cwd: "/repo",
+          prompt: "README를 요약해줘",
+        },
+        {
+          result: {
+            status: "completed",
+            finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
+            sessionId: "session-1",
+          },
+        },
+      ),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        {
+          title: "Codex replied",
+          color: 0x2ecc71,
+          description: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
+          fields: [
+            {
+              name: "Target",
+              value: "`Local Dev` / `CodexDiscordConnecter`",
+              inline: false,
+            },
+            {
+              name: "Working directory",
+              value: "`/repo`",
+              inline: false,
+            },
+            {
+              name: "Prompt",
+              value: "```text\nREADME를 요약해줘\n```",
+              inline: false,
+            },
+            {
+              name: "Status",
+              value: "`completed`",
+              inline: true,
+            },
+            {
+              name: "Session",
+              value: "`session-1`",
+              inline: true,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("formats a concise help card for shell-admin channels", () => {
+    expect(formatHelp("shell-admin")).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "How to use this Codex channel",
+          color: 0x95a5a6,
+        }),
       ],
     });
   });

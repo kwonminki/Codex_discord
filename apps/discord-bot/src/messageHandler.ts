@@ -3,7 +3,14 @@ import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
-import { formatCommandAck, formatCommandResultUpdate, formatDenied } from "./responses.js";
+import {
+  formatCodexAck,
+  formatCodexResultUpdate,
+  formatCommandAck,
+  formatCommandResultUpdate,
+  formatDenied,
+  formatHelp,
+} from "./responses.js";
 
 export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
@@ -25,6 +32,7 @@ export type DiscordOutgoingMessage = string | DiscordMessagePayload;
 export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
+  submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
   recordCommandAudit: ControlApiClient["recordCommandAudit"];
 }
@@ -82,6 +90,7 @@ async function updateQueuedReply(
 
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
   const channelQueues = new Map<string, Promise<void>>();
+  const codexSessionIdsByChannel = new Map<string, string>();
 
   async function processDiscordMessage(message: DiscordMessageLike): Promise<void> {
     if (message.authorBot) {
@@ -101,8 +110,66 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       allowedRoleIds: channelContext.allowedRoleIds,
     });
 
+    if (routed.type === "bot-help") {
+      await message.reply(formatHelp(channelContext.channelMode));
+      return;
+    }
+
     if (routed.type === "codex-chat") {
-      await message.reply("Codex chat is not connected in this MVP slice. Use `!` commands for operations.");
+      const codexMessage = {
+        computerDisplayName: channelContext.computerDisplayName,
+        workspaceDisplayName: channelContext.workspaceDisplayName,
+        cwd: channelContext.cwd,
+        prompt: routed.content,
+      };
+
+      if (!input.submitCodexPrompt) {
+        await message.reply(
+          formatCodexResultUpdate(codexMessage, {
+            error: { message: "Codex chat is not connected for this mode yet." },
+          }),
+        );
+        return;
+      }
+
+      const queuedReply = await message.reply(formatCodexAck(codexMessage));
+
+      try {
+        const response = await input.submitCodexPrompt({
+          computerId: channelContext.computerId,
+          payload: {
+            workspaceRoot: channelContext.workspaceRoot,
+            cwd: channelContext.cwd,
+            prompt: routed.content,
+            timeoutMs: Math.max(channelContext.timeoutMs, 300_000),
+            sessionId: codexSessionIdsByChannel.get(message.channelId) ?? null,
+          },
+        });
+        const nextSessionId =
+          "result" in response &&
+          typeof response.result === "object" &&
+          response.result !== null &&
+          typeof (response.result as { sessionId?: unknown }).sessionId === "string"
+            ? (response.result as { sessionId: string }).sessionId
+            : null;
+
+        if (nextSessionId) {
+          codexSessionIdsByChannel.set(message.channelId, nextSessionId);
+        }
+
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => message.reply(replyMessage),
+          formatCodexResultUpdate(codexMessage, response),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Codex prompt failed";
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => message.reply(replyMessage),
+          formatCodexResultUpdate(codexMessage, { error: { message: messageText } }),
+        );
+      }
       return;
     }
 

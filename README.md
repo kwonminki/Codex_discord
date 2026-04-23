@@ -8,10 +8,11 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 - Map workspaces to Discord categories.
 - Create managed Discord channels.
 - Run role-gated shell commands.
+- Ask Codex from Discord with `codex <prompt>` in shell-admin channels.
 - Import native Codex sessions.
 - Record execution audit events.
 
-Direct Codex chat transport is not faked: session links store real Codex session identity for import/recovery, while unprefixed `session-linked` chat remains blocked until a real Codex message transport is added.
+Codex chat uses the local `codex exec` CLI and stores the returned session id per Discord channel while the bot process is running. Shell-admin channels use `codex <prompt>` for Codex prompts. Session-linked channels send regular text to Codex and use `!` for shell commands.
 
 ## Development
 
@@ -30,6 +31,19 @@ pnpm connect start --direct
 ```
 
 Direct mode writes `.connect/config.json` and `.env`, then starts only the Discord bot. It does not need the Control API or Local Agent process, so it is the easiest single-computer setup. Direct mode cannot control multiple computers.
+
+In the configured Discord channel:
+
+```text
+help
+codex 이 프로젝트 구조 설명해줘
+codex README에 사용법 추가해줘
+ls
+cd apps
+cat README.md
+```
+
+Codex prompts run through the local Codex CLI with workspace-write sandboxing. Restart the bot after code updates so Discord uses the latest behavior.
 
 For multi-computer hub mode, run:
 

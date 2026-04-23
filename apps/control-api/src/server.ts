@@ -21,7 +21,7 @@ export interface CreateServerInput {
 }
 
 function isAgentJobType(value: unknown): value is AgentJob["type"] {
-  return value === "run-command" || value === "list-codex-sessions";
+  return value === "run-command" || value === "list-codex-sessions" || value === "run-codex-prompt";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

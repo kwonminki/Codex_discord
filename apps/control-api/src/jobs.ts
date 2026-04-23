@@ -3,7 +3,7 @@ import type { AgentRegistry } from "./agentRegistry.js";
 
 export interface AgentJob {
   jobId: string;
-  type: "run-command" | "list-codex-sessions";
+  type: "run-command" | "list-codex-sessions" | "run-codex-prompt";
   payload: unknown;
 }
 

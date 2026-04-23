@@ -33,6 +33,7 @@ export async function startBot(): Promise<void> {
   const handleMessage = createDiscordMessageHandler({
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
+    submitCodexPrompt: controlApiClient.submitCodexPrompt,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
   });
