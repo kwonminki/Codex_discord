@@ -56,20 +56,22 @@ model ManagedChannel {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   workspace            Workspace          @relation(fields: [workspaceId], references: [id])
-  sessionLinks         CodexSessionLink[]
+  sessionLinks         CodexSessionLink[] @relation("ChannelSessionLinks")
+  currentSessionLink   CodexSessionLink?  @relation("CurrentSessionLink", fields: [currentSessionLinkId], references: [id])
   auditEvents          AuditEvent[]
 }
 
 model CodexSessionLink {
-  id                 String         @id
+  id                 String           @id
   channelId          String
   codexSessionId     String
   origin             String
   threadNameSnapshot String
   attachedAt         DateTime
   availabilityStatus String
-  createdAt          DateTime       @default(now())
-  channel            ManagedChannel @relation(fields: [channelId], references: [id])
+  createdAt          DateTime         @default(now())
+  channel            ManagedChannel   @relation("ChannelSessionLinks", fields: [channelId], references: [id])
+  currentForChannels ManagedChannel[] @relation("CurrentSessionLink")
 }
 
 model AuditEvent {

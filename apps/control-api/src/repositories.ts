@@ -65,16 +65,33 @@ export function createRepositories(prisma: PrismaClient) {
     },
     channels: {
       create(input: ManagedChannelCreateInput) {
-        return prisma.managedChannel.create({
-          data: {
-            id: input.id,
-            discordChannelId: input.discordChannelId,
-            computerId: input.computerId,
-            workspaceId: input.workspaceId,
-            channelMode: input.channelMode,
-            cwd: input.cwd,
-            status: "created",
-          },
+        return prisma.$transaction(async (tx) => {
+          const workspace = await tx.workspace.findUnique({
+            where: { id: input.workspaceId },
+            select: { computerId: true },
+          });
+
+          if (!workspace) {
+            throw new Error(`Workspace ${input.workspaceId} does not exist.`);
+          }
+
+          if (workspace.computerId !== input.computerId) {
+            throw new Error(
+              `Cannot create channel for computer ${input.computerId} in workspace ${input.workspaceId} owned by computer ${workspace.computerId}.`,
+            );
+          }
+
+          return tx.managedChannel.create({
+            data: {
+              id: input.id,
+              discordChannelId: input.discordChannelId,
+              computerId: input.computerId,
+              workspaceId: input.workspaceId,
+              channelMode: input.channelMode,
+              cwd: input.cwd,
+              status: "created",
+            },
+          });
         });
       },
       findByDiscordChannelId(discordChannelId: string) {
