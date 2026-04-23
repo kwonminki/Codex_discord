@@ -12,11 +12,10 @@ Bare messages are treated as shell commands after Discord role checks. Examples:
 
 ### session-linked
 
-Normal messages are Codex chat. Operational commands use a prefix or slash command. Examples:
+Normal messages are Codex chat. Operational commands use the `!` prefix. Examples:
 
 - `!ls`
 - `!cat README.md`
-- `/session import`
 
 ## Safety Rules
 
