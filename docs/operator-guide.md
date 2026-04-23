@@ -12,7 +12,7 @@ Bare messages are treated as shell commands after Discord role checks. Examples:
 
 ### session-linked
 
-Normal messages are Codex chat. Operational commands use the `!` prefix. Examples:
+Session-linked channels can attach/import native Codex session identity, but direct Codex chat injection is not wired yet. Operational commands use the `!` prefix. Examples:
 
 - `!ls`
 - `!cat README.md`
@@ -27,6 +27,7 @@ Normal messages are Codex chat. Operational commands use the `!` prefix. Example
 - Dangerous commands require confirmation.
 - Offline computers block execution.
 - Missing Codex session links block session-dependent actions.
+- Normal, unprefixed text in a `session-linked` channel is intentionally rejected until a real Codex chat transport exists.
 
 ## Native Codex Import
 

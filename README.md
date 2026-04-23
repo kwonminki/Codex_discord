@@ -11,6 +11,8 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 - Import native Codex sessions.
 - Record execution audit events.
 
+Direct Codex chat transport is not faked: session links store real Codex session identity for import/recovery, while unprefixed `session-linked` chat remains blocked until a real Codex message transport is added.
+
 ## Development
 
 - `pnpm install`
