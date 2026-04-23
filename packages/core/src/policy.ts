@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { ChannelMode } from "./domain.js";
 
@@ -32,6 +33,8 @@ const normalMutateCommands = new Set([
   "node",
 ]);
 const dangerousCommands = new Set(["rm", "rmdir"]);
+const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env"]);
+const dangerousShellSyntax = /&&|\|\||;|\||`|\$\(/;
 
 export function firstToken(command: string): string {
   return command.trim().split(/\s+/)[0] ?? "";
@@ -40,7 +43,13 @@ export function firstToken(command: string): string {
 export function classifyCommand(command: string): CommandClassification {
   const token = firstToken(command);
 
-  if (dangerousCommands.has(token) || command.includes("--force") || command.includes(" reset --hard")) {
+  if (
+    dangerousCommands.has(token) ||
+    dangerousWrappers.has(token) ||
+    dangerousShellSyntax.test(command) ||
+    command.includes("--force") ||
+    command.includes(" reset --hard")
+  ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }
 
@@ -53,6 +62,22 @@ export function classifyCommand(command: string): CommandClassification {
   }
 
   return { tier: "normal-mutate", requiresConfirmation: false };
+}
+
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${path.sep}`);
+}
+
+function tryRealpath(targetPath: string): string | null {
+  try {
+    return fs.realpathSync.native(targetPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 export function parseDiscordMessageCommand(input: {
@@ -86,8 +111,17 @@ export function updateCwd(workspaceRoot: string, currentCwd: string, requestedPa
   const resolved = path.resolve(currentCwd, requestedPath);
   const normalizedRoot = path.resolve(workspaceRoot);
 
-  if (resolved !== normalizedRoot && !resolved.startsWith(`${normalizedRoot}${path.sep}`)) {
+  if (!isWithinRoot(resolved, normalizedRoot)) {
     throw new Error("Path escapes workspace root");
+  }
+
+  if (fs.existsSync(normalizedRoot) && fs.existsSync(resolved)) {
+    const realRoot = tryRealpath(normalizedRoot);
+    const realTarget = tryRealpath(resolved);
+
+    if (realRoot !== null && realTarget !== null && !isWithinRoot(realTarget, realRoot)) {
+      throw new Error("Path escapes workspace root");
+    }
   }
 
   return resolved;

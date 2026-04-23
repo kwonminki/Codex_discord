@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   authorizeCommand,
   classifyCommand,
@@ -11,6 +14,13 @@ describe("command policy", () => {
     expect(classifyCommand("ls -la").tier).toBe("safe-read");
     expect(classifyCommand("mkdir reports").tier).toBe("normal-mutate");
     expect(classifyCommand("rm -rf reports").tier).toBe("dangerous-mutate");
+  });
+
+  it("treats shell wrappers and control operators as dangerous mutate commands", () => {
+    expect(classifyCommand("sudo rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand('bash -lc "rm -rf /"').tier).toBe("dangerous-mutate");
+    expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
   });
 
   it("allows bare commands only in shell-admin channels", () => {
@@ -47,5 +57,17 @@ describe("command policy", () => {
   it("updates cwd only when the next path remains inside workspace root", () => {
     expect(updateCwd("/repo", "/repo/src", "..")).toBe("/repo");
     expect(() => updateCwd("/repo", "/repo", "..")).toThrow("Path escapes workspace root");
+  });
+
+  it("blocks symlink escapes from the workspace root", () => {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-"));
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-outside-"));
+    const symlinkPath = path.join(workspaceRoot, "outside-link");
+
+    fs.symlinkSync(outsideRoot, symlinkPath);
+
+    expect(() => updateCwd(workspaceRoot, workspaceRoot, "outside-link")).toThrow(
+      "Path escapes workspace root",
+    );
   });
 });
