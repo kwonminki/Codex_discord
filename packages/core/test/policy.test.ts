@@ -137,6 +137,18 @@ describe("command policy", () => {
       tier: "dangerous-mutate",
       requiresConfirmation: true,
     });
+    expect(classifyCommand("git -C /tmp push -f origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git -c core.pager=cat push --force")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git --work-tree=/tmp push --force-with-lease=main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
     expect(classifyCommand("find . -delete")).toEqual({
       tier: "dangerous-mutate",
       requiresConfirmation: true,
@@ -146,6 +158,26 @@ describe("command policy", () => {
       requiresConfirmation: true,
     });
     expect(classifyCommand("find . -ok rm -rf {} \\;")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("(rm -rf /)")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("! rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("time rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("nohup rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("nice rm -rf /")).toEqual({
       tier: "dangerous-mutate",
       requiresConfirmation: true,
     });

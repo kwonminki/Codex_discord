@@ -45,6 +45,11 @@ const dangerousWrappers = new Set([
   "eval",
   "source",
   ".",
+  "!",
+  "time",
+  "nohup",
+  "nice",
+  "(",
 ]);
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
 
@@ -257,11 +262,17 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
 }
 
 function isDangerousGitPush(tokens: string[]): boolean {
-  if (normalizeExecutableToken(tokens[0] ?? "") !== "git" || tokens[1] !== "push") {
+  if (normalizeExecutableToken(tokens[0] ?? "") !== "git") {
     return false;
   }
 
-  return tokens.slice(2).some((token) => {
+  const pushIndex = tokens.indexOf("push");
+
+  if (pushIndex < 0) {
+    return false;
+  }
+
+  return tokens.slice(pushIndex + 1).some((token) => {
     if (token === "-f" || token === "--force" || token === "--force-with-lease") {
       return true;
     }
@@ -298,6 +309,7 @@ function classifySingleCommand(command: string): CommandClassification {
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
+    token.startsWith("(") ||
     isGitHardReset ||
     isDangerousGitPush(tokens) ||
     isDangerousFind(tokens)
