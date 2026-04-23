@@ -23,10 +23,14 @@ describe("command policy", () => {
     expect(classifyCommand('bash -lc "rm -rf /"').tier).toBe("dangerous-mutate");
     expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git\treset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git\nreset --hard HEAD").tier).toBe("dangerous-mutate");
   });
 
   it("keeps simple pipelines readable when every segment is safe read", () => {
     expect(classifyCommand("ls | grep foo").tier).toBe("safe-read");
+    expect(classifyCommand('grep "foo|bar" file').tier).toBe("safe-read");
+    expect(classifyCommand("grep foo\\|bar file").tier).toBe("safe-read");
   });
 
   it("allows bare commands only in shell-admin channels", () => {

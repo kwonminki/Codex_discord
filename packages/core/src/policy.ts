@@ -34,10 +34,161 @@ const normalMutateCommands = new Set([
 ]);
 const dangerousCommands = new Set(["rm", "rmdir"]);
 const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env", "command", "exec"]);
-const dangerousControlSyntax = /&&|\|\||;|`|\$\(/;
+
+interface ShellScanResult {
+  segments: string[];
+  hasDangerousControlSyntax: boolean;
+}
+
+function isShellWhitespace(character: string): boolean {
+  return /\s/.test(character);
+}
+
+function scanShell(command: string): ShellScanResult {
+  const segments: string[] = [];
+  let current = "";
+  let mode: "normal" | "single" | "double" = "normal";
+  let escaped = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (mode !== "single" && character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (mode === "single") {
+      if (character === "'") {
+        mode = "normal";
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (mode === "double") {
+      if (character === '"') {
+        mode = "normal";
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "'") {
+      mode = "single";
+      continue;
+    }
+
+    if (character === '"') {
+      mode = "double";
+      continue;
+    }
+
+    if (character === "&" && command[index + 1] === "&") {
+      return { segments: [command], hasDangerousControlSyntax: true };
+    }
+
+    if (character === "|" && command[index + 1] === "|") {
+      return { segments: [command], hasDangerousControlSyntax: true };
+    }
+
+    if (character === ";" || character === "`" || (character === "$" && command[index + 1] === "(")) {
+      return { segments: [command], hasDangerousControlSyntax: true };
+    }
+
+    if (character === "|") {
+      segments.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  segments.push(current.trim());
+
+  return {
+    segments: segments.filter((segment) => segment.length > 0),
+    hasDangerousControlSyntax: false,
+  };
+}
+
+function tokenizeShellWords(command: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let mode: "normal" | "single" | "double" = "normal";
+  let escaped = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (mode !== "single" && character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (mode === "single") {
+      if (character === "'") {
+        mode = "normal";
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (mode === "double") {
+      if (character === '"') {
+        mode = "normal";
+      } else {
+        current += character;
+      }
+      continue;
+    }
+
+    if (character === "'") {
+      mode = "single";
+      continue;
+    }
+
+    if (character === '"') {
+      mode = "double";
+      continue;
+    }
+
+    if (isShellWhitespace(character)) {
+      if (current.length > 0) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (current.length > 0) {
+    words.push(current);
+  }
+
+  return words;
+}
 
 export function firstToken(command: string): string {
-  return command.trim().split(/\s+/)[0] ?? "";
+  return tokenizeShellWords(command)[0] ?? "";
 }
 
 function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
@@ -53,14 +204,14 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
 }
 
 function classifySingleCommand(command: string): CommandClassification {
-  const token = firstToken(command);
+  const tokens = tokenizeShellWords(command);
+  const token = tokens[0] ?? "";
 
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
-    dangerousControlSyntax.test(command) ||
     command.includes("--force") ||
-    command.includes(" reset --hard")
+    (token === "git" && tokens[1] === "reset" && tokens.includes("--hard"))
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }
@@ -77,15 +228,14 @@ function classifySingleCommand(command: string): CommandClassification {
 }
 
 export function classifyCommand(command: string): CommandClassification {
-  if (dangerousControlSyntax.test(command)) {
+  const scanned = scanShell(command);
+
+  if (scanned.hasDangerousControlSyntax) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }
 
-  if (command.includes("|")) {
-    return command
-      .split("|")
-      .map((segment) => segment.trim())
-      .filter((segment) => segment.length > 0)
+  if (scanned.segments.length > 1) {
+    return scanned.segments
       .map(classifySingleCommand)
       .reduce(
         (accumulator, classification) => mergeTiers(accumulator, classification),
@@ -93,7 +243,7 @@ export function classifyCommand(command: string): CommandClassification {
       );
   }
 
-  return classifySingleCommand(command);
+  return classifySingleCommand(scanned.segments[0] ?? command);
 }
 
 function isWithinRoot(candidatePath: string, rootPath: string): boolean {
