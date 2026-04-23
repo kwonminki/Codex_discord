@@ -1,0 +1,45 @@
+import { describe, expect, it, vi } from "vitest";
+import { attachDiscordMessageHandler } from "./discordClient.js";
+
+describe("attachDiscordMessageHandler", () => {
+  it("adapts Discord messageCreate events into the pure message handler", async () => {
+    const handlers = new Map<string, (message: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordMessageHandler(client, handleMessage);
+    handlers.get("messageCreate")?.({
+      author: { bot: false },
+      channelId: "discord-channel-1",
+      content: "ls",
+      member: {
+        roles: {
+          cache: new Map([
+            ["role-operator", { id: "role-operator" }],
+            ["role-extra", { id: "role-extra" }],
+          ]),
+        },
+      },
+      reply,
+    });
+
+    expect(client.on).toHaveBeenCalledWith("messageCreate", expect.any(Function));
+    expect(handleMessage).toHaveBeenCalledWith({
+      authorBot: false,
+      channelId: "discord-channel-1",
+      content: "ls",
+      roleIds: ["role-operator", "role-extra"],
+      reply: expect.any(Function),
+    });
+
+    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: string): Promise<void> };
+    await adaptedMessage.reply("pong");
+    expect(reply).toHaveBeenCalledWith("pong");
+  });
+});

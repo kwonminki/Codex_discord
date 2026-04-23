@@ -10,12 +10,14 @@ describe("bot entrypoint", () => {
   it("does not start the bot when imported", async () => {
     const login = vi.fn();
     const once = vi.fn();
+    const attachDiscordMessageHandler = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordMessageHandler,
       createDiscordClient,
     }));
 
@@ -30,12 +32,16 @@ describe("bot entrypoint", () => {
 
     const login = vi.fn().mockResolvedValue("logged-in");
     const once = vi.fn();
+    const on = vi.fn();
+    const attachDiscordMessageHandler = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
+      on,
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordMessageHandler,
       createDiscordClient,
     }));
 
@@ -44,18 +50,24 @@ describe("bot entrypoint", () => {
 
     expect(createDiscordClient).toHaveBeenCalledTimes(1);
     expect(once).toHaveBeenCalledWith("ready", expect.any(Function));
+    expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
+      { login, once, on },
+      expect.any(Function),
+    );
     expect(login).toHaveBeenCalledWith("discord-token");
   });
 
   it("rejects startBot without a token", async () => {
     const login = vi.fn();
     const once = vi.fn();
+    const attachDiscordMessageHandler = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordMessageHandler,
       createDiscordClient,
     }));
 
