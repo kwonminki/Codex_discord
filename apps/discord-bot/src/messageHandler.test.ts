@@ -26,14 +26,17 @@ describe("createDiscordMessageHandler", () => {
       },
     });
     const updateChannelCwd = vi.fn().mockResolvedValue({ cwd: "/repo/src" });
+    const recordCommandAudit = vi.fn().mockResolvedValue({ id: "audit-1" });
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       updateChannelCwd,
+      recordCommandAudit,
     });
 
     await handleMessage({
       authorBot: false,
+      userId: "discord-user-1",
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-operator"],
@@ -56,6 +59,14 @@ describe("createDiscordMessageHandler", () => {
       discordChannelId: "discord-channel-1",
       cwd: "/repo/src",
     });
+    expect(recordCommandAudit).toHaveBeenCalledWith({
+      discordChannelId: "discord-channel-1",
+      userId: "discord-user-1",
+      cwd: "/repo",
+      rawCommand: "ls",
+      tier: "safe-read",
+      resultStatus: "completed",
+    });
     expect(replies).toEqual([
       [
         "Target: `macbook-pro-01` / `repo`",
@@ -74,10 +85,12 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
     });
 
     await handleMessage({
       authorBot: false,
+      userId: "discord-user-1",
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-viewer"],
@@ -96,11 +109,13 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => null,
       submitCommandJob,
       updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
     });
     const reply = vi.fn();
 
     await handleMessage({
       authorBot: true,
+      userId: "discord-user-1",
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-operator"],
@@ -108,6 +123,7 @@ describe("createDiscordMessageHandler", () => {
     });
     await handleMessage({
       authorBot: false,
+      userId: "discord-user-1",
       channelId: "unmanaged-channel",
       content: "ls",
       roleIds: ["role-operator"],

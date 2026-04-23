@@ -45,6 +45,22 @@ describe("createControlApiClient", () => {
           response.end(JSON.stringify({ cwd: "/repo/src" }));
           return;
         }
+        if (request.url?.includes("/audit-events")) {
+          response.end(
+            JSON.stringify({
+              id: "audit-1",
+              channelId: "channel-1",
+              userId: "discord-user-1",
+              targetComputerId: "computer-1",
+              targetWorkspaceId: "workspace-1",
+              cwd: "/repo",
+              rawCommand: "ls",
+              tier: "safe-read",
+              resultStatus: "completed",
+            }),
+          );
+          return;
+        }
         if (request.url?.includes("/category-mappings")) {
           response.end(
             JSON.stringify({
@@ -140,6 +156,26 @@ describe("createControlApiClient", () => {
         cwd: "/repo/src",
       }),
     ).resolves.toEqual({ cwd: "/repo/src" });
+    await expect(
+      client.recordCommandAudit({
+        discordChannelId: "discord-channel-1",
+        userId: "discord-user-1",
+        cwd: "/repo",
+        rawCommand: "ls",
+        tier: "safe-read",
+        resultStatus: "completed",
+      }),
+    ).resolves.toEqual({
+      id: "audit-1",
+      channelId: "channel-1",
+      userId: "discord-user-1",
+      targetComputerId: "computer-1",
+      targetWorkspaceId: "workspace-1",
+      cwd: "/repo",
+      rawCommand: "ls",
+      tier: "safe-read",
+      resultStatus: "completed",
+    });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -179,6 +215,16 @@ describe("createControlApiClient", () => {
         url: "/discord/channels/discord-channel-1/context",
         body: {
           cwd: "/repo/src",
+        },
+      },
+      {
+        url: "/discord/channels/discord-channel-1/audit-events",
+        body: {
+          userId: "discord-user-1",
+          cwd: "/repo",
+          rawCommand: "ls",
+          tier: "safe-read",
+          resultStatus: "completed",
         },
       },
     ]);

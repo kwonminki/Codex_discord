@@ -1,4 +1,4 @@
-import type { ChannelMode } from "@codex-discord/core";
+import type { ChannelMode, CommandTier } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
@@ -46,6 +46,27 @@ export interface UpdateChannelCwdInput {
   cwd: string;
 }
 
+export interface RecordCommandAuditInput {
+  discordChannelId: string;
+  userId: string;
+  cwd: string | null;
+  rawCommand: string;
+  tier: CommandTier;
+  resultStatus: string;
+}
+
+export interface CommandAuditResponse {
+  id: string;
+  channelId: string | null;
+  userId: string;
+  targetComputerId: string;
+  targetWorkspaceId: string | null;
+  cwd: string | null;
+  rawCommand: string;
+  tier: string;
+  resultStatus: string;
+}
+
 export interface ManagedChannelResponse {
   id: string;
   discordChannelId: string;
@@ -61,6 +82,7 @@ export interface ControlApiClient {
   createCategoryMapping(input: CreateCategoryMappingInput): Promise<CategoryMappingResponse>;
   createManagedChannel(input: CreateManagedChannelInput): Promise<ManagedChannelResponse>;
   updateChannelCwd(input: UpdateChannelCwdInput): Promise<{ cwd: string }>;
+  recordCommandAudit(input: RecordCommandAuditInput): Promise<CommandAuditResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -156,6 +178,31 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       }
 
       return body as { cwd: string };
+    },
+    async recordCommandAudit(auditInput) {
+      const response = await fetch(
+        `${baseUrl}/discord/channels/${encodeURIComponent(auditInput.discordChannelId)}/audit-events`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            userId: auditInput.userId,
+            cwd: auditInput.cwd,
+            rawCommand: auditInput.rawCommand,
+            tier: auditInput.tier,
+            resultStatus: auditInput.resultStatus,
+          }),
+        },
+      );
+      const body = (await response.json()) as CommandAuditResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API command audit request failed";
+        throw new Error(message);
+      }
+
+      return body as CommandAuditResponse;
     },
     async submitCommandJob(commandInput) {
       const response = await fetch(

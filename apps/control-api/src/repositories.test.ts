@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { recordAuditEvent } from "./audit.js";
 import { createChannelContextService } from "./channelContexts.js";
+import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createRepositories } from "./repositories.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
@@ -235,6 +236,53 @@ describe("repositories", () => {
       channelMode: "shell-admin",
       cwd: "/Users/me/project",
       status: "created",
+    });
+  });
+
+  it("records command audit events by Discord channel id", async () => {
+    const repos = createRepositories(prisma);
+    const commandAudit = createCommandAuditService(prisma);
+
+    await repos.computers.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+    });
+    const workspace = await repos.workspaces.create({
+      id: "workspace-1",
+      computerId: "computer-1",
+      absolutePath: "/Users/me/project",
+      displayName: "project",
+    });
+    const channel = await repos.channels.create({
+      id: "channel-1",
+      discordChannelId: "discord-channel-1",
+      computerId: "computer-1",
+      workspaceId: workspace.id,
+      channelMode: "shell-admin",
+      cwd: "/Users/me/project",
+    });
+
+    await expect(
+      commandAudit.recordForDiscordChannel({
+        discordChannelId: "discord-channel-1",
+        userId: "discord-user-1",
+        cwd: "/Users/me/project",
+        rawCommand: "ls",
+        tier: "safe-read",
+        resultStatus: "completed",
+      }),
+    ).resolves.toMatchObject({
+      channelId: channel.id,
+      userId: "discord-user-1",
+      targetComputerId: "computer-1",
+      targetWorkspaceId: workspace.id,
+      cwd: "/Users/me/project",
+      rawCommand: "ls",
+      tier: "safe-read",
+      resultStatus: "completed",
     });
   });
 

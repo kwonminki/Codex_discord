@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import type { AgentRegistry } from "./agentRegistry.js";
 import { attachAgentWebSocketServer } from "./agentWebSocket.js";
 import type { ChannelContextService } from "./channelContexts.js";
+import type { CommandAuditService } from "./commandAudit.js";
 import type { ComputerPresenceService } from "./computerPresence.js";
 import { createJob, createJobDispatcher, type AgentJob } from "./jobs.js";
 import type { WorkspaceMappingService } from "./workspaceMappings.js";
@@ -9,6 +10,7 @@ import type { WorkspaceMappingService } from "./workspaceMappings.js";
 export interface CreateServerInput {
   agentRegistry: AgentRegistry;
   channelContexts?: ChannelContextService;
+  commandAudit?: CommandAuditService;
   computerPresence?: ComputerPresenceService;
   workspaceMappings?: WorkspaceMappingService;
   jobTimeoutMs?: number;
@@ -34,6 +36,7 @@ function isChannelMode(value: unknown): value is "shell-admin" | "session-linked
 export function createServer({
   agentRegistry,
   channelContexts,
+  commandAudit,
   computerPresence,
   workspaceMappings,
   jobTimeoutMs,
@@ -166,6 +169,43 @@ export function createServer({
       const message = error instanceof Error ? error.message : "Failed to update channel context";
       return reply.code(400).send({ error: { message } });
     }
+  });
+  app.post<{
+    Params: { discordChannelId: string };
+    Body: unknown;
+  }>("/discord/channels/:discordChannelId/audit-events", async (request, reply) => {
+    if (!commandAudit) {
+      return reply.code(503).send({ error: { message: "Command audit service is not configured" } });
+    }
+
+    if (!isRecord(request.body)) {
+      return reply.code(400).send({ error: { message: "Invalid command audit request" } });
+    }
+
+    const userId = stringField(request.body, "userId");
+    const rawCommand = stringField(request.body, "rawCommand");
+    const tier = stringField(request.body, "tier");
+    const resultStatus = stringField(request.body, "resultStatus");
+    const cwd = typeof request.body.cwd === "string" ? request.body.cwd : null;
+
+    if (!userId || !rawCommand || !tier || !resultStatus) {
+      return reply.code(400).send({ error: { message: "Invalid command audit request" } });
+    }
+
+    const auditEvent = await commandAudit.recordForDiscordChannel({
+      discordChannelId: request.params.discordChannelId,
+      userId,
+      cwd,
+      rawCommand,
+      tier,
+      resultStatus,
+    });
+
+    if (!auditEvent) {
+      return reply.code(404).send({ error: { message: "Discord channel is not managed" } });
+    }
+
+    return reply.code(201).send(auditEvent);
   });
   app.post<{
     Params: { computerId: string };

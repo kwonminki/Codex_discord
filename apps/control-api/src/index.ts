@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { createAgentRegistry } from "./agentRegistry.js";
 import { createChannelContextService } from "./channelContexts.js";
+import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createServer } from "./server.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
@@ -14,6 +15,7 @@ const prisma = new PrismaClient();
 const app = createServer({
   agentRegistry,
   channelContexts: createChannelContextService(prisma, { defaultTimeoutMs: jobTimeoutMs }),
+  commandAudit: createCommandAuditService(prisma),
   computerPresence: createComputerPresenceService(prisma),
   workspaceMappings: createWorkspaceMappingService(prisma),
   jobTimeoutMs,

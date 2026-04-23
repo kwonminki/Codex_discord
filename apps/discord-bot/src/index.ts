@@ -19,6 +19,7 @@ export async function startBot(): Promise<void> {
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     updateChannelCwd: controlApiClient.updateChannelCwd,
+    recordCommandAudit: controlApiClient.recordCommandAudit,
   });
 
   client.once("ready", () => {

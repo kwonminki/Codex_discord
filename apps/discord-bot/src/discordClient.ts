@@ -34,6 +34,7 @@ export function attachDiscordMessageHandler(
 
     void handleMessage({
       authorBot: discordMessage.author.bot,
+      userId: discordMessage.author.id,
       channelId: discordMessage.channelId,
       content: discordMessage.content,
       roleIds: getRoleIds(discordMessage),

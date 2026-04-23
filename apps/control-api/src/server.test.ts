@@ -399,6 +399,68 @@ describe("control api server", () => {
     }
   });
 
+  it("records a command audit event for a managed Discord channel", async () => {
+    const auditInputs: unknown[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      commandAudit: {
+        recordForDiscordChannel: async (input) => {
+          auditInputs.push(input);
+          return {
+            id: "audit-1",
+            channelId: "channel-1",
+            userId: input.userId,
+            targetComputerId: "computer-1",
+            targetWorkspaceId: "workspace-1",
+            cwd: input.cwd,
+            rawCommand: input.rawCommand,
+            tier: input.tier,
+            resultStatus: input.resultStatus,
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/discord/channels/discord-channel-1/audit-events",
+        payload: {
+          userId: "discord-user-1",
+          cwd: "/repo",
+          rawCommand: "ls",
+          tier: "safe-read",
+          resultStatus: "completed",
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({
+        id: "audit-1",
+        channelId: "channel-1",
+        userId: "discord-user-1",
+        targetComputerId: "computer-1",
+        targetWorkspaceId: "workspace-1",
+        cwd: "/repo",
+        rawCommand: "ls",
+        tier: "safe-read",
+        resultStatus: "completed",
+      });
+      expect(auditInputs).toEqual([
+        {
+          discordChannelId: "discord-channel-1",
+          userId: "discord-user-1",
+          cwd: "/repo",
+          rawCommand: "ls",
+          tier: "safe-read",
+          resultStatus: "completed",
+        },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates a workspace category mapping through the control api", async () => {
     const requests: unknown[] = [];
     const app = createServer({

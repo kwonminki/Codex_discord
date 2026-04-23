@@ -1,3 +1,4 @@
+import { classifyCommand } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
@@ -7,6 +8,7 @@ export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface DiscordMessageLike {
   authorBot: boolean;
+  userId: string;
   channelId: string;
   content: string;
   roleIds: string[];
@@ -17,6 +19,7 @@ export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
+  recordCommandAudit: ControlApiClient["recordCommandAudit"];
 }
 
 function extractUpdatedCwd(response: Awaited<ReturnType<ControlApiClient["submitCommandJob"]>>): string | null {
@@ -26,6 +29,35 @@ function extractUpdatedCwd(response: Awaited<ReturnType<ControlApiClient["submit
 
   const cwd = (response.result as { cwd?: unknown }).cwd;
   return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
+}
+
+function extractResultStatus(response: Awaited<ReturnType<ControlApiClient["submitCommandJob"]>>): string {
+  if (!("result" in response) || typeof response.result !== "object" || response.result === null) {
+    return "failed";
+  }
+
+  const status = (response.result as { status?: unknown }).status;
+  return typeof status === "string" && status.length > 0 ? status : "unknown";
+}
+
+async function recordCommandAudit(
+  input: CreateDiscordMessageHandlerInput,
+  details: {
+    discordChannelId: string;
+    userId: string;
+    cwd: string;
+    rawCommand: string;
+    resultStatus: string;
+  },
+) {
+  try {
+    await input.recordCommandAudit({
+      ...details,
+      tier: classifyCommand(details.rawCommand).tier,
+    });
+  } catch (error) {
+    console.error("discord-bot failed to record command audit", error);
+  }
 }
 
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
@@ -77,6 +109,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           confirmedDangerous: false,
         },
       });
+      await recordCommandAudit(input, {
+        discordChannelId: message.channelId,
+        userId: message.userId,
+        cwd: channelContext.cwd,
+        rawCommand: routed.command,
+        resultStatus: extractResultStatus(response),
+      });
+
       const nextCwd = extractUpdatedCwd(response);
 
       if (nextCwd) {
@@ -89,6 +129,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       await message.reply(formatCommandResult(response));
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Control API request failed";
+      await recordCommandAudit(input, {
+        discordChannelId: message.channelId,
+        userId: message.userId,
+        cwd: channelContext.cwd,
+        rawCommand: routed.command,
+        resultStatus: "failed",
+      });
       await message.reply(formatCommandResult({ error: { message: messageText } }));
     }
   };

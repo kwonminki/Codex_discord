@@ -15,7 +15,7 @@ describe("attachDiscordMessageHandler", () => {
 
     attachDiscordMessageHandler(client, handleMessage);
     handlers.get("messageCreate")?.({
-      author: { bot: false },
+      author: { bot: false, id: "discord-user-1" },
       channelId: "discord-channel-1",
       content: "ls",
       member: {
@@ -32,6 +32,7 @@ describe("attachDiscordMessageHandler", () => {
     expect(client.on).toHaveBeenCalledWith("messageCreate", expect.any(Function));
     expect(handleMessage).toHaveBeenCalledWith({
       authorBot: false,
+      userId: "discord-user-1",
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-operator", "role-extra"],
