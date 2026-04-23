@@ -14,6 +14,22 @@ describe("routeDiscordMessage", () => {
     ).toEqual({
       type: "execute-command",
       command: "ls",
+      confirmedDangerous: false,
+    });
+  });
+
+  it("routes explicit confirmation to a confirmed dangerous command", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "confirm rm README.md",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "execute-command",
+      command: "rm README.md",
+      confirmedDangerous: true,
     });
   });
 

@@ -106,7 +106,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           cwd: channelContext.cwd,
           command: routed.command,
           timeoutMs: channelContext.timeoutMs,
-          confirmedDangerous: false,
+          confirmedDangerous: routed.confirmedDangerous,
         },
       });
       await recordCommandAudit(input, {

@@ -12,9 +12,22 @@ export interface RouteDiscordMessageInput {
 }
 
 export type RoutedDiscordMessage =
-  | { type: "execute-command"; command: string }
+  | { type: "execute-command"; command: string; confirmedDangerous: boolean }
   | { type: "codex-chat"; content: string }
   | { type: "denied"; reason: string };
+
+function parseExplicitConfirmation(command: string): { command: string; confirmedDangerous: boolean } {
+  const trimmedCommand = command.trim();
+
+  if (!trimmedCommand.startsWith("confirm ")) {
+    return { command: trimmedCommand, confirmedDangerous: false };
+  }
+
+  return {
+    command: trimmedCommand.slice("confirm ".length).trim(),
+    confirmedDangerous: true,
+  };
+}
 
 export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDiscordMessage {
   const parsed = parseDiscordMessageCommand({
@@ -38,5 +51,11 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     };
   }
 
-  return { type: "execute-command", command: parsed.command };
+  const confirmedCommand = parseExplicitConfirmation(parsed.command);
+
+  return {
+    type: "execute-command",
+    command: confirmedCommand.command,
+    confirmedDangerous: confirmedCommand.confirmedDangerous,
+  };
 }

@@ -103,6 +103,53 @@ describe("createDiscordMessageHandler", () => {
     expect(replies).toEqual(["Permission denied: `User does not have an allowed role`"]);
   });
 
+  it("passes explicit dangerous command confirmation to the control api", async () => {
+    const submitCommandJob = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      },
+    });
+    const recordCommandAudit = vi.fn().mockResolvedValue({ id: "audit-1" });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit,
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "confirm rm README.md",
+      roleIds: ["role-operator"],
+      reply: async () => {},
+    });
+
+    expect(submitCommandJob).toHaveBeenCalledWith({
+      computerId: "computer-1",
+      payload: {
+        workspaceRoot: "/repo",
+        cwd: "/repo",
+        command: "rm README.md",
+        timeoutMs: 3_000,
+        confirmedDangerous: true,
+      },
+    });
+    expect(recordCommandAudit).toHaveBeenCalledWith({
+      discordChannelId: "discord-channel-1",
+      userId: "discord-user-1",
+      cwd: "/repo",
+      rawCommand: "rm README.md",
+      tier: "dangerous-mutate",
+      resultStatus: "completed",
+    });
+  });
+
   it("ignores bot and unmanaged channel messages", async () => {
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({
