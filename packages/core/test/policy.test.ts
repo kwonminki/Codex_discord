@@ -171,6 +171,10 @@ describe("command policy", () => {
       tier: "dangerous-mutate",
       requiresConfirmation: true,
     });
+    expect(classifyCommand(`GIT_CONFIG_PARAMETERS="'alias.nuke=!rm victim'" git nuke`)).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
     expect(classifyCommand("ALIAS_CMD='!rm victim' git --config-env=alias.nuke=ALIAS_CMD nuke")).toEqual({
       tier: "dangerous-mutate",
       requiresConfirmation: true,
