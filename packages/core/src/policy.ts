@@ -206,12 +206,15 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
 function classifySingleCommand(command: string): CommandClassification {
   const tokens = tokenizeShellWords(command);
   const token = tokens[0] ?? "";
+  const resetIndex = tokens.indexOf("reset");
+  const hardIndex = tokens.indexOf("--hard");
+  const isGitHardReset = token === "git" && resetIndex > 0 && hardIndex > resetIndex;
 
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
     command.includes("--force") ||
-    (token === "git" && tokens[1] === "reset" && tokens.includes("--hard"))
+    isGitHardReset
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }

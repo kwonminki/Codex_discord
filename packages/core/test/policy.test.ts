@@ -25,6 +25,9 @@ describe("command policy", () => {
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\treset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\nreset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git -C /tmp reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git -c core.pager=cat reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("git --work-tree=/tmp reset --hard HEAD").tier).toBe("dangerous-mutate");
   });
 
   it("keeps simple pipelines readable when every segment is safe read", () => {
