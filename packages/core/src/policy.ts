@@ -33,7 +33,19 @@ const normalMutateCommands = new Set([
   "node",
 ]);
 const dangerousCommands = new Set(["rm", "rmdir"]);
-const dangerousWrappers = new Set(["sudo", "bash", "sh", "zsh", "fish", "env", "command", "exec"]);
+const dangerousWrappers = new Set([
+  "sudo",
+  "bash",
+  "sh",
+  "zsh",
+  "fish",
+  "env",
+  "command",
+  "exec",
+  "eval",
+  "source",
+  ".",
+]);
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
 
 interface ShellScanResult {
@@ -87,8 +99,7 @@ function scanShell(command: string): ShellScanResult {
         mode = "normal";
       } else if (
         character === "`" ||
-        isCommandSubstitutionStart(command, index) ||
-        isProcessSubstitutionStart(command, index)
+        isCommandSubstitutionStart(command, index)
       ) {
         return { segments: [command], hasDangerousControlSyntax: true };
       } else {
@@ -124,6 +135,8 @@ function scanShell(command: string): ShellScanResult {
       character === "`" ||
       character === "\n" ||
       character === "\r" ||
+      character === "<" ||
+      character === ">" ||
       isCommandSubstitutionStart(command, index) ||
       isProcessSubstitutionStart(command, index)
     ) {

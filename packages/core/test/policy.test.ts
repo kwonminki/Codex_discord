@@ -35,6 +35,9 @@ describe("command policy", () => {
     expect(classifyCommand("PATH=/usr/bin git reset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand('echo "$(rm -rf /)"').tier).toBe("dangerous-mutate");
     expect(classifyCommand('echo "`rm -rf /`"').tier).toBe("dangerous-mutate");
+    expect(classifyCommand("eval rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("source ./danger.sh").tier).toBe("dangerous-mutate");
+    expect(classifyCommand(". ./danger.sh").tier).toBe("dangerous-mutate");
     expect(classifyCommand("grep foo <(rm -rf /)").tier).toBe("dangerous-mutate");
     expect(classifyCommand("cat >(rm -rf /)").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
@@ -51,6 +54,10 @@ describe("command policy", () => {
     expect(classifyCommand("grep foo\\|bar file").tier).toBe("safe-read");
     expect(classifyCommand('echo "--force"').tier).toBe("safe-read");
     expect(classifyCommand('echo "$((1+2))"').tier).toBe("safe-read");
+    expect(classifyCommand("echo hi > /tmp/x").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("ls >> /tmp/x").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("cat < /tmp/x").tier).toBe("dangerous-mutate");
+    expect(classifyCommand('echo "<(foo)"').tier).toBe("safe-read");
   });
 
   it("allows bare commands only in shell-admin channels", () => {
