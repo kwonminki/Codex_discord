@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { recordAuditEvent } from "./audit.js";
 import { createChannelContextService } from "./channelContexts.js";
+import { createComputerPresenceService } from "./computerPresence.js";
 import { createRepositories } from "./repositories.js";
 
 const tempDatabaseDirectory = mkdtempSync(
@@ -130,6 +131,49 @@ describe("repositories", () => {
       workspaceRoot: "/Users/me/project",
       cwd: "/Users/me/project",
       timeoutMs: 4_000,
+    });
+  });
+
+  it("persists computer heartbeat and advertised workspaces", async () => {
+    const computerPresence = createComputerPresenceService(prisma);
+
+    await computerPresence.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+      workspaces: [
+        {
+          id: "computer-1:/Users/me/project",
+          absolutePath: "/Users/me/project",
+          displayName: "project",
+        },
+      ],
+    });
+
+    await expect(prisma.computer.findUnique({ where: { id: "computer-1" } })).resolves.toMatchObject({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      status: "online",
+      allowedRoleIds: JSON.stringify(["role-operator"]),
+      capabilities: JSON.stringify(["shell", "codex-import"]),
+    });
+    await expect(
+      prisma.workspace.findUnique({ where: { id: "computer-1:/Users/me/project" } }),
+    ).resolves.toMatchObject({
+      id: "computer-1:/Users/me/project",
+      computerId: "computer-1",
+      absolutePath: "/Users/me/project",
+      displayName: "project",
+      status: "valid",
+    });
+
+    await computerPresence.markOffline("computer-1");
+
+    await expect(prisma.computer.findUnique({ where: { id: "computer-1" } })).resolves.toMatchObject({
+      status: "offline",
     });
   });
 

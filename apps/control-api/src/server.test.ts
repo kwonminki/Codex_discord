@@ -41,6 +41,22 @@ async function waitForAgentCount(app: ReturnType<typeof createServer>, expectedC
   throw new Error(`Expected ${expectedCount} registered agents`);
 }
 
+async function waitForCondition(assertion: () => void | Promise<void>) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  throw lastError;
+}
+
 describe("control api server", () => {
   it("responds to health checks", async () => {
     const app = createServer({ agentRegistry: createAgentRegistry() });
@@ -113,6 +129,72 @@ describe("control api server", () => {
           status: "online",
         },
       ]);
+    } finally {
+      await closeSocket(socket);
+      await app.close();
+    }
+  });
+
+  it("persists computer presence from the websocket hello message", async () => {
+    const heartbeats: unknown[] = [];
+    const offlineComputers: string[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      computerPresence: {
+        upsertHeartbeat: async (input) => {
+          heartbeats.push(input);
+        },
+        markOffline: async (computerId) => {
+          offlineComputers.push(computerId);
+        },
+      },
+    });
+    const port = await listenOnRandomPort(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/agents`);
+
+    try {
+      await once(socket, "open");
+      socket.send(
+        JSON.stringify({
+          type: "agent-hello",
+          computerId: "computer-1",
+          displayName: "macbook-pro-01",
+          hostname: "macbook-pro-01.local",
+          allowedRoleIds: ["role-operator"],
+          capabilities: ["shell", "codex-import"],
+          workspaces: [
+            {
+              id: "computer-1:/Users/me/project",
+              absolutePath: "/Users/me/project",
+              displayName: "project",
+            },
+          ],
+        }),
+      );
+
+      await waitForCondition(() => {
+        expect(heartbeats).toEqual([
+          {
+            id: "computer-1",
+            displayName: "macbook-pro-01",
+            hostname: "macbook-pro-01.local",
+            allowedRoleIds: ["role-operator"],
+            capabilities: ["shell", "codex-import"],
+            workspaces: [
+              {
+                id: "computer-1:/Users/me/project",
+                absolutePath: "/Users/me/project",
+                displayName: "project",
+              },
+            ],
+          },
+        ]);
+      });
+
+      await closeSocket(socket);
+      await waitForCondition(() => {
+        expect(offlineComputers).toEqual(["computer-1"]);
+      });
     } finally {
       await closeSocket(socket);
       await app.close();

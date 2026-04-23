@@ -2,11 +2,13 @@ import Fastify from "fastify";
 import type { AgentRegistry } from "./agentRegistry.js";
 import { attachAgentWebSocketServer } from "./agentWebSocket.js";
 import type { ChannelContextService } from "./channelContexts.js";
+import type { ComputerPresenceService } from "./computerPresence.js";
 import { createJob, createJobDispatcher, type AgentJob } from "./jobs.js";
 
 export interface CreateServerInput {
   agentRegistry: AgentRegistry;
   channelContexts?: ChannelContextService;
+  computerPresence?: ComputerPresenceService;
   jobTimeoutMs?: number;
 }
 
@@ -14,7 +16,12 @@ function isAgentJobType(value: unknown): value is AgentJob["type"] {
   return value === "run-command" || value === "list-codex-sessions";
 }
 
-export function createServer({ agentRegistry, channelContexts, jobTimeoutMs }: CreateServerInput) {
+export function createServer({
+  agentRegistry,
+  channelContexts,
+  computerPresence,
+  jobTimeoutMs,
+}: CreateServerInput) {
   const app = Fastify({
     logger: false,
   });
@@ -22,6 +29,7 @@ export function createServer({ agentRegistry, channelContexts, jobTimeoutMs }: C
   const agentWebSocketServer = attachAgentWebSocketServer({
     server: app.server,
     agentRegistry,
+    computerPresence,
     jobDispatcher,
   });
 

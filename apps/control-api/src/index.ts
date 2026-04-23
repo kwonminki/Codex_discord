@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { createAgentRegistry } from "./agentRegistry.js";
 import { createChannelContextService } from "./channelContexts.js";
+import { createComputerPresenceService } from "./computerPresence.js";
 import { createServer } from "./server.js";
 
 const host = process.env.CONTROL_API_HOST ?? "127.0.0.1";
@@ -12,6 +13,7 @@ const prisma = new PrismaClient();
 const app = createServer({
   agentRegistry,
   channelContexts: createChannelContextService(prisma, { defaultTimeoutMs: jobTimeoutMs }),
+  computerPresence: createComputerPresenceService(prisma),
   jobTimeoutMs,
 });
 

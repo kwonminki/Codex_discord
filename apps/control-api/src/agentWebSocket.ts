@@ -2,13 +2,17 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import type { AgentRegistry, RegisteredAgent } from "./agentRegistry.js";
+import type { AdvertisedWorkspace, ComputerPresenceService } from "./computerPresence.js";
 import type { AgentJobResult, AgentJobResultEnvelope, createJobDispatcher } from "./jobs.js";
 
 interface AgentHelloMessage {
   type: "agent-hello";
   computerId: string;
   displayName: string;
+  hostname?: string;
+  allowedRoleIds?: string[];
   capabilities: string[];
+  workspaces?: AdvertisedWorkspace[];
 }
 
 function parseJson(raw: WebSocket.RawData): unknown {
@@ -29,8 +33,20 @@ function isAgentHelloMessage(message: unknown): message is AgentHelloMessage {
     candidate.type === "agent-hello" &&
     typeof candidate.computerId === "string" &&
     typeof candidate.displayName === "string" &&
+    (candidate.hostname === undefined || typeof candidate.hostname === "string") &&
+    (candidate.allowedRoleIds === undefined ||
+      (Array.isArray(candidate.allowedRoleIds) &&
+        candidate.allowedRoleIds.every((roleId) => typeof roleId === "string"))) &&
     Array.isArray(candidate.capabilities) &&
-    candidate.capabilities.every((capability) => typeof capability === "string")
+    candidate.capabilities.every((capability) => typeof capability === "string") &&
+    (candidate.workspaces === undefined ||
+      (Array.isArray(candidate.workspaces) &&
+        candidate.workspaces.every(
+          (workspace) =>
+            typeof workspace.id === "string" &&
+            typeof workspace.absolutePath === "string" &&
+            typeof workspace.displayName === "string",
+        )))
   );
 }
 
@@ -93,6 +109,7 @@ function createSocketAgent(socket: WebSocket, hello: AgentHelloMessage): Registe
 export function attachAgentWebSocketServer(input: {
   server: Server;
   agentRegistry: AgentRegistry;
+  computerPresence?: ComputerPresenceService;
   jobDispatcher: ReturnType<typeof createJobDispatcher>;
 }) {
   const webSocketServer = new WebSocketServer({ noServer: true });
@@ -122,8 +139,21 @@ export function attachAgentWebSocketServer(input: {
           return;
         }
 
-        registeredAgent = createSocketAgent(socket, message);
-        input.agentRegistry.register(registeredAgent);
+        void (async () => {
+          await input.computerPresence?.upsertHeartbeat({
+            id: message.computerId,
+            displayName: message.displayName,
+            hostname: message.hostname ?? message.computerId,
+            allowedRoleIds: message.allowedRoleIds ?? [],
+            capabilities: message.capabilities,
+            workspaces: message.workspaces ?? [],
+          });
+
+          registeredAgent = createSocketAgent(socket, message);
+          input.agentRegistry.register(registeredAgent);
+        })().catch((error: unknown) => {
+          console.error("control-api failed to persist agent hello", error);
+        });
         return;
       }
 
@@ -135,6 +165,9 @@ export function attachAgentWebSocketServer(input: {
     socket.on("close", () => {
       if (registeredAgent) {
         input.agentRegistry.unregister(registeredAgent.computerId, registeredAgent);
+        void input.computerPresence?.markOffline(registeredAgent.computerId).catch((error: unknown) => {
+          console.error("control-api failed to mark agent offline", error);
+        });
       }
     });
   });

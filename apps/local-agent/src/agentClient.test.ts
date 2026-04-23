@@ -19,13 +19,31 @@ describe("agent client", () => {
       createAgentHelloMessage({
         computerId: "local-dev",
         displayName: "Local Dev",
+        hostname: "local-dev.local",
+        allowedRoleIds: ["role-operator"],
         capabilities: ["shell", "codex-import"],
+        workspaces: [
+          {
+            id: "local-dev:/Users/me/project",
+            absolutePath: "/Users/me/project",
+            displayName: "project",
+          },
+        ],
       }),
     ).toEqual({
       type: "agent-hello",
       computerId: "local-dev",
       displayName: "Local Dev",
+      hostname: "local-dev.local",
+      allowedRoleIds: ["role-operator"],
       capabilities: ["shell", "codex-import"],
+      workspaces: [
+        {
+          id: "local-dev:/Users/me/project",
+          absolutePath: "/Users/me/project",
+          displayName: "project",
+        },
+      ],
     });
   });
 
@@ -55,7 +73,16 @@ describe("agent client", () => {
     const socket = connectAgent(`ws://127.0.0.1:${address.port}/agents`, {
       computerId: "computer-1",
       displayName: "Computer 1",
+      hostname: "computer-1.local",
+      allowedRoleIds: ["role-operator"],
       capabilities: ["shell", "codex-import"],
+      workspaces: [
+        {
+          id: "computer-1:/repo",
+          absolutePath: "/repo",
+          displayName: "repo",
+        },
+      ],
     });
     cleanup.push(
       () =>
@@ -78,7 +105,16 @@ describe("agent client", () => {
       type: "agent-hello",
       computerId: "computer-1",
       displayName: "Computer 1",
+      hostname: "computer-1.local",
+      allowedRoleIds: ["role-operator"],
       capabilities: ["shell", "codex-import"],
+      workspaces: [
+        {
+          id: "computer-1:/repo",
+          absolutePath: "/repo",
+          displayName: "repo",
+        },
+      ],
     });
 
     const resultMessage = once(serverSocket, "message");
@@ -124,7 +160,10 @@ describe("agent client", () => {
     const socket = connectAgent(`ws://127.0.0.1:${address.port}/agents`, {
       computerId: "computer-1",
       displayName: "Computer 1",
+      hostname: "computer-1.local",
+      allowedRoleIds: ["role-operator"],
       capabilities: ["shell", "codex-import"],
+      workspaces: [],
     });
     cleanup.push(
       () =>

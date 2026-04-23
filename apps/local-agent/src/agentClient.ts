@@ -5,7 +5,14 @@ import { runWorkspaceCommand } from "./runner.js";
 export interface AgentConfig {
   computerId: string;
   displayName: string;
+  hostname?: string;
+  allowedRoleIds?: string[];
   capabilities: string[];
+  workspaces?: Array<{
+    id: string;
+    absolutePath: string;
+    displayName: string;
+  }>;
 }
 
 export interface AgentJob {
@@ -23,7 +30,10 @@ export function createAgentHelloMessage(config: AgentConfig) {
     type: "agent-hello",
     computerId: config.computerId,
     displayName: config.displayName,
+    hostname: config.hostname,
+    allowedRoleIds: config.allowedRoleIds ?? [],
     capabilities: config.capabilities,
+    workspaces: config.workspaces ?? [],
   };
 }
 
