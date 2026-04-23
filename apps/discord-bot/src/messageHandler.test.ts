@@ -32,6 +32,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
       updateChannelCwd,
       recordCommandAudit,
     });
@@ -111,6 +112,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -154,6 +156,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit,
     });
@@ -212,6 +215,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -265,6 +269,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => null,
       submitCommandJob,
       submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -307,6 +312,7 @@ describe("createDiscordMessageHandler", () => {
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
       submitCodexPrompt,
+      syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -357,6 +363,103 @@ describe("createDiscordMessageHandler", () => {
             description: "이 프로젝트는 Discord에서 Codex를 제어하는 브리지입니다.",
           }),
         ],
+      }),
+    ]);
+  });
+
+  it("uses a synced channel's Codex session id when submitting a session-linked prompt", async () => {
+    const sessionChannelContext: ManagedDiscordChannelContext = {
+      ...channelContext,
+      channelMode: "session-linked",
+      codexSessionId: "session-1",
+    };
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "이어받았습니다.",
+        sessionId: "session-1",
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "session-channel-1",
+      content: "이전 작업 이어서 요약해줘",
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(submitCodexPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "이전 작업 이어서 요약해줘",
+          sessionId: "session-1",
+        }),
+      }),
+    );
+  });
+
+  it("runs admin sync when a managed admin channel receives sync", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const guild = {
+      createCategory: vi.fn(),
+      createTextChannel: vi.fn(),
+    };
+    const syncCodexSessions = vi.fn().mockResolvedValue({
+      createdCategories: 1,
+      existingCategories: 0,
+      createdChannels: 2,
+      existingChannels: 0,
+      skippedSessions: 0,
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      syncCodexSessions,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "sync",
+      roleIds: ["role-operator"],
+      guild,
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+
+    expect(syncCodexSessions).toHaveBeenCalledWith({ guild, limit: 25 });
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Codex session sync started" })],
+      }),
+    ]);
+    expect(edits).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Codex session sync complete" })],
       }),
     ]);
   });

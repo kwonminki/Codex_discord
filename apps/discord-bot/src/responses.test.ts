@@ -7,6 +7,8 @@ import {
   formatCommandResultUpdate,
   formatDenied,
   formatHelp,
+  formatSyncAck,
+  formatSyncResultUpdate,
 } from "./responses.js";
 
 describe("responses", () => {
@@ -230,6 +232,42 @@ describe("responses", () => {
         expect.objectContaining({
           title: "How to use this Codex channel",
           color: 0x95a5a6,
+        }),
+      ],
+    });
+  });
+
+  it("formats sync progress and summary cards", () => {
+    expect(formatSyncAck({ limit: 25 })).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "Codex session sync started",
+          color: 0x3498db,
+        }),
+      ],
+    });
+    expect(
+      formatSyncResultUpdate({
+        result: {
+          createdCategories: 2,
+          existingCategories: 1,
+          createdChannels: 5,
+          existingChannels: 3,
+          skippedSessions: 10,
+        },
+      }),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "Codex session sync complete",
+          color: 0x2ecc71,
+          fields: expect.arrayContaining([
+            { name: "Created categories", value: "`2`", inline: true },
+            { name: "Created channels", value: "`5`", inline: true },
+            { name: "Skipped sessions", value: "`10`", inline: true },
+          ]),
         }),
       ],
     });

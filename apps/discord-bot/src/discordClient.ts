@@ -1,4 +1,5 @@
-import { Client, GatewayIntentBits, type Message } from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, type Guild, type Message } from "discord.js";
+import type { DiscordGuildSurface } from "./codexSessionSync.js";
 import type { DiscordMessageLike } from "./messageHandler.js";
 
 interface DiscordMessageEventClient {
@@ -25,6 +26,33 @@ function getRoleIds(message: Message): string[] {
   return [...roles.cache.keys()];
 }
 
+function createGuildSurface(guild: Guild | null): DiscordGuildSurface | null {
+  if (!guild) {
+    return null;
+  }
+
+  return {
+    async createCategory(input) {
+      const category = await guild.channels.create({
+        name: input.name,
+        type: ChannelType.GuildCategory,
+      });
+
+      return { id: category.id };
+    },
+    async createTextChannel(input) {
+      const channel = await guild.channels.create({
+        name: input.name,
+        type: ChannelType.GuildText,
+        parent: input.parentId,
+        topic: input.topic,
+      });
+
+      return { id: channel.id };
+    },
+  };
+}
+
 export function attachDiscordMessageHandler(
   client: DiscordMessageEventClient,
   handleMessage: (message: DiscordMessageLike) => Promise<void>,
@@ -38,6 +66,7 @@ export function attachDiscordMessageHandler(
       channelId: discordMessage.channelId,
       content: discordMessage.content,
       roleIds: getRoleIds(discordMessage),
+      guild: createGuildSurface(discordMessage.guild),
       reply: async (replyMessage) => discordMessage.reply(replyMessage),
     }).catch((error) => {
       console.error("discord-bot failed to handle message", error);

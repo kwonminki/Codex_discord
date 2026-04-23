@@ -4,8 +4,12 @@ import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type { DirectConnectConfig } from "./connectConfig.js";
+import type { DirectSyncStateStore } from "./directState.js";
 
-export function createDirectControlClient(config: DirectConnectConfig): ControlApiClient {
+export function createDirectControlClient(
+  config: DirectConnectConfig,
+  options: { stateStore?: DirectSyncStateStore } = {},
+): ControlApiClient {
   let cwd = config.direct.workspaceRoot;
   const sessionLinks = new Map<string, {
     id: string;
@@ -38,19 +42,36 @@ export function createDirectControlClient(config: DirectConnectConfig): ControlA
       ];
     },
     async getChannelContext(discordChannelId) {
-      if (discordChannelId !== config.direct.channelId) {
+      if (discordChannelId === config.direct.channelId) {
+        return {
+          channelMode: config.direct.channelMode,
+          allowedRoleIds: [...config.discord.allowedRoleIds],
+          computerId: config.direct.computerId,
+          computerDisplayName: config.direct.computerDisplayName,
+          workspaceDisplayName: config.direct.workspaceDisplayName,
+          workspaceRoot: config.direct.workspaceRoot,
+          cwd,
+          timeoutMs: config.direct.timeoutMs,
+          codexSessionId: null,
+        };
+      }
+
+      const syncedChannel = await options.stateStore?.findSessionChannelByDiscordId(discordChannelId);
+
+      if (!syncedChannel) {
         return null;
       }
 
       return {
-        channelMode: config.direct.channelMode,
+        channelMode: "session-linked",
         allowedRoleIds: [...config.discord.allowedRoleIds],
-        computerId: config.direct.computerId,
+        computerId: syncedChannel.computerId,
         computerDisplayName: config.direct.computerDisplayName,
-        workspaceDisplayName: config.direct.workspaceDisplayName,
-        workspaceRoot: config.direct.workspaceRoot,
-        cwd,
+        workspaceDisplayName: syncedChannel.workspaceDisplayName,
+        workspaceRoot: syncedChannel.workspaceRoot,
+        cwd: syncedChannel.cwd,
         timeoutMs: config.direct.timeoutMs,
+        codexSessionId: syncedChannel.codexSessionId,
       };
     },
     async createCategoryMapping(input) {
@@ -77,6 +98,8 @@ export function createDirectControlClient(config: DirectConnectConfig): ControlA
       if (input.discordChannelId === config.direct.channelId) {
         cwd = input.cwd;
       }
+
+      await options.stateStore?.updateChannelCwd(input.discordChannelId, input.cwd);
 
       return { cwd };
     },

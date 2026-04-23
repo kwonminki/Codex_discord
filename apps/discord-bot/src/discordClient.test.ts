@@ -12,6 +12,14 @@ describe("attachDiscordMessageHandler", () => {
     };
     const handleMessage = vi.fn().mockResolvedValue(undefined);
     const reply = vi.fn().mockResolvedValue(undefined);
+    const guild = {
+      channels: {
+        create: vi
+          .fn()
+          .mockResolvedValueOnce({ id: "category-1" })
+          .mockResolvedValueOnce({ id: "channel-1" }),
+      },
+    };
 
     attachDiscordMessageHandler(client, handleMessage);
     handlers.get("messageCreate")?.({
@@ -27,6 +35,7 @@ describe("attachDiscordMessageHandler", () => {
         },
       },
       reply,
+      guild,
     });
 
     expect(client.on).toHaveBeenCalledWith("messageCreate", expect.any(Function));
@@ -36,6 +45,7 @@ describe("attachDiscordMessageHandler", () => {
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-operator", "role-extra"],
+      guild: expect.any(Object),
       reply: expect.any(Function),
     });
 
@@ -43,5 +53,19 @@ describe("attachDiscordMessageHandler", () => {
     const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
     await adaptedMessage.reply(payload);
     expect(reply).toHaveBeenCalledWith(payload);
+
+    const adaptedGuild = handleMessage.mock.calls[0][0].guild as {
+      createCategory(input: { name: string }): Promise<{ id: string }>;
+      createTextChannel(input: { name: string; parentId: string; topic?: string }): Promise<{ id: string }>;
+    };
+    await expect(adaptedGuild.createCategory({ name: "repo" })).resolves.toEqual({ id: "category-1" });
+    await expect(
+      adaptedGuild.createTextChannel({
+        name: "session",
+        parentId: "category-1",
+        topic: "Codex session",
+      }),
+    ).resolves.toEqual({ id: "channel-1" });
+    expect(guild.channels.create).toHaveBeenCalledTimes(2);
   });
 });

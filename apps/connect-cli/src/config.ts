@@ -108,6 +108,7 @@ export function renderEnvFile(config: ConnectConfig): string {
     'DATABASE_URL="file:./dev.sqlite"',
     `CONNECT_MODE="${config.mode}"`,
     'CONNECT_CONFIG_PATH=".connect/config.json"',
+    'CONNECT_STATE_PATH=".connect/state.json"',
     `DISCORD_TOKEN="${config.discord.token}"`,
     `DISCORD_GUILD_ID="${config.discord.guildId}"`,
     `DISCORD_ALLOWED_ROLE_IDS="${config.discord.allowedRoleIds.join(",")}"`,

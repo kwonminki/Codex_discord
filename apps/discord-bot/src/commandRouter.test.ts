@@ -47,6 +47,34 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes shell-admin sync requests to admin sync", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "sync",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-sync",
+      limit: 25,
+    });
+  });
+
+  it("routes codex sync requests to admin sync", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "codex sync 10",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-sync",
+      limit: 10,
+    });
+  });
+
   it("routes session-linked normal text to codex-chat", () => {
     expect(
       routeDiscordMessage({

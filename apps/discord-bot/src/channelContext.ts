@@ -9,4 +9,5 @@ export interface ManagedDiscordChannelContext {
   workspaceRoot: string;
   cwd: string;
   timeoutMs: number;
+  codexSessionId?: string | null;
 }

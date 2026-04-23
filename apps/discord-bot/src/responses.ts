@@ -142,6 +142,11 @@ export function formatDenied(reason: string): DiscordMessagePayload {
 export function formatHelp(channelMode: "shell-admin" | "session-linked"): DiscordMessagePayload {
   const shellAdminFields: DiscordEmbedFieldPayload[] = [
     {
+      name: "Sync Codex sessions",
+      value: codeBlock("sync\ncodex sync 10", "text"),
+      inline: false,
+    },
+    {
       name: "Ask Codex",
       value: codeBlock("codex 이 프로젝트 구조 설명해줘\ncodex README에 사용법 추가해줘", "text"),
       inline: false,
@@ -178,6 +183,73 @@ export function formatHelp(channelMode: "shell-admin" | "session-linked"): Disco
         ? "이 채널은 shell 명령과 Codex 요청을 같이 받을 수 있습니다."
         : "이 채널은 자연어를 Codex로 보내고, shell 명령은 `!` 접두어로 실행합니다.",
     fields: channelMode === "shell-admin" ? shellAdminFields : sessionLinkedFields,
+  });
+}
+
+export function formatSyncAck(input: { limit: number }): DiscordMessagePayload {
+  return messagePayload({
+    title: "Codex session sync started",
+    color: COLORS.codex,
+    description: "Codex 세션을 읽고 Discord 카테고리/채널을 생성하는 중입니다.",
+    fields: [
+      {
+        name: "Session limit",
+        value: wrapDiscordText(String(input.limit)),
+        inline: true,
+      },
+    ],
+  });
+}
+
+export function formatSyncResultUpdate(response: {
+  result?: {
+    createdCategories: number;
+    existingCategories: number;
+    createdChannels: number;
+    existingChannels: number;
+    skippedSessions: number;
+  };
+  error?: { message: string };
+}): DiscordMessagePayload {
+  if (response.error || !response.result) {
+    return messagePayload({
+      title: "Codex session sync failed",
+      color: COLORS.failure,
+      description: truncateDescription(wrapDiscordText(response.error?.message ?? "Unknown sync failure")),
+    });
+  }
+
+  return messagePayload({
+    title: "Codex session sync complete",
+    color: COLORS.success,
+    description: "Codex 폴더는 Discord 카테고리로, Codex 세션은 Discord 채널로 매핑되었습니다.",
+    fields: [
+      {
+        name: "Created categories",
+        value: wrapDiscordText(String(response.result.createdCategories)),
+        inline: true,
+      },
+      {
+        name: "Existing categories",
+        value: wrapDiscordText(String(response.result.existingCategories)),
+        inline: true,
+      },
+      {
+        name: "Created channels",
+        value: wrapDiscordText(String(response.result.createdChannels)),
+        inline: true,
+      },
+      {
+        name: "Existing channels",
+        value: wrapDiscordText(String(response.result.existingChannels)),
+        inline: true,
+      },
+      {
+        name: "Skipped sessions",
+        value: wrapDiscordText(String(response.result.skippedSessions)),
+        inline: true,
+      },
+    ],
   });
 }
 

@@ -36,11 +36,24 @@ In the configured Discord channel:
 
 ```text
 help
+sync
+codex sync 10
 codex 이 프로젝트 구조 설명해줘
 codex README에 사용법 추가해줘
 ls
 cd apps
 cat README.md
+```
+
+`sync` reads local Codex sessions from `~/.codex/session_index.jsonl`, groups them by workspace folder, creates one Discord category per folder, and creates one Discord text channel per Codex session. The channel mapping is stored in `.connect/state.json`.
+
+After sync, use the generated session channels like Codex rooms:
+
+```text
+이 세션에서 지금까지 한 일 요약해줘
+다음 단계 구현해줘
+!ls
+!cat README.md
 ```
 
 Codex prompts run through the local Codex CLI with workspace-write sandboxing. Restart the bot after code updates so Discord uses the latest behavior.

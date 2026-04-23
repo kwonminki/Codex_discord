@@ -1,5 +1,6 @@
 import { classifyCommand } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
+import type { DiscordGuildSurface, SyncCodexSessionsResult } from "./codexSessionSync.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
@@ -10,6 +11,8 @@ import {
   formatCommandResultUpdate,
   formatDenied,
   formatHelp,
+  formatSyncAck,
+  formatSyncResultUpdate,
 } from "./responses.js";
 
 export type { ManagedDiscordChannelContext } from "./channelContext.js";
@@ -20,6 +23,7 @@ export interface DiscordMessageLike {
   channelId: string;
   content: string;
   roleIds: string[];
+  guild?: DiscordGuildSurface | null;
   reply(message: DiscordOutgoingMessage): Promise<DiscordReplyLike | void>;
 }
 
@@ -33,6 +37,7 @@ export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
+  syncCodexSessions?: (input: { guild: DiscordGuildSurface; limit: number }) => Promise<SyncCodexSessionsResult>;
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
   recordCommandAudit: ControlApiClient["recordCommandAudit"];
 }
@@ -115,6 +120,38 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
+    if (routed.type === "admin-sync") {
+      const queuedReply = await message.reply(formatSyncAck({ limit: routed.limit }));
+
+      try {
+        if (!input.syncCodexSessions) {
+          throw new Error("Codex session sync is not connected for this bot mode.");
+        }
+
+        if (!message.guild) {
+          throw new Error("Discord guild context is required for session sync.");
+        }
+
+        const result = await input.syncCodexSessions({
+          guild: message.guild,
+          limit: routed.limit,
+        });
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => message.reply(replyMessage),
+          formatSyncResultUpdate({ result }),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Codex session sync failed";
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => message.reply(replyMessage),
+          formatSyncResultUpdate({ error: { message: messageText } }),
+        );
+      }
+      return;
+    }
+
     if (routed.type === "codex-chat") {
       const codexMessage = {
         computerDisplayName: channelContext.computerDisplayName,
@@ -142,7 +179,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             cwd: channelContext.cwd,
             prompt: routed.content,
             timeoutMs: Math.max(channelContext.timeoutMs, 300_000),
-            sessionId: codexSessionIdsByChannel.get(message.channelId) ?? null,
+            sessionId: codexSessionIdsByChannel.get(message.channelId) ?? channelContext.codexSessionId ?? null,
           },
         });
         const nextSessionId =
