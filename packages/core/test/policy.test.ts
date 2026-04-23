@@ -149,6 +149,34 @@ describe("command policy", () => {
       tier: "dangerous-mutate",
       requiresConfirmation: true,
     });
+    expect(classifyCommand("git push -uf origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push -fu origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push -vuf origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git -c alias.nuke='!rm victim' nuke")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push --mirror")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push --delete origin old-branch")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push --prune origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
     expect(classifyCommand("find . -delete")).toEqual({
       tier: "dangerous-mutate",
       requiresConfirmation: true,

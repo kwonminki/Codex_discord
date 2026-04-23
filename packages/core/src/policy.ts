@@ -272,17 +272,22 @@ function isDangerousGitPush(tokens: string[]): boolean {
     return false;
   }
 
-  return tokens.slice(pushIndex + 1).some((token) => {
-    if (token === "-f" || token === "--force" || token === "--force-with-lease") {
-      return true;
-    }
+  // Conservative Discord remote-execution policy: every git push requires confirmation.
+  return true;
+}
 
-    if (token.startsWith("--force-with-lease=")) {
-      return true;
-    }
+function isDangerousGitConfig(tokens: string[]): boolean {
+  if (normalizeExecutableToken(tokens[0] ?? "") !== "git") {
+    return false;
+  }
 
-    return token.startsWith("+");
-  });
+  const configIndex = tokens.indexOf("-c");
+
+  if (configIndex < 0) {
+    return false;
+  }
+
+  return tokens.slice(configIndex + 1).some((token) => token.startsWith("alias."));
 }
 
 function isDangerousFind(tokens: string[]): boolean {
@@ -311,6 +316,7 @@ function classifySingleCommand(command: string): CommandClassification {
     dangerousWrappers.has(token) ||
     token.startsWith("(") ||
     isGitHardReset ||
+    isDangerousGitConfig(tokens) ||
     isDangerousGitPush(tokens) ||
     isDangerousFind(tokens)
   ) {
