@@ -310,7 +310,17 @@ function isDangerousGitConfigEnv(command: string, tokens: string[]): boolean {
     return false;
   }
 
-  return command.includes("--config-env=alias.") || tokens.some((token) => token.startsWith("--config-env="));
+  if (command.includes("--config-env=alias.")) {
+    return true;
+  }
+
+  const configEnvIndex = tokens.indexOf("--config-env");
+
+  if (configEnvIndex >= 0 && tokens[configEnvIndex + 1]?.startsWith("alias.")) {
+    return true;
+  }
+
+  return tokens.some((token) => token.startsWith("--config-env="));
 }
 
 function isDangerousFind(tokens: string[]): boolean {
@@ -333,7 +343,8 @@ function classifySingleCommand(command: string): CommandClassification {
     command.includes("GIT_CONFIG_COUNT=") ||
     command.includes("GIT_CONFIG_KEY_") ||
     command.includes("GIT_CONFIG_VALUE_") ||
-    command.includes("--config-env=")
+    command.includes("--config-env=") ||
+    command.includes("--config-env ")
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }
