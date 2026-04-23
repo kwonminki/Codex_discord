@@ -74,6 +74,22 @@ describe("createControlApiClient", () => {
           );
           return;
         }
+        if (request.url?.includes("/codex-sessions")) {
+          response.end(
+            JSON.stringify({
+              jobId: "job-sessions-1",
+              result: [
+                {
+                  id: "codex-session-1",
+                  threadName: "Codex Discord planning",
+                  updatedAt: "2026-04-22T01:15:24.714Z",
+                  cwdHint: "/repo",
+                },
+              ],
+            }),
+          );
+          return;
+        }
         if (request.url?.includes("/category-mappings")) {
           response.end(
             JSON.stringify({
@@ -205,6 +221,22 @@ describe("createControlApiClient", () => {
       threadNameSnapshot: "Codex Discord planning",
       availabilityStatus: "available",
     });
+    await expect(
+      client.listCodexSessions({
+        computerId: "computer-1",
+        codexHome: "/Users/me/.codex",
+      }),
+    ).resolves.toEqual({
+      jobId: "job-sessions-1",
+      result: [
+        {
+          id: "codex-session-1",
+          threadName: "Codex Discord planning",
+          updatedAt: "2026-04-22T01:15:24.714Z",
+          cwdHint: "/repo",
+        },
+      ],
+    });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -263,6 +295,12 @@ describe("createControlApiClient", () => {
           codexSessionId: "codex-session-1",
           origin: "imported_native",
           threadNameSnapshot: "Codex Discord planning",
+        },
+      },
+      {
+        url: "/computers/computer-1/codex-sessions",
+        body: {
+          codexHome: "/Users/me/.codex",
         },
       },
     ]);

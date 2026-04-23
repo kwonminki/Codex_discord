@@ -250,6 +250,30 @@ export function createServer({
   });
   app.post<{
     Params: { computerId: string };
+    Body: unknown;
+  }>("/computers/:computerId/codex-sessions", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return reply.code(400).send({ error: { message: "Invalid Codex session listing request" } });
+    }
+
+    const codexHome = stringField(request.body, "codexHome");
+
+    if (!codexHome) {
+      return reply.code(400).send({ error: { message: "Invalid Codex session listing request" } });
+    }
+
+    const { job } = createJob(request.params.computerId, "list-codex-sessions", { codexHome });
+
+    try {
+      return await jobDispatcher.dispatchAndWait(request.params.computerId, job);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Agent job failed";
+      const statusCode = message === "Computer is offline" ? 409 : message === "Agent job timed out" ? 504 : 500;
+      return reply.code(statusCode).send({ jobId: job.jobId, error: { message } });
+    }
+  });
+  app.post<{
+    Params: { computerId: string };
     Body: { type?: unknown; payload?: unknown } | undefined;
   }>("/computers/:computerId/jobs", async (request, reply) => {
     const body = request.body ?? {};

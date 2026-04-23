@@ -276,6 +276,74 @@ describe("control api server", () => {
     }
   });
 
+  it("lists native Codex sessions through a websocket agent", async () => {
+    const app = createServer({ agentRegistry: createAgentRegistry(), jobTimeoutMs: 1_000 });
+    const port = await listenOnRandomPort(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/agents`);
+
+    try {
+      await once(socket, "open");
+      socket.send(
+        JSON.stringify({
+          type: "agent-hello",
+          computerId: "computer-1",
+          displayName: "macbook-pro-01",
+          capabilities: ["codex-import"],
+        }),
+      );
+      await waitForAgentCount(app, 1);
+
+      const inboundJob = once(socket, "message");
+      const responsePromise = fetch(`http://127.0.0.1:${port}/computers/computer-1/codex-sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          codexHome: "/Users/me/.codex",
+        }),
+      });
+
+      const [rawJob] = await inboundJob;
+      const job = JSON.parse(rawJob.toString()) as { jobId: string; type: string; payload: unknown };
+      expect(job).toMatchObject({
+        type: "list-codex-sessions",
+        payload: {
+          codexHome: "/Users/me/.codex",
+        },
+      });
+
+      socket.send(
+        JSON.stringify({
+          type: "agent-job-result",
+          jobId: job.jobId,
+          result: [
+            {
+              id: "codex-session-1",
+              threadName: "Codex Discord planning",
+              updatedAt: "2026-04-22T01:15:24.714Z",
+              cwdHint: "/repo",
+            },
+          ],
+        }),
+      );
+
+      const response = await responsePromise;
+      await expect(response.json()).resolves.toEqual({
+        jobId: job.jobId,
+        result: [
+          {
+            id: "codex-session-1",
+            threadName: "Codex Discord planning",
+            updatedAt: "2026-04-22T01:15:24.714Z",
+            cwdHint: "/repo",
+          },
+        ],
+      });
+    } finally {
+      await closeSocket(socket);
+      await app.close();
+    }
+  });
+
   it("rejects malformed job requests", async () => {
     const app = createServer({ agentRegistry: createAgentRegistry() });
 

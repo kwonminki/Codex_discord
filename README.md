@@ -31,6 +31,7 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 - Workspace mappings can be created with `POST /workspaces/:workspaceId/category-mappings` and `POST /workspaces/:workspaceId/channels`.
 - The Discord bot has a guild sync service that creates workspace categories/channels and registers their IDs with the Control API.
 - Codex sessions can be attached to managed Discord channels with `POST /discord/channels/:discordChannelId/session-links`.
+- Existing native Codex sessions can be listed through an online agent with `POST /computers/:computerId/codex-sessions`.
 - Command jobs can be submitted with `POST /computers/:computerId/jobs`.
 - The Control API forwards each job to the online Local Agent and returns the agent result envelope.
 - The Discord bot resolves managed channel context from `CONTROL_API_URL` and sends command messages to the linked computer.

@@ -18,6 +18,11 @@ export interface SubmitCommandJobInput {
   payload: RunCommandJobPayload;
 }
 
+export interface ListCodexSessionsInput {
+  computerId: string;
+  codexHome: string;
+}
+
 export interface CreateCategoryMappingInput {
   id: string;
   discordCategoryId: string;
@@ -101,6 +106,7 @@ export interface ControlApiClient {
   updateChannelCwd(input: UpdateChannelCwdInput): Promise<{ cwd: string }>;
   recordCommandAudit(input: RecordCommandAuditInput): Promise<CommandAuditResponse>;
   linkCodexSession(input: LinkCodexSessionInput): Promise<LinkedCodexSessionResponse>;
+  listCodexSessions(input: ListCodexSessionsInput): Promise<ControlApiJobResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -245,6 +251,25 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       }
 
       return body as LinkedCodexSessionResponse;
+    },
+    async listCodexSessions(sessionInput) {
+      const response = await fetch(
+        `${baseUrl}/computers/${encodeURIComponent(sessionInput.computerId)}/codex-sessions`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ codexHome: sessionInput.codexHome }),
+        },
+      );
+      const body = (await response.json()) as ControlApiJobResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API Codex session listing failed";
+        throw new Error(message);
+      }
+
+      return body as ControlApiJobResponse;
     },
     async submitCommandJob(commandInput) {
       const response = await fetch(
