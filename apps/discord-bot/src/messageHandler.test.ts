@@ -14,8 +14,8 @@ const channelContext: ManagedDiscordChannelContext = {
 
 describe("createDiscordMessageHandler", () => {
   it("submits an authorized shell command to the control api and edits the queued reply with the result", async () => {
-    const replies: string[] = [];
-    const edits: string[] = [];
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
     const submitCommandJob = vi.fn().mockResolvedValue({
       jobId: "job-1",
       result: {
@@ -44,7 +44,7 @@ describe("createDiscordMessageHandler", () => {
       reply: async (message) => {
         replies.push(message);
         return {
-          edit: async (nextMessage: string) => {
+          edit: async (nextMessage: unknown) => {
             edits.push(nextMessage);
           },
         };
@@ -74,28 +74,37 @@ describe("createDiscordMessageHandler", () => {
       resultStatus: "completed",
     });
     expect(replies).toEqual([
-      [
-        "Target: `macbook-pro-01` / `repo`",
-        "cwd: `/repo`",
-        "command: `ls`",
-        "state: queued",
-      ].join("\n"),
+      expect.objectContaining({
+        allowedMentions: { parse: [] },
+        embeds: [
+          expect.objectContaining({
+            title: "Command queued",
+            color: 0xf1c40f,
+          }),
+        ],
+      }),
     ]);
     expect(edits).toEqual([
-      [
-        "Target: `macbook-pro-01` / `repo`",
-        "cwd: `/repo`",
-        "command: `ls`",
-        "state: `completed`",
-        "exit: `0`",
-        "stdout: `README.md `",
-        "stderr: ``",
-      ].join("\n"),
+      expect.objectContaining({
+        allowedMentions: { parse: [] },
+        embeds: [
+          expect.objectContaining({
+            title: "Command completed",
+            color: 0x2ecc71,
+            fields: expect.arrayContaining([
+              { name: "Target", value: "`macbook-pro-01` / `repo`", inline: false },
+              { name: "Working directory", value: "`/repo/src`", inline: false },
+              { name: "Command", value: "```bash\nls\n```", inline: false },
+              { name: "Output", value: "```text\nREADME.md\n```", inline: false },
+            ]),
+          }),
+        ],
+      }),
     ]);
   });
 
   it("denies unauthorized command execution without submitting a job", async () => {
-    const replies: string[] = [];
+    const replies: unknown[] = [];
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
@@ -116,7 +125,16 @@ describe("createDiscordMessageHandler", () => {
     });
 
     expect(submitCommandJob).not.toHaveBeenCalled();
-    expect(replies).toEqual(["Permission denied: `User does not have an allowed role`"]);
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            title: "Permission denied",
+            color: 0xe74c3c,
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("passes explicit dangerous command confirmation to the control api", async () => {

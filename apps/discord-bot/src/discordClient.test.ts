@@ -39,8 +39,9 @@ describe("attachDiscordMessageHandler", () => {
       reply: expect.any(Function),
     });
 
-    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: string): Promise<void> };
-    await adaptedMessage.reply("pong");
-    expect(reply).toHaveBeenCalledWith("pong");
+    const payload = { embeds: [{ title: "pong" }] };
+    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
+    await adaptedMessage.reply(payload);
+    expect(reply).toHaveBeenCalledWith(payload);
   });
 });

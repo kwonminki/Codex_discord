@@ -2,7 +2,8 @@ import { classifyCommand } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
-import { formatCommandAck, formatCommandResult, formatCommandResultUpdate, formatDenied } from "./responses.js";
+import type { DiscordMessagePayload } from "./responses.js";
+import { formatCommandAck, formatCommandResultUpdate, formatDenied } from "./responses.js";
 
 export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
@@ -12,12 +13,14 @@ export interface DiscordMessageLike {
   channelId: string;
   content: string;
   roleIds: string[];
-  reply(message: string): Promise<DiscordReplyLike | void>;
+  reply(message: DiscordOutgoingMessage): Promise<DiscordReplyLike | void>;
 }
 
 export interface DiscordReplyLike {
-  edit(message: string): Promise<unknown>;
+  edit(message: DiscordOutgoingMessage): Promise<unknown>;
 }
+
+export type DiscordOutgoingMessage = string | DiscordMessagePayload;
 
 export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
@@ -66,8 +69,8 @@ async function recordCommandAudit(
 
 async function updateQueuedReply(
   queuedReply: DiscordReplyLike | void,
-  fallbackReply: (message: string) => Promise<DiscordReplyLike | void>,
-  message: string,
+  fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>,
+  message: DiscordOutgoingMessage,
 ): Promise<void> {
   if (queuedReply && typeof queuedReply.edit === "function") {
     await queuedReply.edit(message);
