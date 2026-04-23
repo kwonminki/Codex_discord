@@ -417,6 +417,8 @@ describe("createDiscordMessageHandler", () => {
     const guild = {
       createCategory: vi.fn(),
       createTextChannel: vi.fn(),
+      deleteChannel: vi.fn(),
+      deleteCategory: vi.fn(),
     };
     const syncCodexSessions = vi.fn().mockResolvedValue({
       createdCategories: 1,
@@ -460,6 +462,112 @@ describe("createDiscordMessageHandler", () => {
     expect(edits).toEqual([
       expect.objectContaining({
         embeds: [expect.objectContaining({ title: "Codex session sync complete" })],
+      }),
+    ]);
+  });
+
+  it("previews synced channel deletion without deleting Discord resources", async () => {
+    const replies: unknown[] = [];
+    const guild = {
+      createCategory: vi.fn(),
+      createTextChannel: vi.fn(),
+      deleteChannel: vi.fn(),
+      deleteCategory: vi.fn(),
+    };
+    const previewSyncedChannelsDelete = vi.fn().mockResolvedValue({
+      mode: "all",
+      channelCount: 2,
+      categoryCount: 1,
+      channelNames: ["build-bridge", "fix-sync"],
+      categoryNames: ["repo"],
+    });
+    const deleteSyncedChannels = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      previewSyncedChannelsDelete,
+      deleteSyncedChannels,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "sync delete preview",
+      roleIds: ["role-operator"],
+      guild,
+      reply: async (message) => {
+        replies.push(message);
+      },
+    });
+
+    expect(previewSyncedChannelsDelete).toHaveBeenCalledWith({ mode: "all" });
+    expect(deleteSyncedChannels).not.toHaveBeenCalled();
+    expect(guild.deleteChannel).not.toHaveBeenCalled();
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Synced channel delete preview" })],
+      }),
+    ]);
+  });
+
+  it("deletes synced channels only when the request is confirmed", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const guild = {
+      createCategory: vi.fn(),
+      createTextChannel: vi.fn(),
+      deleteChannel: vi.fn(),
+      deleteCategory: vi.fn(),
+    };
+    const deleteSyncedChannels = vi.fn().mockResolvedValue({
+      mode: "all",
+      deletedChannels: 2,
+      deletedCategories: 1,
+      missingChannels: 0,
+      missingCategories: 0,
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      previewSyncedChannelsDelete: vi.fn(),
+      deleteSyncedChannels,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "sync delete all confirm",
+      roleIds: ["role-operator"],
+      guild,
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+
+    expect(deleteSyncedChannels).toHaveBeenCalledWith({ guild, mode: "all" });
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Deleting synced channels" })],
+      }),
+    ]);
+    expect(edits).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Synced channels deleted" })],
       }),
     ]);
   });

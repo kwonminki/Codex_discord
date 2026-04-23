@@ -15,6 +15,7 @@ export type RoutedDiscordMessage =
   | { type: "execute-command"; command: string; confirmedDangerous: boolean }
   | { type: "codex-chat"; content: string }
   | { type: "admin-sync"; limit: number }
+  | { type: "admin-sync-delete"; mode: "all" | "channels"; confirmed: boolean }
   | { type: "bot-help" }
   | { type: "denied"; reason: string };
 
@@ -51,6 +52,27 @@ function parseAdminSync(content: string): { limit: number } | null {
   return { limit: parseSyncLimit(match[1]) };
 }
 
+function parseAdminSyncDelete(content: string): { mode: "all" | "channels"; confirmed: boolean } | null {
+  const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^(?:codex )?sync delete(?: (preview|channels|all))?(?: (confirm))?$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const action = match[1] ?? "preview";
+  const confirmed = match[2] === "confirm";
+
+  if (action === "preview") {
+    return { mode: "all", confirmed: false };
+  }
+
+  return {
+    mode: action === "channels" ? "channels" : "all",
+    confirmed,
+  };
+}
+
 export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDiscordMessage {
   const trimmedContent = input.content.trim();
 
@@ -59,6 +81,24 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (input.channelMode === "shell-admin") {
+    const syncDelete = parseAdminSyncDelete(trimmedContent);
+
+    if (syncDelete) {
+      const authorization = authorizeCommand({
+        userRoleIds: input.userRoleIds,
+        allowedRoleIds: input.allowedRoleIds,
+      });
+
+      if (!authorization.allowed) {
+        return {
+          type: "denied",
+          reason: authorization.reason ?? "User does not have an allowed role",
+        };
+      }
+
+      return { type: "admin-sync-delete", ...syncDelete };
+    }
+
     const sync = parseAdminSync(trimmedContent);
 
     if (sync) {

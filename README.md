@@ -38,6 +38,8 @@ In the configured Discord channel:
 help
 sync
 codex sync 10
+sync delete preview
+sync delete all confirm
 codex 이 프로젝트 구조 설명해줘
 codex README에 사용법 추가해줘
 ls
@@ -46,6 +48,16 @@ cat README.md
 ```
 
 `sync` reads local Codex sessions from `~/.codex/session_index.jsonl`, groups them by workspace folder, creates one Discord category per folder, and creates one Discord text channel per Codex session. The channel mapping is stored in `.connect/state.json`.
+
+Synced Discord channels can be bulk-deleted from the admin channel:
+
+```text
+sync delete preview
+sync delete channels confirm
+sync delete all confirm
+```
+
+`sync delete channels confirm` deletes only synced Discord text channels and keeps categories in state. `sync delete all confirm` deletes synced Discord text channels and categories, then clears `.connect/state.json`. These commands never delete or move local Codex session files.
 
 After sync, use the generated session channels like Codex rooms:
 

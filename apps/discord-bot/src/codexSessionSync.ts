@@ -12,6 +12,8 @@ import type {
 export interface DiscordGuildSurface {
   createCategory(input: { name: string }): Promise<{ id: string }>;
   createTextChannel(input: { name: string; parentId: string; topic?: string }): Promise<{ id: string }>;
+  deleteChannel?(id: string): Promise<void>;
+  deleteCategory?(id: string): Promise<void>;
 }
 
 export interface SyncCodexSessionsInput {

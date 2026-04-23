@@ -5,6 +5,8 @@ import {
   formatCodexResultUpdate,
   formatCommandAck,
   formatCommandResultUpdate,
+  formatDeletePreview,
+  formatDeleteResult,
   formatDenied,
   formatHelp,
   formatSyncAck,
@@ -268,6 +270,49 @@ describe("responses", () => {
             { name: "Created channels", value: "`5`", inline: true },
             { name: "Skipped sessions", value: "`10`", inline: true },
           ]),
+        }),
+      ],
+    });
+  });
+
+  it("formats synced channel delete preview and result cards", () => {
+    expect(
+      formatDeletePreview({
+        mode: "all",
+        channelCount: 2,
+        categoryCount: 1,
+        channelNames: ["build-bridge", "fix-sync"],
+        categoryNames: ["repo"],
+      }),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "Synced channel delete preview",
+          color: 0xf1c40f,
+          fields: expect.arrayContaining([
+            { name: "Channels", value: "`2`", inline: true },
+            { name: "Categories", value: "`1`", inline: true },
+          ]),
+        }),
+      ],
+    });
+    expect(
+      formatDeleteResult({
+        result: {
+          mode: "all",
+          deletedChannels: 2,
+          deletedCategories: 1,
+          missingChannels: 0,
+          missingCategories: 0,
+        },
+      }),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "Synced channels deleted",
+          color: 0x2ecc71,
         }),
       ],
     });

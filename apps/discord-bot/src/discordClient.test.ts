@@ -18,6 +18,9 @@ describe("attachDiscordMessageHandler", () => {
           .fn()
           .mockResolvedValueOnce({ id: "category-1" })
           .mockResolvedValueOnce({ id: "channel-1" }),
+        fetch: vi.fn().mockResolvedValue({
+          delete: vi.fn().mockResolvedValue(undefined),
+        }),
       },
     };
 
@@ -57,6 +60,8 @@ describe("attachDiscordMessageHandler", () => {
     const adaptedGuild = handleMessage.mock.calls[0][0].guild as {
       createCategory(input: { name: string }): Promise<{ id: string }>;
       createTextChannel(input: { name: string; parentId: string; topic?: string }): Promise<{ id: string }>;
+      deleteChannel(id: string): Promise<void>;
+      deleteCategory(id: string): Promise<void>;
     };
     await expect(adaptedGuild.createCategory({ name: "repo" })).resolves.toEqual({ id: "category-1" });
     await expect(
@@ -66,6 +71,10 @@ describe("attachDiscordMessageHandler", () => {
         topic: "Codex session",
       }),
     ).resolves.toEqual({ id: "channel-1" });
+    await expect(adaptedGuild.deleteChannel("channel-1")).resolves.toBeUndefined();
+    await expect(adaptedGuild.deleteCategory("category-1")).resolves.toBeUndefined();
     expect(guild.channels.create).toHaveBeenCalledTimes(2);
+    expect(guild.channels.fetch).toHaveBeenCalledWith("channel-1");
+    expect(guild.channels.fetch).toHaveBeenCalledWith("category-1");
   });
 });

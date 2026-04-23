@@ -1,6 +1,10 @@
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
+import {
+  deleteSyncedDiscordSessions,
+  previewSyncedDiscordSessionDelete,
+} from "./codexSessionDelete.js";
 import { syncCodexSessionsToDiscord, type DiscordGuildSurface } from "./codexSessionSync.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
@@ -58,11 +62,45 @@ export async function startBot(): Promise<void> {
           });
         }
       : undefined;
+  const previewSyncedChannelsDelete =
+    directStateStore
+      ? async (input: { mode: "all" | "channels" }) =>
+          previewSyncedDiscordSessionDelete({
+            stateStore: directStateStore,
+            mode: input.mode,
+          })
+      : undefined;
+  const deleteSyncedChannels =
+    directStateStore
+      ? async (input: { guild: DiscordGuildSurface; mode: "all" | "channels" }) =>
+          deleteSyncedDiscordSessions({
+            guild: {
+              deleteChannel: async (id) => {
+                if (!input.guild.deleteChannel) {
+                  throw new Error("Discord guild deleteChannel surface is unavailable.");
+                }
+
+                await input.guild.deleteChannel(id);
+              },
+              deleteCategory: async (id) => {
+                if (!input.guild.deleteCategory) {
+                  throw new Error("Discord guild deleteCategory surface is unavailable.");
+                }
+
+                await input.guild.deleteCategory(id);
+              },
+            },
+            stateStore: directStateStore,
+            mode: input.mode,
+          })
+      : undefined;
   const handleMessage = createDiscordMessageHandler({
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
     syncCodexSessions,
+    previewSyncedChannelsDelete,
+    deleteSyncedChannels,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
   });

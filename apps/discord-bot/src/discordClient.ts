@@ -50,6 +50,14 @@ function createGuildSurface(guild: Guild | null): DiscordGuildSurface | null {
 
       return { id: channel.id };
     },
+    async deleteChannel(id) {
+      const channel = await guild.channels.fetch(id);
+      await channel?.delete();
+    },
+    async deleteCategory(id) {
+      const category = await guild.channels.fetch(id);
+      await category?.delete();
+    },
   };
 }
 

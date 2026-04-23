@@ -143,7 +143,7 @@ export function formatHelp(channelMode: "shell-admin" | "session-linked"): Disco
   const shellAdminFields: DiscordEmbedFieldPayload[] = [
     {
       name: "Sync Codex sessions",
-      value: codeBlock("sync\ncodex sync 10", "text"),
+      value: codeBlock("sync\ncodex sync 10\nsync delete preview\nsync delete all confirm", "text"),
       inline: false,
     },
     {
@@ -247,6 +247,109 @@ export function formatSyncResultUpdate(response: {
       {
         name: "Skipped sessions",
         value: wrapDiscordText(String(response.result.skippedSessions)),
+        inline: true,
+      },
+    ],
+  });
+}
+
+export function formatDeletePreview(input: {
+  mode: "all" | "channels";
+  channelCount: number;
+  categoryCount: number;
+  channelNames: string[];
+  categoryNames: string[];
+}): DiscordMessagePayload {
+  const command = input.mode === "channels" ? "sync delete channels confirm" : "sync delete all confirm";
+
+  return messagePayload({
+    title: "Synced channel delete preview",
+    color: COLORS.queued,
+    description: `삭제될 Discord 리소스를 확인하세요. 실제 삭제는 \`${command}\` 명령이 필요합니다. Codex 세션 파일은 삭제하지 않습니다.`,
+    fields: [
+      {
+        name: "Channels",
+        value: wrapDiscordText(String(input.channelCount)),
+        inline: true,
+      },
+      {
+        name: "Categories",
+        value: wrapDiscordText(String(input.categoryCount)),
+        inline: true,
+      },
+      {
+        name: "Channel names",
+        value: codeBlock(input.channelNames.slice(0, 25).join("\n") || "(none)", "text"),
+        inline: false,
+      },
+      {
+        name: "Category names",
+        value: codeBlock(input.categoryNames.slice(0, 25).join("\n") || "(none)", "text"),
+        inline: false,
+      },
+    ],
+  });
+}
+
+export function formatDeleteResult(response: {
+  result?: {
+    mode: "all" | "channels";
+    deletedChannels: number;
+    deletedCategories: number;
+    missingChannels: number;
+    missingCategories: number;
+  };
+  error?: { message: string };
+}): DiscordMessagePayload {
+  if (response.error || !response.result) {
+    return messagePayload({
+      title: "Synced channel delete failed",
+      color: COLORS.failure,
+      description: truncateDescription(wrapDiscordText(response.error?.message ?? "Unknown delete failure")),
+    });
+  }
+
+  return messagePayload({
+    title: "Synced channels deleted",
+    color: COLORS.success,
+    description: "Discord에 생성했던 동기화 채널을 삭제했습니다. 로컬 Codex 세션 파일은 그대로 유지됩니다.",
+    fields: [
+      {
+        name: "Deleted channels",
+        value: wrapDiscordText(String(response.result.deletedChannels)),
+        inline: true,
+      },
+      {
+        name: "Deleted categories",
+        value: wrapDiscordText(String(response.result.deletedCategories)),
+        inline: true,
+      },
+      {
+        name: "Already missing channels",
+        value: wrapDiscordText(String(response.result.missingChannels)),
+        inline: true,
+      },
+      {
+        name: "Already missing categories",
+        value: wrapDiscordText(String(response.result.missingCategories)),
+        inline: true,
+      },
+    ],
+  });
+}
+
+export function formatDeleteAck(input: { mode: "all" | "channels" }): DiscordMessagePayload {
+  return messagePayload({
+    title: "Deleting synced channels",
+    color: COLORS.queued,
+    description:
+      input.mode === "all"
+        ? "동기화로 생성된 Discord 채널과 카테고리를 삭제하는 중입니다. Codex 세션 파일은 삭제하지 않습니다."
+        : "동기화로 생성된 Discord 채널만 삭제하는 중입니다. 카테고리와 Codex 세션 파일은 유지합니다.",
+    fields: [
+      {
+        name: "Mode",
+        value: wrapDiscordText(input.mode),
         inline: true,
       },
     ],

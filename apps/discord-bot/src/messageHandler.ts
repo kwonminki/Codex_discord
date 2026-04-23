@@ -1,5 +1,10 @@
 import { classifyCommand } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
+import type {
+  DeletePreviewResult,
+  DeleteSyncedDiscordSessionsResult,
+  SyncedDeleteMode,
+} from "./codexSessionDelete.js";
 import type { DiscordGuildSurface, SyncCodexSessionsResult } from "./codexSessionSync.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
@@ -9,6 +14,9 @@ import {
   formatCodexResultUpdate,
   formatCommandAck,
   formatCommandResultUpdate,
+  formatDeleteAck,
+  formatDeletePreview,
+  formatDeleteResult,
   formatDenied,
   formatHelp,
   formatSyncAck,
@@ -38,6 +46,11 @@ export interface CreateDiscordMessageHandlerInput {
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
   syncCodexSessions?: (input: { guild: DiscordGuildSurface; limit: number }) => Promise<SyncCodexSessionsResult>;
+  previewSyncedChannelsDelete?: (input: { mode: SyncedDeleteMode }) => Promise<DeletePreviewResult>;
+  deleteSyncedChannels?: (input: {
+    guild: DiscordGuildSurface;
+    mode: SyncedDeleteMode;
+  }) => Promise<DeleteSyncedDiscordSessionsResult>;
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
   recordCommandAudit: ControlApiClient["recordCommandAudit"];
 }
@@ -148,6 +161,42 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => message.reply(replyMessage),
           formatSyncResultUpdate({ error: { message: messageText } }),
         );
+      }
+      return;
+    }
+
+    if (routed.type === "admin-sync-delete") {
+      try {
+        if (!routed.confirmed) {
+          if (!input.previewSyncedChannelsDelete) {
+            throw new Error("Synced channel delete preview is not connected for this bot mode.");
+          }
+
+          await message.reply(formatDeletePreview(await input.previewSyncedChannelsDelete({ mode: routed.mode })));
+          return;
+        }
+
+        if (!input.deleteSyncedChannels) {
+          throw new Error("Synced channel deletion is not connected for this bot mode.");
+        }
+
+        if (!message.guild) {
+          throw new Error("Discord guild context is required for synced channel deletion.");
+        }
+
+        const queuedReply = await message.reply(formatDeleteAck({ mode: routed.mode }));
+        const result = await input.deleteSyncedChannels({
+          guild: message.guild,
+          mode: routed.mode,
+        });
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => message.reply(replyMessage),
+          formatDeleteResult({ result }),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Synced channel deletion failed";
+        await message.reply(formatDeleteResult({ error: { message: messageText } }));
       }
       return;
     }

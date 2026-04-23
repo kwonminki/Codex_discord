@@ -75,6 +75,51 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes sync delete preview without requiring confirmation", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "sync delete preview",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-sync-delete",
+      mode: "all",
+      confirmed: false,
+    });
+  });
+
+  it("routes confirmed sync delete all requests", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "sync delete all confirm",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-sync-delete",
+      mode: "all",
+      confirmed: true,
+    });
+  });
+
+  it("routes confirmed sync delete channels requests", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "codex sync delete channels confirm",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-sync-delete",
+      mode: "channels",
+      confirmed: true,
+    });
+  });
+
   it("routes session-linked normal text to codex-chat", () => {
     expect(
       routeDiscordMessage({
