@@ -28,6 +28,7 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 
 - Local Agents connect to the Control API over `ws://<host>:<port>/agents`.
 - Agent hello messages persist computer presence and advertised workspaces in the Control DB.
+- Persisted computers and workspaces can be listed with `GET /inventory`.
 - Workspace mappings can be created with `POST /workspaces/:workspaceId/category-mappings` and `POST /workspaces/:workspaceId/channels`.
 - The Discord bot has a guild sync service that creates workspace categories/channels and registers their IDs with the Control API.
 - Codex sessions can be attached to managed Discord channels with `POST /discord/channels/:discordChannelId/session-links`.

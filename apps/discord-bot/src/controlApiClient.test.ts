@@ -18,6 +18,29 @@ describe("createControlApiClient", () => {
       if (request.method === "GET") {
         requests.push({ url: request.url ?? "", body: null });
         response.writeHead(200, { "content-type": "application/json" });
+        if (request.url === "/inventory") {
+          response.end(
+            JSON.stringify([
+              {
+                id: "computer-1",
+                displayName: "macbook-pro-01",
+                hostname: "macbook-pro-01.local",
+                status: "online",
+                allowedRoleIds: ["role-operator"],
+                capabilities: ["shell", "codex-import"],
+                workspaces: [
+                  {
+                    id: "workspace-1",
+                    absolutePath: "/repo",
+                    displayName: "repo",
+                    status: "valid",
+                  },
+                ],
+              },
+            ]),
+          );
+          return;
+        }
         response.end(
           JSON.stringify({
             channelMode: "shell-admin",
@@ -148,6 +171,24 @@ describe("createControlApiClient", () => {
       cwd: "/repo",
       timeoutMs: 3_000,
     });
+    await expect(client.listInventory()).resolves.toEqual([
+      {
+        id: "computer-1",
+        displayName: "macbook-pro-01",
+        hostname: "macbook-pro-01.local",
+        status: "online",
+        allowedRoleIds: ["role-operator"],
+        capabilities: ["shell", "codex-import"],
+        workspaces: [
+          {
+            id: "workspace-1",
+            absolutePath: "/repo",
+            displayName: "repo",
+            status: "valid",
+          },
+        ],
+      },
+    ]);
     await expect(
       client.createCategoryMapping({
         id: "category:discord-category-1",
@@ -253,6 +294,10 @@ describe("createControlApiClient", () => {
       },
       {
         url: "/discord/channels/discord-channel-1/context",
+        body: null,
+      },
+      {
+        url: "/inventory",
         body: null,
       },
       {

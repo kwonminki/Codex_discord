@@ -23,6 +23,23 @@ export interface ListCodexSessionsInput {
   codexHome: string;
 }
 
+export interface WorkspaceInventoryItem {
+  id: string;
+  absolutePath: string;
+  displayName: string;
+  status: string;
+}
+
+export interface ComputerInventoryItem {
+  id: string;
+  displayName: string;
+  hostname: string;
+  status: string;
+  allowedRoleIds: string[];
+  capabilities: string[];
+  workspaces: WorkspaceInventoryItem[];
+}
+
 export interface CreateCategoryMappingInput {
   id: string;
   discordCategoryId: string;
@@ -100,6 +117,7 @@ export interface ManagedChannelResponse {
 }
 
 export interface ControlApiClient {
+  listInventory(): Promise<ComputerInventoryItem[]>;
   getChannelContext(discordChannelId: string): Promise<ManagedDiscordChannelContext | null>;
   createCategoryMapping(input: CreateCategoryMappingInput): Promise<CategoryMappingResponse>;
   createManagedChannel(input: CreateManagedChannelInput): Promise<ManagedChannelResponse>;
@@ -118,6 +136,18 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
 
   return {
+    async listInventory() {
+      const response = await fetch(`${baseUrl}/inventory`);
+      const body = (await response.json()) as ComputerInventoryItem[] | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API inventory request failed";
+        throw new Error(message);
+      }
+
+      return body as ComputerInventoryItem[];
+    },
     async getChannelContext(discordChannelId) {
       const response = await fetch(
         `${baseUrl}/discord/channels/${encodeURIComponent(discordChannelId)}/context`,

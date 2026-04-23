@@ -3,6 +3,7 @@ import { createAgentRegistry } from "./agentRegistry.js";
 import { createChannelContextService } from "./channelContexts.js";
 import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
+import { createInventoryService } from "./inventory.js";
 import { createServer } from "./server.js";
 import { createSessionLinkService } from "./sessionLinks.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
@@ -18,6 +19,7 @@ const app = createServer({
   channelContexts: createChannelContextService(prisma, { defaultTimeoutMs: jobTimeoutMs }),
   commandAudit: createCommandAuditService(prisma),
   computerPresence: createComputerPresenceService(prisma),
+  inventory: createInventoryService(prisma),
   sessionLinks: createSessionLinkService(prisma),
   workspaceMappings: createWorkspaceMappingService(prisma),
   jobTimeoutMs,

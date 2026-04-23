@@ -9,6 +9,7 @@ import { recordAuditEvent } from "./audit.js";
 import { createChannelContextService } from "./channelContexts.js";
 import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
+import { createInventoryService } from "./inventory.js";
 import { createRepositories } from "./repositories.js";
 import { createSessionLinkService } from "./sessionLinks.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
@@ -187,6 +188,45 @@ describe("repositories", () => {
     await expect(prisma.computer.findUnique({ where: { id: "computer-1" } })).resolves.toMatchObject({
       status: "offline",
     });
+  });
+
+  it("lists computer inventory with advertised workspaces", async () => {
+    const computerPresence = createComputerPresenceService(prisma);
+    const inventory = createInventoryService(prisma);
+
+    await computerPresence.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+      workspaces: [
+        {
+          id: "computer-1:/Users/me/project",
+          absolutePath: "/Users/me/project",
+          displayName: "project",
+        },
+      ],
+    });
+
+    await expect(inventory.listComputers()).resolves.toEqual([
+      {
+        id: "computer-1",
+        displayName: "macbook-pro-01",
+        hostname: "macbook-pro-01.local",
+        status: "online",
+        allowedRoleIds: ["role-operator"],
+        capabilities: ["shell", "codex-import"],
+        workspaces: [
+          {
+            id: "computer-1:/Users/me/project",
+            absolutePath: "/Users/me/project",
+            displayName: "project",
+            status: "valid",
+          },
+        ],
+      },
+    ]);
   });
 
   it("creates Discord category and channel mappings for a workspace", async () => {

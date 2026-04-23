@@ -105,6 +105,61 @@ describe("control api server", () => {
     }
   });
 
+  it("returns persisted computer inventory", async () => {
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      inventory: {
+        listComputers: async () => [
+          {
+            id: "computer-1",
+            displayName: "macbook-pro-01",
+            hostname: "macbook-pro-01.local",
+            status: "online",
+            allowedRoleIds: ["role-operator"],
+            capabilities: ["shell", "codex-import"],
+            workspaces: [
+              {
+                id: "workspace-1",
+                absolutePath: "/repo",
+                displayName: "repo",
+                status: "valid",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/inventory",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        {
+          id: "computer-1",
+          displayName: "macbook-pro-01",
+          hostname: "macbook-pro-01.local",
+          status: "online",
+          allowedRoleIds: ["role-operator"],
+          capabilities: ["shell", "codex-import"],
+          workspaces: [
+            {
+              id: "workspace-1",
+              absolutePath: "/repo",
+              displayName: "repo",
+              status: "valid",
+            },
+          ],
+        },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("registers an agent from the websocket hello message", async () => {
     const app = createServer({ agentRegistry: createAgentRegistry() });
     const port = await listenOnRandomPort(app);

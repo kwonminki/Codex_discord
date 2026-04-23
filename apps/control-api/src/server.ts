@@ -4,6 +4,7 @@ import { attachAgentWebSocketServer } from "./agentWebSocket.js";
 import type { ChannelContextService } from "./channelContexts.js";
 import type { CommandAuditService } from "./commandAudit.js";
 import type { ComputerPresenceService } from "./computerPresence.js";
+import type { InventoryService } from "./inventory.js";
 import { createJob, createJobDispatcher, type AgentJob } from "./jobs.js";
 import type { SessionLinkService } from "./sessionLinks.js";
 import type { WorkspaceMappingService } from "./workspaceMappings.js";
@@ -13,6 +14,7 @@ export interface CreateServerInput {
   channelContexts?: ChannelContextService;
   commandAudit?: CommandAuditService;
   computerPresence?: ComputerPresenceService;
+  inventory?: InventoryService;
   sessionLinks?: SessionLinkService;
   workspaceMappings?: WorkspaceMappingService;
   jobTimeoutMs?: number;
@@ -44,6 +46,7 @@ export function createServer({
   channelContexts,
   commandAudit,
   computerPresence,
+  inventory,
   sessionLinks,
   workspaceMappings,
   jobTimeoutMs,
@@ -61,6 +64,13 @@ export function createServer({
 
   app.get("/health", async () => ({ ok: true }));
   app.get("/computers", async () => agentRegistry.list());
+  app.get("/inventory", async (request, reply) => {
+    if (!inventory) {
+      return reply.code(503).send({ error: { message: "Inventory service is not configured" } });
+    }
+
+    return inventory.listComputers();
+  });
   app.post<{
     Params: { workspaceId: string };
     Body: unknown;
