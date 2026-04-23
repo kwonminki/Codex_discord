@@ -45,6 +45,14 @@ function isShellWhitespace(character: string): boolean {
   return /\s/.test(character);
 }
 
+function isCommandSubstitutionStart(command: string, index: number): boolean {
+  return command[index] === "$" && command[index + 1] === "(" && command[index + 2] !== "(";
+}
+
+function isProcessSubstitutionStart(command: string, index: number): boolean {
+  return (command[index] === "<" || command[index] === ">") && command[index + 1] === "(";
+}
+
 function scanShell(command: string): ShellScanResult {
   const segments: string[] = [];
   let current = "";
@@ -77,7 +85,11 @@ function scanShell(command: string): ShellScanResult {
     if (mode === "double") {
       if (character === '"') {
         mode = "normal";
-      } else if (character === "`" || (character === "$" && command[index + 1] === "(")) {
+      } else if (
+        character === "`" ||
+        isCommandSubstitutionStart(command, index) ||
+        isProcessSubstitutionStart(command, index)
+      ) {
         return { segments: [command], hasDangerousControlSyntax: true };
       } else {
         current += character;
@@ -112,7 +124,8 @@ function scanShell(command: string): ShellScanResult {
       character === "`" ||
       character === "\n" ||
       character === "\r" ||
-      (character === "$" && command[index + 1] === "(")
+      isCommandSubstitutionStart(command, index) ||
+      isProcessSubstitutionStart(command, index)
     ) {
       return { segments: [command], hasDangerousControlSyntax: true };
     }
