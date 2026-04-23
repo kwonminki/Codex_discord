@@ -150,6 +150,77 @@ describe("createDiscordMessageHandler", () => {
     });
   });
 
+  it("serializes command execution per Discord channel", async () => {
+    const firstJob = {
+      resolve: null as ((value: unknown) => void) | null,
+    };
+    const submitCommandJob = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            firstJob.resolve = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        jobId: "job-2",
+        result: {
+          status: "completed",
+          stdout: "second\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const first = handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "pwd",
+      roleIds: ["role-operator"],
+      reply: async () => {},
+    });
+    const second = handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "ls",
+      roleIds: ["role-operator"],
+      reply: async () => {},
+    });
+
+    for (let attempt = 0; attempt < 5 && submitCommandJob.mock.calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(submitCommandJob).toHaveBeenCalledTimes(1);
+
+    if (!firstJob.resolve) {
+      throw new Error("Expected first job resolver to be captured");
+    }
+
+    firstJob.resolve({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        stdout: "/repo\n",
+        stderr: "",
+        exitCode: 0,
+      },
+    });
+
+    await first;
+    await second;
+
+    expect(submitCommandJob).toHaveBeenCalledTimes(2);
+    expect(submitCommandJob.mock.calls[0][0].payload.command).toBe("pwd");
+    expect(submitCommandJob.mock.calls[1][0].payload.command).toBe("ls");
+  });
+
   it("ignores bot and unmanaged channel messages", async () => {
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({

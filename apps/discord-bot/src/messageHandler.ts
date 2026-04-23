@@ -61,7 +61,9 @@ async function recordCommandAudit(
 }
 
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
-  return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
+  const channelQueues = new Map<string, Promise<void>>();
+
+  async function processDiscordMessage(message: DiscordMessageLike): Promise<void> {
     if (message.authorBot) {
       return;
     }
@@ -137,6 +139,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         resultStatus: "failed",
       });
       await message.reply(formatCommandResult({ error: { message: messageText } }));
+    }
+  }
+
+  return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
+    const previousChannelTask = channelQueues.get(message.channelId) ?? Promise.resolve();
+    const nextChannelTask = previousChannelTask
+      .catch(() => undefined)
+      .then(() => processDiscordMessage(message));
+
+    channelQueues.set(message.channelId, nextChannelTask);
+
+    try {
+      await nextChannelTask;
+    } finally {
+      if (channelQueues.get(message.channelId) === nextChannelTask) {
+        channelQueues.delete(message.channelId);
+      }
     }
   };
 }
