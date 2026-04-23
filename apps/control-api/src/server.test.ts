@@ -310,6 +310,9 @@ describe("control api server", () => {
           cwd: "/repo",
           timeoutMs: 3_000,
         }),
+        updateCwdByDiscordChannelId: async () => ({
+          cwd: "/repo",
+        }),
       },
     });
 
@@ -340,6 +343,7 @@ describe("control api server", () => {
       agentRegistry: createAgentRegistry(),
       channelContexts: {
         findByDiscordChannelId: async () => null,
+        updateCwdByDiscordChannelId: async () => null,
       },
     });
 
@@ -355,6 +359,41 @@ describe("control api server", () => {
           message: "Discord channel is not managed",
         },
       });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("updates a managed Discord channel cwd", async () => {
+    const updates: unknown[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      channelContexts: {
+        findByDiscordChannelId: async () => null,
+        updateCwdByDiscordChannelId: async (discordChannelId, cwd) => {
+          updates.push({ discordChannelId, cwd });
+          return { cwd };
+        },
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "PATCH",
+        url: "/discord/channels/discord-channel-1/context",
+        payload: {
+          cwd: "/repo/src",
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ cwd: "/repo/src" });
+      expect(updates).toEqual([
+        {
+          discordChannelId: "discord-channel-1",
+          cwd: "/repo/src",
+        },
+      ]);
     } finally {
       await app.close();
     }

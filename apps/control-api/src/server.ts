@@ -133,6 +133,40 @@ export function createServer({
       return context;
     },
   );
+  app.patch<{
+    Params: { discordChannelId: string };
+    Body: unknown;
+  }>("/discord/channels/:discordChannelId/context", async (request, reply) => {
+    if (!channelContexts) {
+      return reply.code(503).send({ error: { message: "Channel context service is not configured" } });
+    }
+
+    if (!isRecord(request.body)) {
+      return reply.code(400).send({ error: { message: "Invalid channel context update request" } });
+    }
+
+    const cwd = stringField(request.body, "cwd");
+
+    if (!cwd) {
+      return reply.code(400).send({ error: { message: "Invalid channel context update request" } });
+    }
+
+    try {
+      const result = await channelContexts.updateCwdByDiscordChannelId(
+        request.params.discordChannelId,
+        cwd,
+      );
+
+      if (!result) {
+        return reply.code(404).send({ error: { message: "Discord channel is not managed" } });
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update channel context";
+      return reply.code(400).send({ error: { message } });
+    }
+  });
   app.post<{
     Params: { computerId: string };
     Body: { type?: unknown; payload?: unknown } | undefined;

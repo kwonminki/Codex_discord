@@ -18,6 +18,7 @@ export async function startBot(): Promise<void> {
   const handleMessage = createDiscordMessageHandler({
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
+    updateChannelCwd: controlApiClient.updateChannelCwd,
   });
 
   client.once("ready", () => {

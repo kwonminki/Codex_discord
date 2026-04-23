@@ -1,5 +1,6 @@
 import type { ChannelMode } from "@codex-discord/core";
 import type { PrismaClient } from "@prisma/client";
+import path from "node:path";
 
 export interface ManagedDiscordChannelContext {
   channelMode: ChannelMode;
@@ -14,6 +15,10 @@ export interface ManagedDiscordChannelContext {
 
 export interface ChannelContextService {
   findByDiscordChannelId(discordChannelId: string): Promise<ManagedDiscordChannelContext | null>;
+  updateCwdByDiscordChannelId(
+    discordChannelId: string,
+    cwd: string,
+  ): Promise<{ cwd: string } | null>;
 }
 
 function parseStringArray(value: string): string[] {
@@ -32,6 +37,18 @@ function parseStringArray(value: string): string[] {
 
 function isChannelMode(value: string): value is ChannelMode {
   return value === "shell-admin" || value === "session-linked";
+}
+
+function assertCwdInsideWorkspace(workspaceRoot: string, cwd: string): string {
+  const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+  const resolvedCwd = path.resolve(cwd);
+  const relativePath = path.relative(resolvedWorkspaceRoot, resolvedCwd);
+
+  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("Path escapes workspace root");
+  }
+
+  return resolvedCwd;
 }
 
 export function createChannelContextService(
@@ -67,6 +84,24 @@ export function createChannelContextService(
         cwd: channel.cwd,
         timeoutMs: defaultTimeoutMs,
       };
+    },
+    async updateCwdByDiscordChannelId(discordChannelId, cwd) {
+      const channel = await prisma.managedChannel.findUnique({
+        where: { discordChannelId },
+        include: { workspace: true },
+      });
+
+      if (!channel) {
+        return null;
+      }
+
+      const nextCwd = assertCwdInsideWorkspace(channel.workspace.absolutePath, cwd);
+      const updatedChannel = await prisma.managedChannel.update({
+        where: { discordChannelId },
+        data: { cwd: nextCwd },
+      });
+
+      return { cwd: updatedChannel.cwd };
     },
   };
 }

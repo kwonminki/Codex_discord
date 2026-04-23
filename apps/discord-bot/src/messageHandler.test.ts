@@ -22,11 +22,14 @@ describe("createDiscordMessageHandler", () => {
         stdout: "README.md\n",
         stderr: "",
         exitCode: 0,
+        cwd: "/repo/src",
       },
     });
+    const updateChannelCwd = vi.fn().mockResolvedValue({ cwd: "/repo/src" });
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      updateChannelCwd,
     });
 
     await handleMessage({
@@ -49,6 +52,10 @@ describe("createDiscordMessageHandler", () => {
         confirmedDangerous: false,
       },
     });
+    expect(updateChannelCwd).toHaveBeenCalledWith({
+      discordChannelId: "discord-channel-1",
+      cwd: "/repo/src",
+    });
     expect(replies).toEqual([
       [
         "Target: `macbook-pro-01` / `repo`",
@@ -66,6 +73,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => channelContext,
       submitCommandJob,
+      updateChannelCwd: vi.fn(),
     });
 
     await handleMessage({
@@ -87,6 +95,7 @@ describe("createDiscordMessageHandler", () => {
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => null,
       submitCommandJob,
+      updateChannelCwd: vi.fn(),
     });
     const reply = vi.fn();
 

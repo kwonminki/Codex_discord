@@ -16,6 +16,16 @@ export interface DiscordMessageLike {
 export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
+  updateChannelCwd: ControlApiClient["updateChannelCwd"];
+}
+
+function extractUpdatedCwd(response: Awaited<ReturnType<ControlApiClient["submitCommandJob"]>>): string | null {
+  if (!("result" in response) || typeof response.result !== "object" || response.result === null) {
+    return null;
+  }
+
+  const cwd = (response.result as { cwd?: unknown }).cwd;
+  return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
 }
 
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
@@ -67,6 +77,15 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           confirmedDangerous: false,
         },
       });
+      const nextCwd = extractUpdatedCwd(response);
+
+      if (nextCwd) {
+        await input.updateChannelCwd({
+          discordChannelId: message.channelId,
+          cwd: nextCwd,
+        });
+      }
+
       await message.reply(formatCommandResult(response));
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Control API request failed";

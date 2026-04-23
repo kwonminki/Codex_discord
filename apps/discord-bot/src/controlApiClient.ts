@@ -1,5 +1,5 @@
-import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ChannelMode } from "@codex-discord/core";
+import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
   workspaceRoot: string;
@@ -41,6 +41,11 @@ export interface CreateManagedChannelInput {
   channelMode: ChannelMode;
 }
 
+export interface UpdateChannelCwdInput {
+  discordChannelId: string;
+  cwd: string;
+}
+
 export interface ManagedChannelResponse {
   id: string;
   discordChannelId: string;
@@ -55,6 +60,7 @@ export interface ControlApiClient {
   getChannelContext(discordChannelId: string): Promise<ManagedDiscordChannelContext | null>;
   createCategoryMapping(input: CreateCategoryMappingInput): Promise<CategoryMappingResponse>;
   createManagedChannel(input: CreateManagedChannelInput): Promise<ManagedChannelResponse>;
+  updateChannelCwd(input: UpdateChannelCwdInput): Promise<{ cwd: string }>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -131,6 +137,25 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       }
 
       return body as ManagedChannelResponse;
+    },
+    async updateChannelCwd(channelInput) {
+      const response = await fetch(
+        `${baseUrl}/discord/channels/${encodeURIComponent(channelInput.discordChannelId)}/context`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cwd: channelInput.cwd }),
+        },
+      );
+      const body = (await response.json()) as { cwd: string } | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API channel context update failed";
+        throw new Error(message);
+      }
+
+      return body as { cwd: string };
     },
     async submitCommandJob(commandInput) {
       const response = await fetch(

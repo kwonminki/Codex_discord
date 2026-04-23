@@ -71,6 +71,33 @@ describe("runWorkspaceCommand", () => {
     }
   });
 
+  it("returns an updated cwd for cd commands without running a persistent shell", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      await fs.mkdir(path.join(workspaceRoot, "src"));
+      const expectedCwd = await fs.realpath(path.join(workspaceRoot, "src"));
+
+      const result = await runWorkspaceCommand({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        command: "cd src",
+        timeoutMs: 5_000,
+        confirmedDangerous: false,
+      });
+
+      expect(result).toEqual({
+        status: "completed",
+        stdout: `${expectedCwd}\n`,
+        stderr: "",
+        exitCode: 0,
+        cwd: expectedCwd,
+      });
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("blocks dangerous commands when confirmation is missing", async () => {
     const workspaceRoot = await makeWorkspace();
 

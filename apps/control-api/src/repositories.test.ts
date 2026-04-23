@@ -133,6 +133,15 @@ describe("repositories", () => {
       cwd: "/Users/me/project",
       timeoutMs: 4_000,
     });
+
+    await channelContexts.updateCwdByDiscordChannelId(
+      "discord-channel-1",
+      "/Users/me/project/src",
+    );
+
+    await expect(channelContexts.findByDiscordChannelId("discord-channel-1")).resolves.toMatchObject({
+      cwd: "/Users/me/project/src",
+    });
   });
 
   it("persists computer heartbeat and advertised workspaces", async () => {

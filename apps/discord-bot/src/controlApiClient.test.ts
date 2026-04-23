@@ -41,6 +41,10 @@ describe("createControlApiClient", () => {
           body: JSON.parse(Buffer.concat(chunks).toString()) as unknown,
         });
         response.writeHead(200, { "content-type": "application/json" });
+        if (request.method === "PATCH") {
+          response.end(JSON.stringify({ cwd: "/repo/src" }));
+          return;
+        }
         if (request.url?.includes("/category-mappings")) {
           response.end(
             JSON.stringify({
@@ -130,6 +134,12 @@ describe("createControlApiClient", () => {
       cwd: "/repo",
       status: "created",
     });
+    await expect(
+      client.updateChannelCwd({
+        discordChannelId: "discord-channel-1",
+        cwd: "/repo/src",
+      }),
+    ).resolves.toEqual({ cwd: "/repo/src" });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -163,6 +173,12 @@ describe("createControlApiClient", () => {
           discordChannelId: "discord-channel-1",
           computerId: "computer-1",
           channelMode: "shell-admin",
+        },
+      },
+      {
+        url: "/discord/channels/discord-channel-1/context",
+        body: {
+          cwd: "/repo/src",
         },
       },
     ]);
