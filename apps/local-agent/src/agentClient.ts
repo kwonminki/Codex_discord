@@ -14,6 +14,10 @@ export interface AgentJob {
   payload: unknown;
 }
 
+interface ParsedAgentJob extends AgentJob {
+  jobId: string;
+}
+
 export function createAgentHelloMessage(config: AgentConfig) {
   return {
     type: "agent-hello",
@@ -36,6 +40,33 @@ export async function handleAgentJob(job: AgentJob) {
   throw new Error("Unsupported agent job type");
 }
 
+function parseAgentJob(raw: WebSocket.RawData): ParsedAgentJob | null {
+  try {
+    const parsed = JSON.parse(raw.toString()) as Partial<AgentJob>;
+
+    if (typeof parsed.jobId !== "string" || typeof parsed.type !== "string") {
+      return null;
+    }
+
+    return {
+      jobId: parsed.jobId,
+      type: parsed.type,
+      payload: parsed.payload,
+    };
+  } catch (error) {
+    console.error("local-agent received invalid job payload", error);
+    return null;
+  }
+}
+
+function sendJobResult(socket: WebSocket, jobId: string, result: unknown) {
+  socket.send(JSON.stringify({ type: "agent-job-result", jobId, result }));
+}
+
+function sendJobError(socket: WebSocket, jobId: string, error: Error) {
+  socket.send(JSON.stringify({ type: "agent-job-result", jobId, error: { message: error.message } }));
+}
+
 export function connectAgent(wsUrl: string, config: AgentConfig) {
   const socket = new WebSocket(wsUrl);
 
@@ -45,11 +76,21 @@ export function connectAgent(wsUrl: string, config: AgentConfig) {
 
   socket.on("message", (raw) => {
     void (async () => {
-      const job = JSON.parse(raw.toString()) as AgentJob;
-      const result = await handleAgentJob(job);
-      socket.send(JSON.stringify({ type: "agent-job-result", jobId: job.jobId, result }));
+      const job = parseAgentJob(raw);
+
+      if (!job) {
+        return;
+      }
+
+      try {
+        const result = await handleAgentJob(job);
+        sendJobResult(socket, job.jobId, result);
+      } catch (error) {
+        const jobError = error instanceof Error ? error : new Error("Unknown agent job failure");
+        sendJobError(socket, job.jobId, jobError);
+      }
     })().catch((error) => {
-      console.error("local-agent failed to handle job", error);
+      console.error("local-agent failed to handle websocket message", error);
     });
   });
 
