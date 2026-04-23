@@ -24,4 +24,10 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 - `pnpm dev:agent`
 - `pnpm dev:bot`
 
+## Control API Loop
+
+- Local Agents connect to the Control API over `ws://<host>:<port>/agents`.
+- Command jobs can be submitted with `POST /computers/:computerId/jobs`.
+- The Control API forwards each job to the online Local Agent and returns the agent result envelope.
+
 Copy `.env.example` to `.env` and fill in the Discord credentials before starting the services.

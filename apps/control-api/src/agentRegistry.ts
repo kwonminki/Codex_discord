@@ -14,6 +14,7 @@ export interface AgentSummary {
 
 export interface AgentRegistry {
   register(agent: RegisteredAgent): void;
+  unregister(computerId: string, agent?: RegisteredAgent): void;
   get(computerId: string): RegisteredAgent | undefined;
   list(): AgentSummary[];
 }
@@ -24,6 +25,13 @@ export function createAgentRegistry(): AgentRegistry {
   return {
     register(agent) {
       agents.set(agent.computerId, agent);
+    },
+    unregister(computerId, agent) {
+      const currentAgent = agents.get(computerId);
+
+      if (!agent || currentAgent === agent) {
+        agents.delete(computerId);
+      }
     },
     get(computerId) {
       return agents.get(computerId);
