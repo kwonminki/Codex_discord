@@ -1,7 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(() => {
   delete process.env.DISCORD_TOKEN;
+  delete process.env.CONNECT_CONFIG_PATH;
   vi.resetModules();
   vi.unmock("./discordClient.js");
 });
@@ -55,6 +59,64 @@ describe("bot entrypoint", () => {
       expect.any(Function),
     );
     expect(login).toHaveBeenCalledWith("discord-token");
+  });
+
+  it("starts the bot from a generated direct mode config", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-config-"));
+    const configPath = path.join(tempRoot, "config.json");
+    process.env.CONNECT_CONFIG_PATH = configPath;
+
+    try {
+      await writeFile(
+        configPath,
+        JSON.stringify({
+          mode: "direct",
+          discord: {
+            token: "discord-token",
+            guildId: "guild-1",
+            allowedRoleIds: ["role-operator"],
+          },
+          direct: {
+            computerId: "local-dev",
+            computerDisplayName: "Local Dev",
+            workspaceId: "local-dev:/repo",
+            workspaceRoot: "/repo",
+            workspaceDisplayName: "repo",
+            channelId: "channel-1",
+            channelMode: "shell-admin",
+            timeoutMs: 30_000,
+            codexHome: "/Users/me/.codex",
+          },
+        }),
+        "utf8",
+      );
+
+      const login = vi.fn().mockResolvedValue("logged-in");
+      const once = vi.fn();
+      const on = vi.fn();
+      const attachDiscordMessageHandler = vi.fn();
+      const createDiscordClient = vi.fn(() => ({
+        login,
+        once,
+        on,
+      }));
+
+      vi.doMock("./discordClient.js", () => ({
+        attachDiscordMessageHandler,
+        createDiscordClient,
+      }));
+
+      const { startBot } = await import("./index.js");
+      await startBot();
+
+      expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
+        { login, once, on },
+        expect.any(Function),
+      );
+      expect(login).toHaveBeenCalledWith("discord-token");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("rejects startBot without a token", async () => {

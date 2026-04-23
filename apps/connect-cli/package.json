@@ -1,0 +1,6 @@
+{
+  "name": "@codex-discord/connect-cli",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {}
+}

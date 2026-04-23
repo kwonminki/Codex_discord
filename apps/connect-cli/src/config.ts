@@ -1,0 +1,139 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+export type ConnectMode = "direct" | "hub";
+
+export interface DiscordConfig {
+  token: string;
+  guildId: string;
+  allowedRoleIds: string[];
+}
+
+export interface DirectConnectConfig {
+  mode: "direct";
+  discord: DiscordConfig;
+  direct: {
+    computerId: string;
+    computerDisplayName: string;
+    workspaceId: string;
+    workspaceRoot: string;
+    workspaceDisplayName: string;
+    channelId: string;
+    channelMode: "shell-admin" | "session-linked";
+    timeoutMs: number;
+    codexHome: string;
+  };
+}
+
+export interface HubConnectConfig {
+  mode: "hub";
+  discord: DiscordConfig;
+  hub: {
+    controlApiUrl: string;
+    controlWsUrl: string;
+  };
+}
+
+export type ConnectConfig = DirectConnectConfig | HubConnectConfig;
+
+export interface BuildDirectConfigInput {
+  token: string;
+  guildId: string;
+  channelId: string;
+  roleIds: string | string[];
+  workspaceRoot: string;
+  workspaceDisplayName?: string;
+  computerId?: string;
+  computerDisplayName?: string;
+  codexHome?: string;
+  timeoutMs?: number;
+}
+
+export interface BuildHubConfigInput {
+  token: string;
+  guildId: string;
+  roleIds: string | string[];
+  controlApiUrl?: string;
+  controlWsUrl?: string;
+}
+
+export function parseRoleIds(roleIds: string | string[]): string[] {
+  const rawRoleIds = Array.isArray(roleIds) ? roleIds : roleIds.split(",");
+  return rawRoleIds.map((roleId) => roleId.trim()).filter((roleId) => roleId.length > 0);
+}
+
+export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectConfig {
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const computerId = input.computerId ?? "local-dev";
+
+  return {
+    mode: "direct",
+    discord: {
+      token: input.token,
+      guildId: input.guildId,
+      allowedRoleIds: parseRoleIds(input.roleIds),
+    },
+    direct: {
+      computerId,
+      computerDisplayName: input.computerDisplayName ?? "Local Dev",
+      workspaceId: `${computerId}:${workspaceRoot}`,
+      workspaceRoot,
+      workspaceDisplayName: input.workspaceDisplayName ?? path.basename(workspaceRoot),
+      channelId: input.channelId,
+      channelMode: "shell-admin",
+      timeoutMs: input.timeoutMs ?? 30_000,
+      codexHome: input.codexHome ?? path.join(os.homedir(), ".codex"),
+    },
+  };
+}
+
+export function buildHubConfig(input: BuildHubConfigInput): HubConnectConfig {
+  return {
+    mode: "hub",
+    discord: {
+      token: input.token,
+      guildId: input.guildId,
+      allowedRoleIds: parseRoleIds(input.roleIds),
+    },
+    hub: {
+      controlApiUrl: input.controlApiUrl ?? "http://127.0.0.1:4317",
+      controlWsUrl: input.controlWsUrl ?? "ws://127.0.0.1:4317/agents",
+    },
+  };
+}
+
+export function renderEnvFile(config: ConnectConfig): string {
+  const lines = [
+    'DATABASE_URL="file:./dev.sqlite"',
+    `CONNECT_MODE="${config.mode}"`,
+    'CONNECT_CONFIG_PATH=".connect/config.json"',
+    `DISCORD_TOKEN="${config.discord.token}"`,
+    `DISCORD_GUILD_ID="${config.discord.guildId}"`,
+    `DISCORD_ALLOWED_ROLE_IDS="${config.discord.allowedRoleIds.join(",")}"`,
+  ];
+
+  if (config.mode === "hub") {
+    lines.push(`CONTROL_API_URL="${config.hub.controlApiUrl}"`);
+    lines.push(`CONTROL_WS_URL="${config.hub.controlWsUrl}"`);
+  } else {
+    lines.push(`AGENT_COMPUTER_ID="${config.direct.computerId}"`);
+    lines.push(`AGENT_DISPLAY_NAME="${config.direct.computerDisplayName}"`);
+    lines.push(`AGENT_WORKSPACE_ROOT="${config.direct.workspaceRoot}"`);
+    lines.push(`AGENT_WORKSPACE_DISPLAY_NAME="${config.direct.workspaceDisplayName}"`);
+    lines.push(`CODEX_HOME="${config.direct.codexHome}"`);
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+export async function writeSetupFiles(input: { cwd: string; config: ConnectConfig }): Promise<void> {
+  const connectDirectory = path.join(input.cwd, ".connect");
+  await mkdir(connectDirectory, { recursive: true });
+  await writeFile(
+    path.join(connectDirectory, "config.json"),
+    `${JSON.stringify(input.config, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(path.join(input.cwd, ".env"), renderEnvFile(input.config), "utf8");
+}

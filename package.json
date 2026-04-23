@@ -9,6 +9,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "connect": "tsx apps/connect-cli/src/index.ts",
+    "connect:setup": "tsx apps/connect-cli/src/index.ts setup",
+    "connect:start": "tsx apps/connect-cli/src/index.ts start",
     "dev:control": "tsx apps/control-api/src/index.ts",
     "dev:bot": "tsx apps/discord-bot/src/index.ts",
     "dev:agent": "tsx apps/local-agent/src/index.ts"

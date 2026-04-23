@@ -20,6 +20,26 @@ Direct Codex chat transport is not faked: session links store real Codex session
 - `pnpm test`
 - `pnpm typecheck`
 
+## Quick Connect
+
+For one Discord server connected directly to this computer, run:
+
+```bash
+pnpm connect install --direct
+pnpm connect start --direct
+```
+
+Direct mode writes `.connect/config.json` and `.env`, then starts only the Discord bot. It does not need the Control API or Local Agent process, so it is the easiest single-computer setup. Direct mode cannot control multiple computers.
+
+For multi-computer hub mode, run:
+
+```bash
+pnpm connect setup --hub
+pnpm connect start --hub
+```
+
+Hub mode keeps the existing `Discord Bot -> Control API -> Local Agent` topology and supports multiple computers.
+
 ## Processes
 
 - `pnpm dev:control`
