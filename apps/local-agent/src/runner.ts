@@ -19,6 +19,9 @@ export interface RunWorkspaceCommandResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+  signal?: string | null;
+  killed?: boolean;
+  timedOut?: boolean;
 }
 
 export async function runWorkspaceCommand(input: RunWorkspaceCommandInput): Promise<RunWorkspaceCommandResult> {
@@ -53,13 +56,21 @@ export async function runWorkspaceCommand(input: RunWorkspaceCommandInput): Prom
       stdout?: string | Buffer;
       stderr?: string | Buffer;
       code?: number | null;
+      signal?: string | null;
+      killed?: boolean;
     };
+    const signal = execError.signal ?? null;
+    const killed = execError.killed ?? false;
+    const timedOut = Boolean(killed && signal === "SIGTERM" && input.timeoutMs > 0);
 
     return {
       status: "failed",
       stdout: typeof execError.stdout === "string" ? execError.stdout : execError.stdout?.toString() ?? "",
       stderr: typeof execError.stderr === "string" ? execError.stderr : execError.stderr?.toString() ?? "",
       exitCode: typeof execError.code === "number" ? execError.code : null,
+      signal,
+      killed,
+      timedOut,
     };
   }
 }

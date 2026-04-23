@@ -18,11 +18,30 @@ describe("workspace guard", () => {
   it("throws when a target escapes the workspace root", async () => {
     const workspaceRoot = await makeWorkspace();
 
-    expect(() => assertInsideWorkspace(workspaceRoot, path.dirname(workspaceRoot))).toThrow(
-      "Path escapes workspace root",
-    );
+    try {
+      expect(() => assertInsideWorkspace(workspaceRoot, path.dirname(workspaceRoot))).toThrow(
+        "Path escapes workspace root",
+      );
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 
-    await fs.rm(workspaceRoot, { recursive: true, force: true });
+  it("throws when a symlinked cwd points outside the workspace", async () => {
+    const workspaceRoot = await makeWorkspace();
+    const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-agent-outside-"));
+
+    try {
+      await fs.mkdir(path.join(workspaceRoot, "linked"), { recursive: true });
+      await fs.symlink(outsideRoot, path.join(workspaceRoot, "linked", "outside"));
+
+      expect(() => assertInsideWorkspace(workspaceRoot, path.join(workspaceRoot, "linked", "outside"))).toThrow(
+        "Path escapes workspace root",
+      );
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -70,6 +89,27 @@ describe("runWorkspaceCommand", () => {
       expect(result.exitCode).toBeNull();
       expect(result.stderr).toContain("confirmation");
       expect(result.stdout).toBe("");
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("exposes timeout details when a command exceeds the timeout", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      const result = await runWorkspaceCommand({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        command: 'node -e "setTimeout(() => {}, 1000)"',
+        timeoutMs: 50,
+        confirmedDangerous: false,
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.timedOut).toBe(true);
+      expect(result.killed).toBe(true);
+      expect(result.signal).toBeTruthy();
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
     }
