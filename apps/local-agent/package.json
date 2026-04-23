@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@codex-discord/core": "workspace:*",
-    "@codex-discord/codex-adapter": "workspace:*"
+    "@codex-discord/codex-adapter": "workspace:*",
+    "ws": "^8.18.1"
   }
 }
