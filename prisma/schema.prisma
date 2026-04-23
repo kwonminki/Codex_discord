@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Computer {
+  id              String      @id
+  displayName     String
+  hostname        String
+  status          String
+  allowedRoleIds  String
+  capabilities    String
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  workspaces      Workspace[]
+}
+
+model Workspace {
+  id           String            @id
+  computerId   String
+  absolutePath String
+  displayName  String
+  status       String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  computer     Computer          @relation(fields: [computerId], references: [id])
+  categories   CategoryMapping[]
+  channels     ManagedChannel[]
+}
+
+model CategoryMapping {
+  id                String    @id
+  discordCategoryId String    @unique
+  computerId        String
+  workspaceId       String
+  syncStatus        String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  workspace         Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+model ManagedChannel {
+  id                   String             @id
+  discordChannelId     String             @unique
+  computerId           String
+  workspaceId          String
+  channelMode          String
+  cwd                  String
+  status               String
+  currentSessionLinkId String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  workspace            Workspace          @relation(fields: [workspaceId], references: [id])
+  sessionLinks         CodexSessionLink[]
+  auditEvents          AuditEvent[]
+}
+
+model CodexSessionLink {
+  id                 String         @id
+  channelId          String
+  codexSessionId     String
+  origin             String
+  threadNameSnapshot String
+  attachedAt         DateTime
+  availabilityStatus String
+  createdAt          DateTime       @default(now())
+  channel            ManagedChannel @relation(fields: [channelId], references: [id])
+}
+
+model AuditEvent {
+  id                String          @id
+  channelId         String?
+  userId            String
+  targetComputerId  String
+  targetWorkspaceId String?
+  cwd               String?
+  rawCommand        String
+  tier              String
+  resultStatus      String
+  createdAt         DateTime        @default(now())
+  channel           ManagedChannel? @relation(fields: [channelId], references: [id])
+}
