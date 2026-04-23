@@ -256,21 +256,51 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
   return { tier: "safe-read", requiresConfirmation: false };
 }
 
+function isDangerousGitPush(tokens: string[]): boolean {
+  if (normalizeExecutableToken(tokens[0] ?? "") !== "git" || tokens[1] !== "push") {
+    return false;
+  }
+
+  return tokens.slice(2).some((token) => {
+    if (token === "-f" || token === "--force" || token === "--force-with-lease") {
+      return true;
+    }
+
+    if (token.startsWith("--force-with-lease=")) {
+      return true;
+    }
+
+    return token.startsWith("+");
+  });
+}
+
+function isDangerousFind(tokens: string[]): boolean {
+  if (normalizeExecutableToken(tokens[0] ?? "") !== "find") {
+    return false;
+  }
+
+  return tokens.some(
+    (token) =>
+      token === "-delete" ||
+      token === "-exec" ||
+      token === "-execdir" ||
+      token === "-ok" ||
+      token === "-okdir",
+  );
+}
+
 function classifySingleCommand(command: string): CommandClassification {
   const tokens = stripShellAssignments(tokenizeShellWords(command));
   const token = normalizeExecutableToken(tokens[0] ?? "");
   const isGitHardReset =
     token === "git" && tokens.includes("reset") && tokens.includes("--hard");
-  const isGitForcePush =
-    token === "git" &&
-    tokens.includes("push") &&
-    (tokens.includes("--force") || tokens.includes("--force-with-lease"));
 
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
     isGitHardReset ||
-    isGitForcePush
+    isDangerousGitPush(tokens) ||
+    isDangerousFind(tokens)
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }

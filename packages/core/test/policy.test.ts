@@ -17,35 +17,138 @@ describe("command policy", () => {
   });
 
   it("treats shell wrappers and control operators as dangerous mutate commands", () => {
-    expect(classifyCommand("sudo rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("command rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("exec rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("/bin/rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("/usr/bin/git reset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("/usr/bin/sudo rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("/usr/bin/git push --force").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("/usr/bin/git push --force-with-lease").tier).toBe(
-      "dangerous-mutate",
-    );
-    expect(classifyCommand('bash -lc "rm -rf /"').tier).toBe("dangerous-mutate");
-    expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("ls & rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("echo hi\nrm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("FOO=bar rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("PATH=/usr/bin git reset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand('echo "$(rm -rf /)"').tier).toBe("dangerous-mutate");
-    expect(classifyCommand('echo "`rm -rf /`"').tier).toBe("dangerous-mutate");
-    expect(classifyCommand("eval rm -rf /").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("source ./danger.sh").tier).toBe("dangerous-mutate");
-    expect(classifyCommand(". ./danger.sh").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("grep foo <(rm -rf /)").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("cat >(rm -rf /)").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git\treset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git\nreset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git -C /tmp reset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git -c core.pager=cat reset --hard HEAD").tier).toBe("dangerous-mutate");
-    expect(classifyCommand("git --work-tree=/tmp reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("sudo rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("command rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("exec rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("/bin/rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("/usr/bin/git reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("/usr/bin/sudo rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("/usr/bin/git push --force")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("/usr/bin/git push --force-with-lease")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("bash -lc \"rm -rf /\"")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("ls && rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("ls & rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("echo hi\nrm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("FOO=bar rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("PATH=/usr/bin git reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand('echo "$(rm -rf /)"')).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand('echo "`rm -rf /`"')).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("eval rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("source ./danger.sh")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand(". ./danger.sh")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("grep foo <(rm -rf /)")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("cat >(rm -rf /)")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git\treset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git\nreset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git -C /tmp reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git -c core.pager=cat reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git --work-tree=/tmp reset --hard HEAD")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push -f origin main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push --force-with-lease=main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("git push origin +main")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("find . -delete")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("find . -exec rm -rf {} \\;")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("find . -ok rm -rf {} \\;")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
   });
 
   it("keeps simple pipelines readable when every segment is safe read", () => {
@@ -101,11 +204,16 @@ describe("command policy", () => {
     const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-outside-"));
     const symlinkPath = path.join(workspaceRoot, "outside-link");
 
-    fs.symlinkSync(outsideRoot, symlinkPath);
+    try {
+      fs.symlinkSync(outsideRoot, symlinkPath);
 
-    expect(() => updateCwd(workspaceRoot, workspaceRoot, "outside-link")).toThrow(
-      "Path escapes workspace root",
-    );
+      expect(() => updateCwd(workspaceRoot, workspaceRoot, "outside-link")).toThrow(
+        "Path escapes workspace root",
+      );
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
   });
 
   it("blocks symlinked parent paths even when the final child does not exist", () => {
@@ -113,10 +221,15 @@ describe("command policy", () => {
     const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-policy-outside-"));
     const symlinkPath = path.join(workspaceRoot, "outside-link");
 
-    fs.symlinkSync(outsideRoot, symlinkPath);
+    try {
+      fs.symlinkSync(outsideRoot, symlinkPath);
 
-    expect(() =>
-      updateCwd(workspaceRoot, workspaceRoot, "outside-link/nonexistent-child"),
-    ).toThrow("Path escapes workspace root");
+      expect(() =>
+        updateCwd(workspaceRoot, workspaceRoot, "outside-link/nonexistent-child"),
+      ).toThrow("Path escapes workspace root");
+    } finally {
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
   });
 });
