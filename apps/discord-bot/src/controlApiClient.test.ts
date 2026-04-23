@@ -41,6 +41,32 @@ describe("createControlApiClient", () => {
           body: JSON.parse(Buffer.concat(chunks).toString()) as unknown,
         });
         response.writeHead(200, { "content-type": "application/json" });
+        if (request.url?.includes("/category-mappings")) {
+          response.end(
+            JSON.stringify({
+              id: "category:discord-category-1",
+              discordCategoryId: "discord-category-1",
+              computerId: "computer-1",
+              workspaceId: "workspace-1",
+              syncStatus: "created",
+            }),
+          );
+          return;
+        }
+        if (request.url?.includes("/channels")) {
+          response.end(
+            JSON.stringify({
+              id: "channel:discord-channel-1",
+              discordChannelId: "discord-channel-1",
+              computerId: "computer-1",
+              workspaceId: "workspace-1",
+              channelMode: "shell-admin",
+              cwd: "/repo",
+              status: "created",
+            }),
+          );
+          return;
+        }
         response.end(JSON.stringify({ jobId: "job-1", result: { status: "completed" } }));
       });
     });
@@ -73,6 +99,37 @@ describe("createControlApiClient", () => {
       cwd: "/repo",
       timeoutMs: 3_000,
     });
+    await expect(
+      client.createCategoryMapping({
+        id: "category:discord-category-1",
+        discordCategoryId: "discord-category-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+      }),
+    ).resolves.toEqual({
+      id: "category:discord-category-1",
+      discordCategoryId: "discord-category-1",
+      computerId: "computer-1",
+      workspaceId: "workspace-1",
+      syncStatus: "created",
+    });
+    await expect(
+      client.createManagedChannel({
+        id: "channel:discord-channel-1",
+        discordChannelId: "discord-channel-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+        channelMode: "shell-admin",
+      }),
+    ).resolves.toEqual({
+      id: "channel:discord-channel-1",
+      discordChannelId: "discord-channel-1",
+      computerId: "computer-1",
+      workspaceId: "workspace-1",
+      channelMode: "shell-admin",
+      cwd: "/repo",
+      status: "created",
+    });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -90,6 +147,23 @@ describe("createControlApiClient", () => {
       {
         url: "/discord/channels/discord-channel-1/context",
         body: null,
+      },
+      {
+        url: "/workspaces/workspace-1/category-mappings",
+        body: {
+          id: "category:discord-category-1",
+          discordCategoryId: "discord-category-1",
+          computerId: "computer-1",
+        },
+      },
+      {
+        url: "/workspaces/workspace-1/channels",
+        body: {
+          id: "channel:discord-channel-1",
+          discordChannelId: "discord-channel-1",
+          computerId: "computer-1",
+          channelMode: "shell-admin",
+        },
       },
     ]);
   });

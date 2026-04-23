@@ -1,4 +1,5 @@
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
+import type { ChannelMode } from "@codex-discord/core";
 
 export interface RunCommandJobPayload {
   workspaceRoot: string;
@@ -17,8 +18,43 @@ export interface SubmitCommandJobInput {
   payload: RunCommandJobPayload;
 }
 
+export interface CreateCategoryMappingInput {
+  id: string;
+  discordCategoryId: string;
+  computerId: string;
+  workspaceId: string;
+}
+
+export interface CategoryMappingResponse {
+  id: string;
+  discordCategoryId: string;
+  computerId: string;
+  workspaceId: string;
+  syncStatus: string;
+}
+
+export interface CreateManagedChannelInput {
+  id: string;
+  discordChannelId: string;
+  computerId: string;
+  workspaceId: string;
+  channelMode: ChannelMode;
+}
+
+export interface ManagedChannelResponse {
+  id: string;
+  discordChannelId: string;
+  computerId: string;
+  workspaceId: string;
+  channelMode: ChannelMode;
+  cwd: string;
+  status: string;
+}
+
 export interface ControlApiClient {
   getChannelContext(discordChannelId: string): Promise<ManagedDiscordChannelContext | null>;
+  createCategoryMapping(input: CreateCategoryMappingInput): Promise<CategoryMappingResponse>;
+  createManagedChannel(input: CreateManagedChannelInput): Promise<ManagedChannelResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -48,6 +84,53 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       }
 
       return body as ManagedDiscordChannelContext;
+    },
+    async createCategoryMapping(categoryInput) {
+      const response = await fetch(
+        `${baseUrl}/workspaces/${encodeURIComponent(categoryInput.workspaceId)}/category-mappings`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: categoryInput.id,
+            discordCategoryId: categoryInput.discordCategoryId,
+            computerId: categoryInput.computerId,
+          }),
+        },
+      );
+      const body = (await response.json()) as CategoryMappingResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API category mapping request failed";
+        throw new Error(message);
+      }
+
+      return body as CategoryMappingResponse;
+    },
+    async createManagedChannel(channelInput) {
+      const response = await fetch(
+        `${baseUrl}/workspaces/${encodeURIComponent(channelInput.workspaceId)}/channels`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: channelInput.id,
+            discordChannelId: channelInput.discordChannelId,
+            computerId: channelInput.computerId,
+            channelMode: channelInput.channelMode,
+          }),
+        },
+      );
+      const body = (await response.json()) as ManagedChannelResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API managed channel request failed";
+        throw new Error(message);
+      }
+
+      return body as ManagedChannelResponse;
     },
     async submitCommandJob(commandInput) {
       const response = await fetch(
