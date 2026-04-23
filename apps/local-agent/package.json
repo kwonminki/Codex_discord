@@ -1,0 +1,9 @@
+{
+  "name": "@codex-discord/local-agent",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@codex-discord/core": "workspace:*",
+    "@codex-discord/codex-adapter": "workspace:*"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@codex-discord/codex-adapter",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@codex-discord/core": "workspace:*"
+  }
+}
