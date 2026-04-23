@@ -52,6 +52,7 @@ const dangerousWrappers = new Set([
   "(",
 ]);
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
+const gitEnvConfigAssignmentPattern = /^(GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+)=/;
 
 interface ShellScanResult {
   segments: string[];
@@ -249,6 +250,20 @@ function stripShellAssignments(tokens: string[]): string[] {
   return tokens.slice(index);
 }
 
+function hasDangerousGitEnvConfig(tokens: string[]): boolean {
+  for (const token of tokens) {
+    if (!shellAssignmentPattern.test(token)) {
+      break;
+    }
+
+    if (gitEnvConfigAssignmentPattern.test(token)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
   if (left.tier === "dangerous-mutate" || right.tier === "dangerous-mutate") {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
@@ -290,6 +305,14 @@ function isDangerousGitConfig(tokens: string[]): boolean {
   return tokens.slice(configIndex + 1).some((token) => token.startsWith("alias."));
 }
 
+function isDangerousGitConfigEnv(command: string, tokens: string[]): boolean {
+  if (normalizeExecutableToken(tokens[0] ?? "") !== "git") {
+    return false;
+  }
+
+  return command.includes("--config-env=alias.") || tokens.some((token) => token.startsWith("--config-env="));
+}
+
 function isDangerousFind(tokens: string[]): boolean {
   if (normalizeExecutableToken(tokens[0] ?? "") !== "find") {
     return false;
@@ -306,7 +329,17 @@ function isDangerousFind(tokens: string[]): boolean {
 }
 
 function classifySingleCommand(command: string): CommandClassification {
-  const tokens = stripShellAssignments(tokenizeShellWords(command));
+  if (
+    command.includes("GIT_CONFIG_COUNT=") ||
+    command.includes("GIT_CONFIG_KEY_") ||
+    command.includes("GIT_CONFIG_VALUE_") ||
+    command.includes("--config-env=")
+  ) {
+    return { tier: "dangerous-mutate", requiresConfirmation: true };
+  }
+
+  const rawTokens = tokenizeShellWords(command);
+  const tokens = stripShellAssignments(rawTokens);
   const token = normalizeExecutableToken(tokens[0] ?? "");
   const isGitHardReset =
     token === "git" && tokens.includes("reset") && tokens.includes("--hard");
@@ -315,8 +348,10 @@ function classifySingleCommand(command: string): CommandClassification {
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
     token.startsWith("(") ||
+    hasDangerousGitEnvConfig(rawTokens) ||
     isGitHardReset ||
     isDangerousGitConfig(tokens) ||
+    isDangerousGitConfigEnv(command, tokens) ||
     isDangerousGitPush(tokens) ||
     isDangerousFind(tokens)
   ) {
