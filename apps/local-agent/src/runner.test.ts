@@ -101,7 +101,7 @@ describe("runWorkspaceCommand", () => {
       const result = await runWorkspaceCommand({
         workspaceRoot,
         cwd: workspaceRoot,
-        command: 'node -e "setTimeout(() => {}, 1000)"',
+        command: "sleep 1",
         timeoutMs: 50,
         confirmedDangerous: false,
       });

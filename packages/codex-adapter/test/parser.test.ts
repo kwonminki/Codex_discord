@@ -67,6 +67,28 @@ describe("codex parser", () => {
     await fs.rm(codexHome, { recursive: true, force: true });
   });
 
+  it("skips malformed index lines and keeps valid sessions", async () => {
+    const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-adapter-"));
+    const goodSessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
+
+    await fs.writeFile(
+      path.join(codexHome, "session_index.jsonl"),
+      `{"id":"missing-thread-name","updated_at":"2026-04-22T01:15:24.714Z"}\n{"id":"${goodSessionId}","thread_name":"Codex Discord planning","updated_at":"2026-04-22T01:15:24.714Z"}\n`,
+      "utf8",
+    );
+
+    await expect(discoverCodexSessions(codexHome)).resolves.toEqual([
+      {
+        id: goodSessionId,
+        threadName: "Codex Discord planning",
+        updatedAt: "2026-04-22T01:15:24.714Z",
+        cwdHint: null,
+      },
+    ]);
+
+    await fs.rm(codexHome, { recursive: true, force: true });
+  });
+
   it("ignores malformed transcript lines before a valid session meta line", async () => {
     const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-adapter-"));
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";

@@ -20,8 +20,10 @@ Normal messages are Codex chat. Operational commands use the `!` prefix. Example
 ## Safety Rules
 
 - Only users with an approved Discord role can run operator actions.
-- Each channel has its own working directory.
-- `cd` updates only the channel working directory.
+- Each channel starts with a working directory inside the workspace root, and `cd` updates only that channel working directory.
+- The Local Agent is not an OS sandbox or chroot; shell execution still runs as the local user.
+- Commands that reference absolute paths, parent traversal tokens, or shell escape patterns require confirmation.
+- Confirmed commands should be treated as full local-user shell access.
 - Dangerous commands require confirmation.
 - Offline computers block execution.
 - Missing Codex session links block session-dependent actions.

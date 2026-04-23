@@ -64,11 +64,17 @@ export async function discoverCodexSessions(codexHome: string): Promise<Discover
   }
 
   const sessionFilesById = await buildSessionFileIndex(path.join(codexHome, "sessions"));
-  const entries = indexText
-    .split("\n")
-    .filter(Boolean)
-    .map(parseSessionIndexLine)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const entries: CodexSessionIndexEntry[] = [];
+
+  for (const line of indexText.split("\n").filter(Boolean)) {
+    try {
+      entries.push(parseSessionIndexLine(line));
+    } catch {
+      continue;
+    }
+  }
+
+  entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return Promise.all(
     entries.map(async (entry) => ({

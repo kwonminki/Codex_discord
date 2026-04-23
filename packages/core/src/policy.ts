@@ -39,6 +39,9 @@ const dangerousWrappers = new Set([
   "sh",
   "zsh",
   "fish",
+  "timeout",
+  "xargs",
+  "watch",
   "env",
   "command",
   "exec",
@@ -353,6 +356,51 @@ function isDangerousFind(tokens: string[]): boolean {
   );
 }
 
+function hasOutsideWorkspacePathToken(tokens: string[]): boolean {
+  for (const token of tokens.slice(1)) {
+    const candidate = token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token;
+
+    if (
+      candidate === "~" ||
+      candidate.startsWith("~/") ||
+      path.isAbsolute(candidate) ||
+      candidate === ".." ||
+      candidate.startsWith("../") ||
+      candidate.startsWith("..\\") ||
+      candidate.startsWith("./..") ||
+      candidate.startsWith(".\\..") ||
+      candidate.includes("/../") ||
+      candidate.includes("\\..\\")
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isDangerousInterpreterEval(tokens: string[]): boolean {
+  const token = normalizeExecutableToken(tokens[0] ?? "");
+
+  if (token === "python" || token === "python3") {
+    return tokens.slice(1).some((argument) => argument === "-c" || argument.startsWith("-c="));
+  }
+
+  if (token === "node") {
+    return tokens.slice(1).some(
+      (argument) =>
+        argument === "-e" ||
+        argument === "-p" ||
+        argument === "--eval" ||
+        argument === "--print" ||
+        argument.startsWith("--eval=") ||
+        argument.startsWith("--print="),
+    );
+  }
+
+  return false;
+}
+
 function classifySingleCommand(command: string): CommandClassification {
   if (
     command.includes("GIT_CONFIG_COUNT=") ||
@@ -380,7 +428,9 @@ function classifySingleCommand(command: string): CommandClassification {
     isDangerousGitConfig(tokens) ||
     isDangerousGitConfigEnv(command, tokens) ||
     isDangerousGitPush(tokens) ||
-    isDangerousFind(tokens)
+    isDangerousFind(tokens) ||
+    isDangerousInterpreterEval(tokens) ||
+    hasOutsideWorkspacePathToken(tokens)
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }

@@ -227,6 +227,30 @@ describe("command policy", () => {
       tier: "dangerous-mutate",
       requiresConfirmation: true,
     });
+    expect(classifyCommand("timeout 1 rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("xargs rm -rf /")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand(`python -c 'import os; os.system("rm -rf /")'`)).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand(`python3 -c 'import os; os.system("rm -rf /")'`)).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand(`node -e 'require("child_process").execSync("rm -rf /")'`)).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand(`node --eval 'require("child_process").execSync("rm -rf /")'`)).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
   });
 
   it("keeps simple pipelines readable when every segment is safe read", () => {
@@ -235,6 +259,22 @@ describe("command policy", () => {
     expect(classifyCommand("grep foo\\|bar file").tier).toBe("safe-read");
     expect(classifyCommand('echo "--force"').tier).toBe("safe-read");
     expect(classifyCommand('echo "$((1+2))"').tier).toBe("safe-read");
+    expect(classifyCommand("cat /etc/passwd")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("ls /tmp")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("grep foo ../secret")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("cd /tmp")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
     expect(classifyCommand("echo hi > /tmp/x").tier).toBe("dangerous-mutate");
     expect(classifyCommand("ls >> /tmp/x").tier).toBe("dangerous-mutate");
     expect(classifyCommand("cat < /tmp/x").tier).toBe("dangerous-mutate");
