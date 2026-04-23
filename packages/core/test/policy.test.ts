@@ -20,8 +20,17 @@ describe("command policy", () => {
     expect(classifyCommand("sudo rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("command rm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("exec rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("/bin/rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("/usr/bin/git reset --hard HEAD").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("/usr/bin/sudo rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("/usr/bin/git push --force").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("/usr/bin/git push --force-with-lease").tier).toBe(
+      "dangerous-mutate",
+    );
     expect(classifyCommand('bash -lc "rm -rf /"').tier).toBe("dangerous-mutate");
     expect(classifyCommand("ls && rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("ls & rm -rf /").tier).toBe("dangerous-mutate");
+    expect(classifyCommand("echo hi\nrm -rf /").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git reset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\treset --hard HEAD").tier).toBe("dangerous-mutate");
     expect(classifyCommand("git\nreset --hard HEAD").tier).toBe("dangerous-mutate");
@@ -34,6 +43,7 @@ describe("command policy", () => {
     expect(classifyCommand("ls | grep foo").tier).toBe("safe-read");
     expect(classifyCommand('grep "foo|bar" file').tier).toBe("safe-read");
     expect(classifyCommand("grep foo\\|bar file").tier).toBe("safe-read");
+    expect(classifyCommand('echo "--force"').tier).toBe("safe-read");
   });
 
   it("allows bare commands only in shell-admin channels", () => {

@@ -19,7 +19,7 @@ export interface AuthorizationResult {
   reason?: string;
 }
 
-const safeReadCommands = new Set(["ls", "tree", "pwd", "cat", "find", "grep"]);
+const safeReadCommands = new Set(["ls", "tree", "pwd", "cat", "find", "grep", "echo"]);
 const normalMutateCommands = new Set([
   "mkdir",
   "touch",
@@ -96,11 +96,21 @@ function scanShell(command: string): ShellScanResult {
       return { segments: [command], hasDangerousControlSyntax: true };
     }
 
+    if (character === "&") {
+      return { segments: [command], hasDangerousControlSyntax: true };
+    }
+
     if (character === "|" && command[index + 1] === "|") {
       return { segments: [command], hasDangerousControlSyntax: true };
     }
 
-    if (character === ";" || character === "`" || (character === "$" && command[index + 1] === "(")) {
+    if (
+      character === ";" ||
+      character === "`" ||
+      character === "\n" ||
+      character === "\r" ||
+      (character === "$" && command[index + 1] === "(")
+    ) {
       return { segments: [command], hasDangerousControlSyntax: true };
     }
 
@@ -191,6 +201,10 @@ export function firstToken(command: string): string {
   return tokenizeShellWords(command)[0] ?? "";
 }
 
+function normalizeExecutableToken(token: string): string {
+  return path.basename(token);
+}
+
 function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
   if (left.tier === "dangerous-mutate" || right.tier === "dangerous-mutate") {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
@@ -205,16 +219,19 @@ function mergeTiers(left: CommandClassification, right: CommandClassification): 
 
 function classifySingleCommand(command: string): CommandClassification {
   const tokens = tokenizeShellWords(command);
-  const token = tokens[0] ?? "";
-  const resetIndex = tokens.indexOf("reset");
-  const hardIndex = tokens.indexOf("--hard");
-  const isGitHardReset = token === "git" && resetIndex > 0 && hardIndex > resetIndex;
+  const token = normalizeExecutableToken(tokens[0] ?? "");
+  const isGitHardReset =
+    token === "git" && tokens.includes("reset") && tokens.includes("--hard");
+  const isGitForcePush =
+    token === "git" &&
+    tokens.includes("push") &&
+    (tokens.includes("--force") || tokens.includes("--force-with-lease"));
 
   if (
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
-    command.includes("--force") ||
-    isGitHardReset
+    isGitHardReset ||
+    isGitForcePush
   ) {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
   }
