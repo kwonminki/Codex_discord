@@ -29,6 +29,6 @@ Codex Discord Sync connects a Discord server to one or more computers running Lo
 - Local Agents connect to the Control API over `ws://<host>:<port>/agents`.
 - Command jobs can be submitted with `POST /computers/:computerId/jobs`.
 - The Control API forwards each job to the online Local Agent and returns the agent result envelope.
-- The Discord bot sends command messages to `CONTROL_API_URL` for channels listed in `DISCORD_CHANNEL_CONTEXTS_JSON`.
+- The Discord bot resolves managed channel context from `CONTROL_API_URL` and sends command messages to the linked computer.
 
 Copy `.env.example` to `.env` and fill in the Discord credentials before starting the services.

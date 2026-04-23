@@ -1,18 +1,9 @@
-import type { ChannelMode } from "@codex-discord/core";
+import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import { formatCommandAck, formatCommandResult, formatDenied } from "./responses.js";
 
-export interface ManagedDiscordChannelContext {
-  channelMode: ChannelMode;
-  allowedRoleIds: string[];
-  computerId: string;
-  computerDisplayName: string;
-  workspaceDisplayName: string;
-  workspaceRoot: string;
-  cwd: string;
-  timeoutMs: number;
-}
+export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface DiscordMessageLike {
   authorBot: boolean;
@@ -23,7 +14,7 @@ export interface DiscordMessageLike {
 }
 
 export interface CreateDiscordMessageHandlerInput {
-  resolveChannelContext(channelId: string): ManagedDiscordChannelContext | null;
+  resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
 }
 
@@ -33,7 +24,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    const channelContext = input.resolveChannelContext(message.channelId);
+    const channelContext = await input.resolveChannelContext(message.channelId);
 
     if (!channelContext) {
       return;

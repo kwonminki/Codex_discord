@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { recordAuditEvent } from "./audit.js";
+import { createChannelContextService } from "./channelContexts.js";
 import { createRepositories } from "./repositories.js";
 
 const tempDatabaseDirectory = mkdtempSync(
@@ -92,6 +93,44 @@ describe("repositories", () => {
 
     expect(auditEvent.resultStatus).toBe("success");
     expect(auditEvent.channelId).toBe(channel.id);
+  });
+
+  it("builds a Discord channel context from the control database", async () => {
+    const repos = createRepositories(prisma);
+    const channelContexts = createChannelContextService(prisma, { defaultTimeoutMs: 4_000 });
+
+    await repos.computers.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+    });
+    const workspace = await repos.workspaces.create({
+      id: "workspace-1",
+      computerId: "computer-1",
+      absolutePath: "/Users/me/project",
+      displayName: "project",
+    });
+    await repos.channels.create({
+      id: "channel-1",
+      discordChannelId: "discord-channel-1",
+      computerId: "computer-1",
+      workspaceId: workspace.id,
+      channelMode: "shell-admin",
+      cwd: "/Users/me/project",
+    });
+
+    await expect(channelContexts.findByDiscordChannelId("discord-channel-1")).resolves.toEqual({
+      channelMode: "shell-admin",
+      allowedRoleIds: ["role-operator"],
+      computerId: "computer-1",
+      computerDisplayName: "macbook-pro-01",
+      workspaceDisplayName: "project",
+      workspaceRoot: "/Users/me/project",
+      cwd: "/Users/me/project",
+      timeoutMs: 4_000,
+    });
   });
 
   it("rejects channel creation when workspace belongs to another computer", async () => {

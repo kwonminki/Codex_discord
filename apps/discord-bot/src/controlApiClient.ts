@@ -1,3 +1,5 @@
+import type { ManagedDiscordChannelContext } from "./channelContext.js";
+
 export interface RunCommandJobPayload {
   workspaceRoot: string;
   cwd: string;
@@ -16,6 +18,7 @@ export interface SubmitCommandJobInput {
 }
 
 export interface ControlApiClient {
+  getChannelContext(discordChannelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -27,6 +30,25 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
   const baseUrl = input.baseUrl.replace(/\/+$/, "");
 
   return {
+    async getChannelContext(discordChannelId) {
+      const response = await fetch(
+        `${baseUrl}/discord/channels/${encodeURIComponent(discordChannelId)}/context`,
+      );
+
+      if (response.status === 404) {
+        return null;
+      }
+
+      const body = (await response.json()) as ManagedDiscordChannelContext | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API channel context request failed";
+        throw new Error(message);
+      }
+
+      return body as ManagedDiscordChannelContext;
+    },
     async submitCommandJob(commandInput) {
       const response = await fetch(
         `${baseUrl}/computers/${encodeURIComponent(commandInput.computerId)}/jobs`,

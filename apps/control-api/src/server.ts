@@ -1,10 +1,12 @@
 import Fastify from "fastify";
 import type { AgentRegistry } from "./agentRegistry.js";
 import { attachAgentWebSocketServer } from "./agentWebSocket.js";
+import type { ChannelContextService } from "./channelContexts.js";
 import { createJob, createJobDispatcher, type AgentJob } from "./jobs.js";
 
 export interface CreateServerInput {
   agentRegistry: AgentRegistry;
+  channelContexts?: ChannelContextService;
   jobTimeoutMs?: number;
 }
 
@@ -12,7 +14,7 @@ function isAgentJobType(value: unknown): value is AgentJob["type"] {
   return value === "run-command" || value === "list-codex-sessions";
 }
 
-export function createServer({ agentRegistry, jobTimeoutMs }: CreateServerInput) {
+export function createServer({ agentRegistry, channelContexts, jobTimeoutMs }: CreateServerInput) {
   const app = Fastify({
     logger: false,
   });
@@ -25,6 +27,19 @@ export function createServer({ agentRegistry, jobTimeoutMs }: CreateServerInput)
 
   app.get("/health", async () => ({ ok: true }));
   app.get("/computers", async () => agentRegistry.list());
+  app.get<{ Params: { discordChannelId: string } }>(
+    "/discord/channels/:discordChannelId/context",
+    async (request, reply) => {
+      const context =
+        (await channelContexts?.findByDiscordChannelId(request.params.discordChannelId)) ?? null;
+
+      if (!context) {
+        return reply.code(404).send({ error: { message: "Discord channel is not managed" } });
+      }
+
+      return context;
+    },
+  );
   app.post<{
     Params: { computerId: string };
     Body: { type?: unknown; payload?: unknown } | undefined;

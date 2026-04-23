@@ -213,4 +213,68 @@ describe("control api server", () => {
       await app.close();
     }
   });
+
+  it("returns a managed Discord channel context", async () => {
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      channelContexts: {
+        findByDiscordChannelId: async () => ({
+          channelMode: "shell-admin",
+          allowedRoleIds: ["role-operator"],
+          computerId: "computer-1",
+          computerDisplayName: "macbook-pro-01",
+          workspaceDisplayName: "repo",
+          workspaceRoot: "/repo",
+          cwd: "/repo",
+          timeoutMs: 3_000,
+        }),
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/discord/channels/discord-channel-1/context",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        channelMode: "shell-admin",
+        allowedRoleIds: ["role-operator"],
+        computerId: "computer-1",
+        computerDisplayName: "macbook-pro-01",
+        workspaceDisplayName: "repo",
+        workspaceRoot: "/repo",
+        cwd: "/repo",
+        timeoutMs: 3_000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 404 for unmanaged Discord channel context lookups", async () => {
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      channelContexts: {
+        findByDiscordChannelId: async () => null,
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/discord/channels/unmanaged/context",
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({
+        error: {
+          message: "Discord channel is not managed",
+        },
+      });
+    } finally {
+      await app.close();
+    }
+  });
 });

@@ -12,9 +12,27 @@ afterEach(async () => {
 });
 
 describe("createControlApiClient", () => {
-  it("posts command jobs to the control api", async () => {
+  it("posts command jobs to the control api and fetches channel context", async () => {
     const requests: Array<{ url: string; body: unknown }> = [];
     const server = createServer((request, response) => {
+      if (request.method === "GET") {
+        requests.push({ url: request.url ?? "", body: null });
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            channelMode: "shell-admin",
+            allowedRoleIds: ["role-operator"],
+            computerId: "computer-1",
+            computerDisplayName: "macbook-pro-01",
+            workspaceDisplayName: "repo",
+            workspaceRoot: "/repo",
+            cwd: "/repo",
+            timeoutMs: 3_000,
+          }),
+        );
+        return;
+      }
+
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
@@ -45,6 +63,16 @@ describe("createControlApiClient", () => {
         },
       }),
     ).resolves.toEqual({ jobId: "job-1", result: { status: "completed" } });
+    await expect(client.getChannelContext("discord-channel-1")).resolves.toEqual({
+      channelMode: "shell-admin",
+      allowedRoleIds: ["role-operator"],
+      computerId: "computer-1",
+      computerDisplayName: "macbook-pro-01",
+      workspaceDisplayName: "repo",
+      workspaceRoot: "/repo",
+      cwd: "/repo",
+      timeoutMs: 3_000,
+    });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -58,6 +86,10 @@ describe("createControlApiClient", () => {
             confirmedDangerous: false,
           },
         },
+      },
+      {
+        url: "/discord/channels/discord-channel-1/context",
+        body: null,
       },
     ]);
   });

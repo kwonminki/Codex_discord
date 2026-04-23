@@ -25,7 +25,7 @@ describe("createDiscordMessageHandler", () => {
       },
     });
     const handleMessage = createDiscordMessageHandler({
-      resolveChannelContext: () => channelContext,
+      resolveChannelContext: async () => channelContext,
       submitCommandJob,
     });
 
@@ -64,7 +64,7 @@ describe("createDiscordMessageHandler", () => {
     const replies: string[] = [];
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({
-      resolveChannelContext: () => channelContext,
+      resolveChannelContext: async () => channelContext,
       submitCommandJob,
     });
 
@@ -85,7 +85,7 @@ describe("createDiscordMessageHandler", () => {
   it("ignores bot and unmanaged channel messages", async () => {
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({
-      resolveChannelContext: () => null,
+      resolveChannelContext: async () => null,
       submitCommandJob,
     });
     const reply = vi.fn();
