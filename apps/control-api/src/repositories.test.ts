@@ -10,6 +10,7 @@ import { createChannelContextService } from "./channelContexts.js";
 import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createRepositories } from "./repositories.js";
+import { createSessionLinkService } from "./sessionLinks.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
 
 const tempDatabaseDirectory = mkdtempSync(
@@ -283,6 +284,54 @@ describe("repositories", () => {
       rawCommand: "ls",
       tier: "safe-read",
       resultStatus: "completed",
+    });
+  });
+
+  it("links an imported Codex session to a managed Discord channel", async () => {
+    const repos = createRepositories(prisma);
+    const sessionLinks = createSessionLinkService(prisma);
+
+    await repos.computers.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+    });
+    const workspace = await repos.workspaces.create({
+      id: "workspace-1",
+      computerId: "computer-1",
+      absolutePath: "/Users/me/project",
+      displayName: "project",
+    });
+    const channel = await repos.channels.create({
+      id: "channel-1",
+      discordChannelId: "discord-channel-1",
+      computerId: "computer-1",
+      workspaceId: workspace.id,
+      channelMode: "session-linked",
+      cwd: "/Users/me/project",
+    });
+
+    await expect(
+      sessionLinks.linkCodexSessionToDiscordChannel({
+        discordChannelId: "discord-channel-1",
+        id: "session-link-1",
+        codexSessionId: "codex-session-1",
+        origin: "imported_native",
+        threadNameSnapshot: "Codex Discord planning",
+      }),
+    ).resolves.toMatchObject({
+      id: "session-link-1",
+      channelId: channel.id,
+      codexSessionId: "codex-session-1",
+      origin: "imported_native",
+      threadNameSnapshot: "Codex Discord planning",
+      availabilityStatus: "available",
+    });
+    await expect(prisma.managedChannel.findUnique({ where: { id: channel.id } })).resolves.toMatchObject({
+      currentSessionLinkId: "session-link-1",
+      status: "attached",
     });
   });
 

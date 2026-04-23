@@ -4,6 +4,7 @@ import { createChannelContextService } from "./channelContexts.js";
 import { createCommandAuditService } from "./commandAudit.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createServer } from "./server.js";
+import { createSessionLinkService } from "./sessionLinks.js";
 import { createWorkspaceMappingService } from "./workspaceMappings.js";
 
 const host = process.env.CONTROL_API_HOST ?? "127.0.0.1";
@@ -17,6 +18,7 @@ const app = createServer({
   channelContexts: createChannelContextService(prisma, { defaultTimeoutMs: jobTimeoutMs }),
   commandAudit: createCommandAuditService(prisma),
   computerPresence: createComputerPresenceService(prisma),
+  sessionLinks: createSessionLinkService(prisma),
   workspaceMappings: createWorkspaceMappingService(prisma),
   jobTimeoutMs,
 });

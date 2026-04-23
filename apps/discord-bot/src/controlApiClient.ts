@@ -1,4 +1,4 @@
-import type { ChannelMode, CommandTier } from "@codex-discord/core";
+import type { ChannelMode, CommandTier, SessionOrigin } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
@@ -67,6 +67,23 @@ export interface CommandAuditResponse {
   resultStatus: string;
 }
 
+export interface LinkCodexSessionInput {
+  discordChannelId: string;
+  id: string;
+  codexSessionId: string;
+  origin: SessionOrigin;
+  threadNameSnapshot: string;
+}
+
+export interface LinkedCodexSessionResponse {
+  id: string;
+  channelId: string;
+  codexSessionId: string;
+  origin: SessionOrigin;
+  threadNameSnapshot: string;
+  availabilityStatus: string;
+}
+
 export interface ManagedChannelResponse {
   id: string;
   discordChannelId: string;
@@ -83,6 +100,7 @@ export interface ControlApiClient {
   createManagedChannel(input: CreateManagedChannelInput): Promise<ManagedChannelResponse>;
   updateChannelCwd(input: UpdateChannelCwdInput): Promise<{ cwd: string }>;
   recordCommandAudit(input: RecordCommandAuditInput): Promise<CommandAuditResponse>;
+  linkCodexSession(input: LinkCodexSessionInput): Promise<LinkedCodexSessionResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 
@@ -203,6 +221,30 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
       }
 
       return body as CommandAuditResponse;
+    },
+    async linkCodexSession(sessionInput) {
+      const response = await fetch(
+        `${baseUrl}/discord/channels/${encodeURIComponent(sessionInput.discordChannelId)}/session-links`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: sessionInput.id,
+            codexSessionId: sessionInput.codexSessionId,
+            origin: sessionInput.origin,
+            threadNameSnapshot: sessionInput.threadNameSnapshot,
+          }),
+        },
+      );
+      const body = (await response.json()) as LinkedCodexSessionResponse | ControlApiErrorResponse;
+
+      if (!response.ok) {
+        const errorBody = body as ControlApiErrorResponse;
+        const message = errorBody.error?.message ?? "Control API session link request failed";
+        throw new Error(message);
+      }
+
+      return body as LinkedCodexSessionResponse;
     },
     async submitCommandJob(commandInput) {
       const response = await fetch(

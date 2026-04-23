@@ -461,6 +461,60 @@ describe("control api server", () => {
     }
   });
 
+  it("links a Codex session to a managed Discord channel", async () => {
+    const linkInputs: unknown[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      sessionLinks: {
+        linkCodexSessionToDiscordChannel: async (input) => {
+          linkInputs.push(input);
+          return {
+            id: input.id,
+            channelId: "channel-1",
+            codexSessionId: input.codexSessionId,
+            origin: input.origin,
+            threadNameSnapshot: input.threadNameSnapshot,
+            availabilityStatus: "available",
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/discord/channels/discord-channel-1/session-links",
+        payload: {
+          id: "session-link-1",
+          codexSessionId: "codex-session-1",
+          origin: "imported_native",
+          threadNameSnapshot: "Codex Discord planning",
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({
+        id: "session-link-1",
+        channelId: "channel-1",
+        codexSessionId: "codex-session-1",
+        origin: "imported_native",
+        threadNameSnapshot: "Codex Discord planning",
+        availabilityStatus: "available",
+      });
+      expect(linkInputs).toEqual([
+        {
+          discordChannelId: "discord-channel-1",
+          id: "session-link-1",
+          codexSessionId: "codex-session-1",
+          origin: "imported_native",
+          threadNameSnapshot: "Codex Discord planning",
+        },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("creates a workspace category mapping through the control api", async () => {
     const requests: unknown[] = [];
     const app = createServer({

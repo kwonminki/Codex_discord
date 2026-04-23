@@ -61,6 +61,19 @@ describe("createControlApiClient", () => {
           );
           return;
         }
+        if (request.url?.includes("/session-links")) {
+          response.end(
+            JSON.stringify({
+              id: "session-link-1",
+              channelId: "channel-1",
+              codexSessionId: "codex-session-1",
+              origin: "imported_native",
+              threadNameSnapshot: "Codex Discord planning",
+              availabilityStatus: "available",
+            }),
+          );
+          return;
+        }
         if (request.url?.includes("/category-mappings")) {
           response.end(
             JSON.stringify({
@@ -176,6 +189,22 @@ describe("createControlApiClient", () => {
       tier: "safe-read",
       resultStatus: "completed",
     });
+    await expect(
+      client.linkCodexSession({
+        discordChannelId: "discord-channel-1",
+        id: "session-link-1",
+        codexSessionId: "codex-session-1",
+        origin: "imported_native",
+        threadNameSnapshot: "Codex Discord planning",
+      }),
+    ).resolves.toEqual({
+      id: "session-link-1",
+      channelId: "channel-1",
+      codexSessionId: "codex-session-1",
+      origin: "imported_native",
+      threadNameSnapshot: "Codex Discord planning",
+      availabilityStatus: "available",
+    });
     expect(requests).toEqual([
       {
         url: "/computers/computer-1/jobs",
@@ -225,6 +254,15 @@ describe("createControlApiClient", () => {
           rawCommand: "ls",
           tier: "safe-read",
           resultStatus: "completed",
+        },
+      },
+      {
+        url: "/discord/channels/discord-channel-1/session-links",
+        body: {
+          id: "session-link-1",
+          codexSessionId: "codex-session-1",
+          origin: "imported_native",
+          threadNameSnapshot: "Codex Discord planning",
         },
       },
     ]);

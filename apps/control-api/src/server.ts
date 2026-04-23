@@ -5,6 +5,7 @@ import type { ChannelContextService } from "./channelContexts.js";
 import type { CommandAuditService } from "./commandAudit.js";
 import type { ComputerPresenceService } from "./computerPresence.js";
 import { createJob, createJobDispatcher, type AgentJob } from "./jobs.js";
+import type { SessionLinkService } from "./sessionLinks.js";
 import type { WorkspaceMappingService } from "./workspaceMappings.js";
 
 export interface CreateServerInput {
@@ -12,6 +13,7 @@ export interface CreateServerInput {
   channelContexts?: ChannelContextService;
   commandAudit?: CommandAuditService;
   computerPresence?: ComputerPresenceService;
+  sessionLinks?: SessionLinkService;
   workspaceMappings?: WorkspaceMappingService;
   jobTimeoutMs?: number;
 }
@@ -33,11 +35,16 @@ function isChannelMode(value: unknown): value is "shell-admin" | "session-linked
   return value === "shell-admin" || value === "session-linked";
 }
 
+function isSessionOrigin(value: unknown): value is "managed_new" | "imported_native" {
+  return value === "managed_new" || value === "imported_native";
+}
+
 export function createServer({
   agentRegistry,
   channelContexts,
   commandAudit,
   computerPresence,
+  sessionLinks,
   workspaceMappings,
   jobTimeoutMs,
 }: CreateServerInput) {
@@ -206,6 +213,40 @@ export function createServer({
     }
 
     return reply.code(201).send(auditEvent);
+  });
+  app.post<{
+    Params: { discordChannelId: string };
+    Body: unknown;
+  }>("/discord/channels/:discordChannelId/session-links", async (request, reply) => {
+    if (!sessionLinks) {
+      return reply.code(503).send({ error: { message: "Session link service is not configured" } });
+    }
+
+    if (!isRecord(request.body)) {
+      return reply.code(400).send({ error: { message: "Invalid session link request" } });
+    }
+
+    const id = stringField(request.body, "id");
+    const codexSessionId = stringField(request.body, "codexSessionId");
+    const threadNameSnapshot = stringField(request.body, "threadNameSnapshot");
+
+    if (!id || !codexSessionId || !threadNameSnapshot || !isSessionOrigin(request.body.origin)) {
+      return reply.code(400).send({ error: { message: "Invalid session link request" } });
+    }
+
+    const link = await sessionLinks.linkCodexSessionToDiscordChannel({
+      discordChannelId: request.params.discordChannelId,
+      id,
+      codexSessionId,
+      origin: request.body.origin,
+      threadNameSnapshot,
+    });
+
+    if (!link) {
+      return reply.code(404).send({ error: { message: "Discord channel is not managed" } });
+    }
+
+    return reply.code(201).send(link);
   });
   app.post<{
     Params: { computerId: string };
