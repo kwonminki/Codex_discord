@@ -53,6 +53,7 @@ const dangerousWrappers = new Set([
 ]);
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
 const gitEnvConfigAssignmentPattern = /^(GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+)=/;
+const gitEnvAssignmentPattern = /^GIT_[A-Z0-9_]*=/;
 
 interface ShellScanResult {
   segments: string[];
@@ -264,6 +265,20 @@ function hasDangerousGitEnvConfig(tokens: string[]): boolean {
   return false;
 }
 
+function hasDangerousGitEnvPrefix(tokens: string[]): boolean {
+  for (const token of tokens) {
+    if (!shellAssignmentPattern.test(token)) {
+      break;
+    }
+
+    if (gitEnvAssignmentPattern.test(token)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function mergeTiers(left: CommandClassification, right: CommandClassification): CommandClassification {
   if (left.tier === "dangerous-mutate" || right.tier === "dangerous-mutate") {
     return { tier: "dangerous-mutate", requiresConfirmation: true };
@@ -359,6 +374,7 @@ function classifySingleCommand(command: string): CommandClassification {
     dangerousCommands.has(token) ||
     dangerousWrappers.has(token) ||
     token.startsWith("(") ||
+    hasDangerousGitEnvPrefix(rawTokens) ||
     hasDangerousGitEnvConfig(rawTokens) ||
     isGitHardReset ||
     isDangerousGitConfig(tokens) ||
