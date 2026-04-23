@@ -38,9 +38,7 @@ export function attachDiscordMessageHandler(
       channelId: discordMessage.channelId,
       content: discordMessage.content,
       roleIds: getRoleIds(discordMessage),
-      reply: async (replyMessage) => {
-        await discordMessage.reply(replyMessage);
-      },
+      reply: async (replyMessage) => discordMessage.reply(replyMessage),
     }).catch((error) => {
       console.error("discord-bot failed to handle message", error);
     });

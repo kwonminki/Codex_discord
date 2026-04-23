@@ -13,8 +13,9 @@ const channelContext: ManagedDiscordChannelContext = {
 };
 
 describe("createDiscordMessageHandler", () => {
-  it("submits an authorized shell command to the control api and replies with the result", async () => {
+  it("submits an authorized shell command to the control api and edits the queued reply with the result", async () => {
     const replies: string[] = [];
+    const edits: string[] = [];
     const submitCommandJob = vi.fn().mockResolvedValue({
       jobId: "job-1",
       result: {
@@ -42,6 +43,11 @@ describe("createDiscordMessageHandler", () => {
       roleIds: ["role-operator"],
       reply: async (message) => {
         replies.push(message);
+        return {
+          edit: async (nextMessage: string) => {
+            edits.push(nextMessage);
+          },
+        };
       },
     });
 
@@ -74,7 +80,17 @@ describe("createDiscordMessageHandler", () => {
         "command: `ls`",
         "state: queued",
       ].join("\n"),
-      ["state: `completed`", "exit: `0`", "stdout: `README.md `", "stderr: ``"].join("\n"),
+    ]);
+    expect(edits).toEqual([
+      [
+        "Target: `macbook-pro-01` / `repo`",
+        "cwd: `/repo`",
+        "command: `ls`",
+        "state: `completed`",
+        "exit: `0`",
+        "stdout: `README.md `",
+        "stderr: ``",
+      ].join("\n"),
     ]);
   });
 

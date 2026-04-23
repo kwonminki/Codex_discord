@@ -12,12 +12,20 @@ export function formatCommandAck(input: {
   cwd: string;
   command: string;
 }): string {
+  return [...formatCommandHeader(input), "state: queued"].join("\n");
+}
+
+function formatCommandHeader(input: {
+  computerDisplayName: string;
+  workspaceDisplayName: string;
+  cwd: string;
+  command: string;
+}): string[] {
   return [
     `Target: ${wrapDiscordText(input.computerDisplayName)} / ${wrapDiscordText(input.workspaceDisplayName)}`,
     `cwd: ${wrapDiscordText(input.cwd)}`,
     `command: ${wrapDiscordText(input.command)}`,
-    "state: queued",
-  ].join("\n");
+  ];
 }
 
 export function formatDenied(reason: string): string {
@@ -45,4 +53,19 @@ export function formatCommandResult(response: {
     `stdout: ${wrapDiscordText(String(result.stdout ?? ""))}`,
     `stderr: ${wrapDiscordText(String(result.stderr ?? ""))}`,
   ].join("\n");
+}
+
+export function formatCommandResultUpdate(
+  input: {
+    computerDisplayName: string;
+    workspaceDisplayName: string;
+    cwd: string;
+    command: string;
+  },
+  response: {
+    result?: unknown;
+    error?: { message: string };
+  },
+): string {
+  return [...formatCommandHeader(input), formatCommandResult(response)].join("\n");
 }

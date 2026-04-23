@@ -2,7 +2,7 @@ import { classifyCommand } from "@codex-discord/core";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import { routeDiscordMessage } from "./commandRouter.js";
-import { formatCommandAck, formatCommandResult, formatDenied } from "./responses.js";
+import { formatCommandAck, formatCommandResult, formatCommandResultUpdate, formatDenied } from "./responses.js";
 
 export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
@@ -12,7 +12,11 @@ export interface DiscordMessageLike {
   channelId: string;
   content: string;
   roleIds: string[];
-  reply(message: string): Promise<void>;
+  reply(message: string): Promise<DiscordReplyLike | void>;
+}
+
+export interface DiscordReplyLike {
+  edit(message: string): Promise<unknown>;
 }
 
 export interface CreateDiscordMessageHandlerInput {
@@ -60,6 +64,19 @@ async function recordCommandAudit(
   }
 }
 
+async function updateQueuedReply(
+  queuedReply: DiscordReplyLike | void,
+  fallbackReply: (message: string) => Promise<DiscordReplyLike | void>,
+  message: string,
+): Promise<void> {
+  if (queuedReply && typeof queuedReply.edit === "function") {
+    await queuedReply.edit(message);
+    return;
+  }
+
+  await fallbackReply(message);
+}
+
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
   const channelQueues = new Map<string, Promise<void>>();
 
@@ -91,14 +108,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    await message.reply(
-      formatCommandAck({
-        computerDisplayName: channelContext.computerDisplayName,
-        workspaceDisplayName: channelContext.workspaceDisplayName,
-        cwd: channelContext.cwd,
-        command: routed.command,
-      }),
-    );
+    const commandMessage = {
+      computerDisplayName: channelContext.computerDisplayName,
+      workspaceDisplayName: channelContext.workspaceDisplayName,
+      cwd: channelContext.cwd,
+      command: routed.command,
+    };
+    const queuedReply = await message.reply(formatCommandAck(commandMessage));
 
     try {
       const response = await input.submitCommandJob({
@@ -128,7 +144,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
       }
 
-      await message.reply(formatCommandResult(response));
+      await updateQueuedReply(
+        queuedReply,
+        (replyMessage) => message.reply(replyMessage),
+        formatCommandResultUpdate(commandMessage, response),
+      );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Control API request failed";
       await recordCommandAudit(input, {
@@ -138,7 +158,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         rawCommand: routed.command,
         resultStatus: "failed",
       });
-      await message.reply(formatCommandResult({ error: { message: messageText } }));
+      await updateQueuedReply(
+        queuedReply,
+        (replyMessage) => message.reply(replyMessage),
+        formatCommandResultUpdate(commandMessage, { error: { message: messageText } }),
+      );
     }
   }
 
