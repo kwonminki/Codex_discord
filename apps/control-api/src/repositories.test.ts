@@ -9,6 +9,7 @@ import { recordAuditEvent } from "./audit.js";
 import { createChannelContextService } from "./channelContexts.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createRepositories } from "./repositories.js";
+import { createWorkspaceMappingService } from "./workspaceMappings.js";
 
 const tempDatabaseDirectory = mkdtempSync(
   join(tmpdir(), "codex-discord-repositories-"),
@@ -174,6 +175,57 @@ describe("repositories", () => {
 
     await expect(prisma.computer.findUnique({ where: { id: "computer-1" } })).resolves.toMatchObject({
       status: "offline",
+    });
+  });
+
+  it("creates Discord category and channel mappings for a workspace", async () => {
+    const repos = createRepositories(prisma);
+    const workspaceMappings = createWorkspaceMappingService(prisma);
+
+    await repos.computers.upsertHeartbeat({
+      id: "computer-1",
+      displayName: "macbook-pro-01",
+      hostname: "macbook-pro-01.local",
+      allowedRoleIds: ["role-operator"],
+      capabilities: ["shell", "codex-import"],
+    });
+    await repos.workspaces.create({
+      id: "workspace-1",
+      computerId: "computer-1",
+      absolutePath: "/Users/me/project",
+      displayName: "project",
+    });
+
+    await expect(
+      workspaceMappings.createCategoryMapping({
+        id: "category-1",
+        discordCategoryId: "discord-category-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+      }),
+    ).resolves.toMatchObject({
+      id: "category-1",
+      discordCategoryId: "discord-category-1",
+      computerId: "computer-1",
+      workspaceId: "workspace-1",
+      syncStatus: "created",
+    });
+    await expect(
+      workspaceMappings.createManagedChannel({
+        id: "channel-1",
+        discordChannelId: "discord-channel-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+        channelMode: "shell-admin",
+      }),
+    ).resolves.toMatchObject({
+      id: "channel-1",
+      discordChannelId: "discord-channel-1",
+      computerId: "computer-1",
+      workspaceId: "workspace-1",
+      channelMode: "shell-admin",
+      cwd: "/Users/me/project",
+      status: "created",
     });
   });
 

@@ -3,6 +3,7 @@ import { createAgentRegistry } from "./agentRegistry.js";
 import { createChannelContextService } from "./channelContexts.js";
 import { createComputerPresenceService } from "./computerPresence.js";
 import { createServer } from "./server.js";
+import { createWorkspaceMappingService } from "./workspaceMappings.js";
 
 const host = process.env.CONTROL_API_HOST ?? "127.0.0.1";
 const port = Number(process.env.CONTROL_API_PORT ?? 4317);
@@ -14,6 +15,7 @@ const app = createServer({
   agentRegistry,
   channelContexts: createChannelContextService(prisma, { defaultTimeoutMs: jobTimeoutMs }),
   computerPresence: createComputerPresenceService(prisma),
+  workspaceMappings: createWorkspaceMappingService(prisma),
   jobTimeoutMs,
 });
 

@@ -359,4 +359,116 @@ describe("control api server", () => {
       await app.close();
     }
   });
+
+  it("creates a workspace category mapping through the control api", async () => {
+    const requests: unknown[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      workspaceMappings: {
+        createCategoryMapping: async (input) => {
+          requests.push(input);
+          return {
+            id: input.id,
+            discordCategoryId: input.discordCategoryId,
+            computerId: input.computerId,
+            workspaceId: input.workspaceId,
+            syncStatus: "created",
+          };
+        },
+        createManagedChannel: async () => {
+          throw new Error("unexpected channel create");
+        },
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/workspaces/workspace-1/category-mappings",
+        payload: {
+          id: "category-1",
+          discordCategoryId: "discord-category-1",
+          computerId: "computer-1",
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({
+        id: "category-1",
+        discordCategoryId: "discord-category-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+        syncStatus: "created",
+      });
+      expect(requests).toEqual([
+        {
+          id: "category-1",
+          discordCategoryId: "discord-category-1",
+          computerId: "computer-1",
+          workspaceId: "workspace-1",
+        },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("creates a managed channel through the control api", async () => {
+    const requests: unknown[] = [];
+    const app = createServer({
+      agentRegistry: createAgentRegistry(),
+      workspaceMappings: {
+        createCategoryMapping: async () => {
+          throw new Error("unexpected category create");
+        },
+        createManagedChannel: async (input) => {
+          requests.push(input);
+          return {
+            id: input.id,
+            discordChannelId: input.discordChannelId,
+            computerId: input.computerId,
+            workspaceId: input.workspaceId,
+            channelMode: input.channelMode,
+            cwd: "/repo",
+            status: "created",
+          };
+        },
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/workspaces/workspace-1/channels",
+        payload: {
+          id: "channel-1",
+          discordChannelId: "discord-channel-1",
+          computerId: "computer-1",
+          channelMode: "shell-admin",
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({
+        id: "channel-1",
+        discordChannelId: "discord-channel-1",
+        computerId: "computer-1",
+        workspaceId: "workspace-1",
+        channelMode: "shell-admin",
+        cwd: "/repo",
+        status: "created",
+      });
+      expect(requests).toEqual([
+        {
+          id: "channel-1",
+          discordChannelId: "discord-channel-1",
+          computerId: "computer-1",
+          workspaceId: "workspace-1",
+          channelMode: "shell-admin",
+        },
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
 });
