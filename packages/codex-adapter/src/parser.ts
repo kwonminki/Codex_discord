@@ -31,10 +31,19 @@ export function parseSessionIndexLine(line: string): CodexSessionIndexEntry {
 }
 
 export function parseSessionMetaLine(line: string): CodexSessionMeta | null {
-  const parsed = JSON.parse(line) as {
+  let parsed: {
     type?: string;
     payload?: { id?: string; cwd?: string };
   };
+
+  try {
+    parsed = JSON.parse(line) as {
+      type?: string;
+      payload?: { id?: string; cwd?: string };
+    };
+  } catch {
+    return null;
+  }
 
   if (parsed.type !== "session_meta" || !parsed.payload?.id || !parsed.payload.cwd) {
     return null;
@@ -48,7 +57,13 @@ export function parseSessionMetaLine(line: string): CodexSessionMeta | null {
 
 export async function discoverCodexSessions(codexHome: string): Promise<DiscoveredCodexSession[]> {
   const indexPath = path.join(codexHome, "session_index.jsonl");
-  const indexText = await fs.readFile(indexPath, "utf8");
+  const indexText = await readTextIfExists(indexPath);
+
+  if (indexText === null) {
+    return [];
+  }
+
+  const sessionFilesById = await buildSessionFileIndex(path.join(codexHome, "sessions"));
   const entries = indexText
     .split("\n")
     .filter(Boolean)
@@ -58,21 +73,24 @@ export async function discoverCodexSessions(codexHome: string): Promise<Discover
   return Promise.all(
     entries.map(async (entry) => ({
       ...entry,
-      cwdHint: await findCwdHint(codexHome, entry.id),
+      cwdHint: await findCwdHint(sessionFilesById, entry.id),
     })),
   );
 }
 
-async function findCwdHint(codexHome: string, sessionId: string): Promise<string | null> {
-  const sessionsRoot = path.join(codexHome, "sessions");
-  const files = await listJsonlFiles(sessionsRoot);
-  const sessionFile = files.find((file) => file.includes(sessionId));
+async function findCwdHint(sessionFilesById: Map<string, string>, sessionId: string): Promise<string | null> {
+  const sessionFile = sessionFilesById.get(sessionId);
 
   if (!sessionFile) {
     return null;
   }
 
-  const text = await fs.readFile(sessionFile, "utf8");
+  const text = await readTextIfExists(sessionFile);
+
+  if (text === null) {
+    return null;
+  }
+
   for (const line of text.split("\n").filter(Boolean)) {
     const meta = parseSessionMetaLine(line);
     if (meta?.id === sessionId) {
@@ -83,8 +101,33 @@ async function findCwdHint(codexHome: string, sessionId: string): Promise<string
   return null;
 }
 
+async function buildSessionFileIndex(root: string): Promise<Map<string, string>> {
+  const index = new Map<string, string>();
+  const files = await listJsonlFiles(root);
+
+  for (const file of files) {
+    const match = path.basename(file).match(/^.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+    if (match) {
+      index.set(match[1], file);
+    }
+  }
+
+  return index;
+}
+
 async function listJsonlFiles(root: string): Promise<string[]> {
-  const entries = await fs.readdir(root, { withFileTypes: true });
+  let entries: import("node:fs").Dirent[];
+
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (isEnoent(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+
   const nested = await Promise.all(
     entries.map(async (entry) => {
       const fullPath = path.join(root, entry.name);
@@ -97,4 +140,20 @@ async function listJsonlFiles(root: string): Promise<string[]> {
   );
 
   return nested.flat();
+}
+
+async function readTextIfExists(filePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isEnoent(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function isEnoent(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";
 }
