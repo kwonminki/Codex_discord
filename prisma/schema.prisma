@@ -31,6 +31,8 @@ model Workspace {
   computer     Computer          @relation(fields: [computerId], references: [id])
   categories   CategoryMapping[]
   channels     ManagedChannel[]
+
+  @@unique([id, computerId])
 }
 
 model CategoryMapping {
@@ -41,7 +43,7 @@ model CategoryMapping {
   syncStatus        String
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  workspace         Workspace @relation(fields: [workspaceId], references: [id])
+  workspace         Workspace @relation(fields: [workspaceId, computerId], references: [id, computerId])
 }
 
 model ManagedChannel {
@@ -55,9 +57,9 @@ model ManagedChannel {
   currentSessionLinkId String?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
-  workspace            Workspace          @relation(fields: [workspaceId], references: [id])
+  workspace            Workspace          @relation(fields: [workspaceId, computerId], references: [id, computerId])
   sessionLinks         CodexSessionLink[] @relation("ChannelSessionLinks")
-  currentSessionLink   CodexSessionLink?  @relation("CurrentSessionLink", fields: [currentSessionLinkId], references: [id])
+  currentSessionLink   CodexSessionLink?  @relation("CurrentSessionLink", fields: [currentSessionLinkId, id], references: [id, channelId])
   auditEvents          AuditEvent[]
 }
 
@@ -72,6 +74,8 @@ model CodexSessionLink {
   createdAt          DateTime         @default(now())
   channel            ManagedChannel   @relation("ChannelSessionLinks", fields: [channelId], references: [id])
   currentForChannels ManagedChannel[] @relation("CurrentSessionLink")
+
+  @@unique([id, channelId])
 }
 
 model AuditEvent {

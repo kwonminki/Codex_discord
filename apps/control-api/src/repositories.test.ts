@@ -28,6 +28,9 @@ const prisma = new PrismaClient();
 describe("repositories", () => {
   beforeEach(async () => {
     await prisma.auditEvent.deleteMany();
+    await prisma.managedChannel.updateMany({
+      data: { currentSessionLinkId: null },
+    });
     await prisma.codexSessionLink.deleteMany();
     await prisma.managedChannel.deleteMany();
     await prisma.categoryMapping.deleteMany();
@@ -128,5 +131,157 @@ describe("repositories", () => {
     ).rejects.toThrow(
       "Cannot create channel for computer computer-2 in workspace workspace-1 owned by computer computer-1.",
     );
+  });
+
+  it("rejects direct channel writes when workspace belongs to another computer", async () => {
+    await prisma.computer.createMany({
+      data: [
+        {
+          id: "computer-1",
+          displayName: "macbook-pro-01",
+          hostname: "macbook-pro-01.local",
+          status: "online",
+          allowedRoleIds: "[]",
+          capabilities: "[]",
+        },
+        {
+          id: "computer-2",
+          displayName: "macbook-pro-02",
+          hostname: "macbook-pro-02.local",
+          status: "online",
+          allowedRoleIds: "[]",
+          capabilities: "[]",
+        },
+      ],
+    });
+    await prisma.workspace.create({
+      data: {
+        id: "workspace-1",
+        computerId: "computer-1",
+        absolutePath: "/Users/me/project",
+        displayName: "project",
+        status: "valid",
+      },
+    });
+
+    await expect(
+      prisma.managedChannel.create({
+        data: {
+          id: "channel-1",
+          discordChannelId: "discord-channel-1",
+          computerId: "computer-2",
+          workspaceId: "workspace-1",
+          channelMode: "shell-admin",
+          cwd: "/Users/me/project",
+          status: "created",
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects direct category mapping writes when workspace belongs to another computer", async () => {
+    await prisma.computer.createMany({
+      data: [
+        {
+          id: "computer-1",
+          displayName: "macbook-pro-01",
+          hostname: "macbook-pro-01.local",
+          status: "online",
+          allowedRoleIds: "[]",
+          capabilities: "[]",
+        },
+        {
+          id: "computer-2",
+          displayName: "macbook-pro-02",
+          hostname: "macbook-pro-02.local",
+          status: "online",
+          allowedRoleIds: "[]",
+          capabilities: "[]",
+        },
+      ],
+    });
+    await prisma.workspace.create({
+      data: {
+        id: "workspace-1",
+        computerId: "computer-1",
+        absolutePath: "/Users/me/project",
+        displayName: "project",
+        status: "valid",
+      },
+    });
+
+    await expect(
+      prisma.categoryMapping.create({
+        data: {
+          id: "category-1",
+          discordCategoryId: "discord-category-1",
+          computerId: "computer-2",
+          workspaceId: "workspace-1",
+          syncStatus: "created",
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects setting a current session link from another channel", async () => {
+    await prisma.computer.create({
+      data: {
+        id: "computer-1",
+        displayName: "macbook-pro-01",
+        hostname: "macbook-pro-01.local",
+        status: "online",
+        allowedRoleIds: "[]",
+        capabilities: "[]",
+      },
+    });
+    await prisma.workspace.create({
+      data: {
+        id: "workspace-1",
+        computerId: "computer-1",
+        absolutePath: "/Users/me/project",
+        displayName: "project",
+        status: "valid",
+      },
+    });
+    await prisma.managedChannel.createMany({
+      data: [
+        {
+          id: "channel-a",
+          discordChannelId: "discord-channel-a",
+          computerId: "computer-1",
+          workspaceId: "workspace-1",
+          channelMode: "session-linked",
+          cwd: "/Users/me/project",
+          status: "created",
+        },
+        {
+          id: "channel-b",
+          discordChannelId: "discord-channel-b",
+          computerId: "computer-1",
+          workspaceId: "workspace-1",
+          channelMode: "session-linked",
+          cwd: "/Users/me/project",
+          status: "created",
+        },
+      ],
+    });
+    await prisma.codexSessionLink.create({
+      data: {
+        id: "session-link-a",
+        channelId: "channel-a",
+        codexSessionId: "codex-session-a",
+        origin: "created",
+        threadNameSnapshot: "thread-a",
+        attachedAt: new Date(),
+        availabilityStatus: "available",
+      },
+    });
+
+    await expect(
+      prisma.managedChannel.update({
+        where: { id: "channel-b" },
+        data: { currentSessionLinkId: "session-link-a" },
+      }),
+    ).rejects.toThrow();
   });
 });
