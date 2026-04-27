@@ -5,6 +5,31 @@ import { describe, expect, it } from "vitest";
 import { runCodexPrompt } from "./codexRunner.js";
 
 describe("runCodexPrompt", () => {
+  it("returns a coded failure when the Codex CLI command is missing", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+
+    try {
+      await expect(
+        runCodexPrompt({
+          workspaceRoot: tempRoot,
+          cwd: tempRoot,
+          prompt: "Explain this",
+          timeoutMs: 5_000,
+          codexCommand: path.join(tempRoot, "missing-codex"),
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        finalMessage: "",
+        sessionId: null,
+        stderr: "Codex CLI command was not found. Install Codex CLI or configure codexCommand.",
+        exitCode: null,
+        errorCode: "CODEX_CLI_NOT_FOUND",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("runs codex exec and captures the final message plus session id", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
     const fakeCodex = path.join(tempRoot, "codex");

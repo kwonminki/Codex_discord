@@ -81,7 +81,7 @@ describe("responses", () => {
       formatCommandResultUpdate(
         {
           computerDisplayName: "Local Dev",
-          workspaceDisplayName: "CodexDiscordConnecter",
+          workspaceDisplayName: "CodexDiscordConnector",
           cwd: "/repo",
           command: "ls",
         },
@@ -104,7 +104,7 @@ describe("responses", () => {
           fields: [
             {
               name: "Target",
-              value: "`Local Dev` / `CodexDiscordConnecter`",
+              value: "`Local Dev` / `CodexDiscordConnector`",
               inline: false,
             },
             {
@@ -169,7 +169,7 @@ describe("responses", () => {
     const payload = formatCommandResultUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         command: "pnpm test",
       },
@@ -205,7 +205,7 @@ describe("responses", () => {
       formatCommandResultUpdate(
         {
           computerDisplayName: "Local Dev",
-          workspaceDisplayName: "CodexDiscordConnecter",
+          workspaceDisplayName: "CodexDiscordConnector",
           cwd: "/repo",
           command: "__cdc_ls 1",
         },
@@ -358,7 +358,7 @@ describe("responses", () => {
     expect(
       formatCodexAck({
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "README를 요약해줘",
       }),
@@ -379,7 +379,7 @@ describe("responses", () => {
     const payload = formatCodexProgressUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "README를 요약해줘",
       },
@@ -414,7 +414,7 @@ describe("responses", () => {
   it("keeps Codex thought output collapsed until the progress toggle is opened", () => {
     const input = {
       computerDisplayName: "Local Dev",
-      workspaceDisplayName: "CodexDiscordConnecter",
+      workspaceDisplayName: "CodexDiscordConnector",
       cwd: "/repo",
       prompt: "UI 진행 표시 개선해줘",
     };
@@ -488,7 +488,7 @@ describe("responses", () => {
     const payload = formatCodexProgressUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "수정해줘",
       },
@@ -510,7 +510,7 @@ describe("responses", () => {
       formatCodexResultUpdate(
         {
           computerDisplayName: "Local Dev",
-          workspaceDisplayName: "CodexDiscordConnecter",
+          workspaceDisplayName: "CodexDiscordConnector",
           cwd: "/repo",
           prompt: "README를 요약해줘",
         },
@@ -534,7 +534,7 @@ describe("responses", () => {
     const payload = formatCodexResultUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "긴 보고서 작성",
       },
@@ -562,7 +562,7 @@ describe("responses", () => {
     const payload = formatCodexResultUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "README를 요약해줘",
       },
@@ -594,7 +594,7 @@ describe("responses", () => {
     const expanded = formatCodexResultUpdate(
       {
         computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnecter",
+        workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
         prompt: "README를 요약해줘",
       },
@@ -619,7 +619,7 @@ describe("responses", () => {
       formatCodexResultUpdate(
         {
           computerDisplayName: "Local Dev",
-          workspaceDisplayName: "CodexDiscordConnecter",
+          workspaceDisplayName: "CodexDiscordConnector",
           cwd: "/repo",
           prompt: "README를 요약해줘",
         },
@@ -633,9 +633,44 @@ describe("responses", () => {
           expect.objectContaining({
             title: "Codex failed",
             fields: expect.arrayContaining([
-              { name: "Target", value: "`Local Dev` / `CodexDiscordConnecter`", inline: false },
+              { name: "Target", value: "`Local Dev` / `CodexDiscordConnector`", inline: false },
               { name: "Working directory", value: "`/repo`", inline: false },
               { name: "Status", value: "`failed`", inline: true },
+            ]),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("shows Codex runner error codes on failed diagnostic embeds", () => {
+    expect(
+      formatCodexResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "CodexDiscordConnector",
+          cwd: "/repo",
+          prompt: "README를 요약해줘",
+        },
+        {
+          result: {
+            status: "failed",
+            finalMessage: "",
+            stderr: "Codex CLI command was not found. Install Codex CLI or configure codexCommand.",
+            sessionId: null,
+            exitCode: null,
+            errorCode: "CODEX_CLI_NOT_FOUND",
+          },
+        },
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            title: "Codex failed",
+            description: "Codex CLI command was not found. Install Codex CLI or configure codexCommand.",
+            fields: expect.arrayContaining([
+              { name: "Error code", value: "`CODEX_CLI_NOT_FOUND`", inline: true },
             ]),
           }),
         ],
@@ -654,7 +689,7 @@ describe("responses", () => {
         formatCodexResultUpdate(
           {
             computerDisplayName: "Local Dev",
-            workspaceDisplayName: "CodexDiscordConnecter",
+            workspaceDisplayName: "CodexDiscordConnector",
             cwd: "/repo",
             prompt: "이미지 생성해줘",
           },
@@ -1035,13 +1070,13 @@ describe("responses", () => {
             id: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
             threadName: "Codex Discord sync design",
             updatedAt: "2026-04-23T10:00:00.000Z",
-            workspaceDisplayName: "CodexDiscordConnecter",
+            workspaceDisplayName: "CodexDiscordConnector",
           },
           {
             id: "019db2be-b2b3-7e82-9e61-8c84b28ad288",
             threadName: "Direct mode setup",
             updatedAt: "2026-04-23T09:00:00.000Z",
-            workspaceDisplayName: "CodexDiscordConnecter",
+            workspaceDisplayName: "CodexDiscordConnector",
           },
         ],
         totalAvailable: 2,
@@ -1073,12 +1108,12 @@ describe("responses", () => {
                 {
                   label: "Codex Discord sync design",
                   value: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
-                  description: "CodexDiscordConnecter · 2026-04-23T10:00:00.000Z",
+                  description: "CodexDiscordConnector · 2026-04-23T10:00:00.000Z",
                 },
                 {
                   label: "Direct mode setup",
                   value: "019db2be-b2b3-7e82-9e61-8c84b28ad288",
-                  description: "CodexDiscordConnecter · 2026-04-23T09:00:00.000Z",
+                  description: "CodexDiscordConnector · 2026-04-23T09:00:00.000Z",
                 },
               ],
             },

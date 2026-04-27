@@ -115,7 +115,7 @@ export function routeDiscordComponent(customId: string, values: string[] = []): 
         cwd: ".",
         useCategory: true,
         initialPrompt:
-          "이 세션은 Codex Discord Connecter 봇 자체를 Discord에서 유지보수하기 위한 세션입니다. 변경 전 Git 상태를 확인하고, 수정 후 pnpm typecheck와 pnpm test를 실행한 뒤, Discord에서 reload 또는 봇 재시작으로 반영할 수 있게 안내해줘.",
+          "이 세션은 Codex Discord Connector 봇 자체를 Discord에서 유지보수하기 위한 세션입니다. 변경 전 Git 상태를 확인하고, 수정 후 pnpm typecheck와 pnpm test를 실행한 뒤, Discord에서 reload 또는 봇 재시작으로 반영할 수 있게 안내해줘.",
       });
     case COMPONENT_IDS.syncSelected: {
       const sessionIds = selectedSessionIds(values);

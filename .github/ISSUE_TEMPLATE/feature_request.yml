@@ -1,0 +1,68 @@
+name: Feature request
+description: Suggest an improvement to the connector workflow.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the operator workflow and safety expectations. This project can run local shell commands, so new capabilities need clear boundaries.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What operator task is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should happen from the user's point of view?
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Primary mode
+      options:
+        - Direct mode
+        - Hub mode
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Primary channel context
+      options:
+        - Admin/main channel
+        - Session-linked channel
+        - CLI
+        - Multiple contexts
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy considerations
+      description: Mention command execution, file access, Discord permissions, tokens, logs, transcripts, or package contents if affected.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional, but helpful for reviewing scope.

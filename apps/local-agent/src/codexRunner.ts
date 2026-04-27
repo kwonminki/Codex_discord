@@ -30,6 +30,7 @@ export interface RunCodexPromptResult {
   sessionId: string | null;
   stderr: string;
   exitCode: number | null;
+  errorCode?: string;
   signal?: string | null;
   timedOut?: boolean;
 }
@@ -492,6 +493,39 @@ function defaultCodexHome(): string {
   return path.join(os.homedir(), ".codex");
 }
 
+function spawnFailure(codexCommand: string, error: NodeJS.ErrnoException): RunCodexPromptResult {
+  if (error.code === "ENOENT") {
+    return {
+      status: "failed",
+      finalMessage: "",
+      sessionId: null,
+      stderr: "Codex CLI command was not found. Install Codex CLI or configure codexCommand.",
+      exitCode: null,
+      errorCode: "CODEX_CLI_NOT_FOUND",
+    };
+  }
+
+  if (error.code === "EACCES") {
+    return {
+      status: "failed",
+      finalMessage: "",
+      sessionId: null,
+      stderr: `Codex CLI command is not executable: ${codexCommand}`,
+      exitCode: null,
+      errorCode: "CODEX_CLI_NOT_EXECUTABLE",
+    };
+  }
+
+  return {
+    status: "failed",
+    finalMessage: "",
+    sessionId: null,
+    stderr: error.message,
+    exitCode: null,
+    errorCode: error.code ? `CODEX_CLI_SPAWN_${error.code}` : "CODEX_CLI_SPAWN_FAILED",
+  };
+}
+
 function isGeneratedImageFile(fileName: string): boolean {
   return /\.(?:png|jpe?g|gif|webp)$/i.test(fileName);
 }
@@ -566,7 +600,8 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       exitCode: number | null;
       signal: string | null;
       timedOut: boolean;
-    }>((resolve, reject) => {
+      spawnError?: NodeJS.ErrnoException;
+    }>((resolve) => {
       let timedOut = false;
       const timeout = setTimeout(() => {
         timedOut = true;
@@ -587,7 +622,12 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
       child.once("error", (error) => {
         clearTimeout(timeout);
-        reject(error);
+        resolve({
+          exitCode: null,
+          signal: null,
+          timedOut,
+          spawnError: error as NodeJS.ErrnoException,
+        });
       });
       child.once("close", (exitCode, signal) => {
         clearTimeout(timeout);
@@ -599,6 +639,10 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       });
     });
     await Promise.all(progressTasks);
+
+    if (result.spawnError) {
+      return spawnFailure(codexCommand, result.spawnError);
+    }
 
     const stdout = Buffer.concat(stdoutChunks).toString("utf8");
     const stderr = Buffer.concat(stderrChunks).toString("utf8");

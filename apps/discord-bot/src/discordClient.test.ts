@@ -339,7 +339,7 @@ describe("attachDiscordInteractionHandler", () => {
         formatCodexProgressUpdate(
           {
             computerDisplayName: "Local Dev",
-            workspaceDisplayName: "CodexDiscordConnecter",
+            workspaceDisplayName: "CodexDiscordConnector",
             cwd: "/repo",
             prompt: "진행 보여줘",
           },
@@ -355,7 +355,7 @@ describe("attachDiscordInteractionHandler", () => {
         formatCodexProgressUpdate(
           {
             computerDisplayName: "Local Dev",
-            workspaceDisplayName: "CodexDiscordConnecter",
+            workspaceDisplayName: "CodexDiscordConnector",
             cwd: "/repo",
             prompt: "진행 보여줘",
           },

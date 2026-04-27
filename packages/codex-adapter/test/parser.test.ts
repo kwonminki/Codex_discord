@@ -58,7 +58,7 @@ describe("codex parser", () => {
     expect(sessions[0]).toMatchObject({
       id: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
       threadName: "Codex Discord planning",
-      cwdHint: "/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnecter",
+      cwdHint: "/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnector",
     });
   });
 

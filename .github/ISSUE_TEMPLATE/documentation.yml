@@ -1,0 +1,36 @@
+name: Documentation task
+description: Improve README, operator docs, security docs, or contributor docs.
+title: "docs: "
+labels:
+  - documentation
+body:
+  - type: textarea
+    id: page
+    attributes:
+      label: Page or section
+      placeholder: README quick start, operator guide sync section, SECURITY.md, CONTRIBUTING.md, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is confusing or missing?
+      description: Describe what a new contributor or operator could misunderstand.
+    validations:
+      required: true
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Suggested improvement
+      description: What should the docs explain or show?
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Done when
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true

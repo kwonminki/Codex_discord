@@ -1,5 +1,5 @@
 {
-  "name": "codex-discord-connecter",
+  "name": "codex-discord-connector",
   "version": "0.1.0",
   "private": false,
   "description": "Run and manage local Codex workflows from trusted Discord channels.",
@@ -8,15 +8,15 @@
   "packageManager": "pnpm@9.15.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joungminsung/codex-discord-connecter.git"
+    "url": "git+https://github.com/joungminsung/codex-discord-connector.git"
   },
   "bugs": {
-    "url": "https://github.com/joungminsung/codex-discord-connecter/issues"
+    "url": "https://github.com/joungminsung/codex-discord-connector/issues"
   },
-  "homepage": "https://github.com/joungminsung/codex-discord-connecter#readme",
+  "homepage": "https://github.com/joungminsung/codex-discord-connector#readme",
   "bin": {
     "cdc": "bin/cdc.js",
-    "codex-discord-connecter": "bin/cdc.js"
+    "codex-discord-connector": "bin/cdc.js"
   },
   "engines": {
     "node": ">=20.12.0"

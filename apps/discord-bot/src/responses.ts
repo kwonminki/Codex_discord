@@ -2487,10 +2487,16 @@ export function formatCodexResultUpdate(
     finalMessage?: unknown;
     sessionId?: unknown;
     stderr?: unknown;
+    errorCode?: unknown;
   } | undefined;
   const failed = Boolean(response.error) || result?.status === "failed";
-  const finalMessage = response.error?.message ?? String(result?.finalMessage ?? result?.stderr ?? "Codex did not return a final message.");
+  const resultFinalMessage = typeof result?.finalMessage === "string" && result.finalMessage.trim().length > 0
+    ? result.finalMessage
+    : null;
+  const resultStderr = typeof result?.stderr === "string" && result.stderr.trim().length > 0 ? result.stderr : null;
+  const finalMessage = response.error?.message ?? resultFinalMessage ?? resultStderr ?? "Codex did not return a final message.";
   const sessionId = typeof result?.sessionId === "string" && result.sessionId.length > 0 ? result.sessionId : null;
+  const errorCode = typeof result?.errorCode === "string" && result.errorCode.length > 0 ? result.errorCode : null;
   const fields: DiscordEmbedFieldPayload[] = [
     {
       name: "Target",
@@ -2518,6 +2524,14 @@ export function formatCodexResultUpdate(
     fields.push({
       name: "Session",
       value: wrapDiscordText(sessionId),
+      inline: true,
+    });
+  }
+
+  if (failed && errorCode) {
+    fields.push({
+      name: "Error code",
+      value: wrapDiscordText(errorCode),
       inline: true,
     });
   }

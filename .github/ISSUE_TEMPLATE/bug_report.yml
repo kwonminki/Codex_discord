@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a reproducible problem in Codex Discord Connector.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include Discord tokens, `.env`, `.connect/`, private file contents, or Codex transcript/session data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: A short description of the problem.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options:
+        - Direct mode
+        - Hub mode
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Channel context
+      options:
+        - Admin/main channel
+        - Session-linked channel
+        - CLI only
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command, slash command, or button flow when possible.
+      placeholder: |
+        1. Run `...`
+        2. Click `...`
+        3. See `...`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove tokens, role IDs if sensitive, private paths, local file contents, and transcript data.
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        - OS:
+        - Node:
+        - pnpm:
+        - Package version or commit:
+        - Discord.js/runtime context:
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security impact
+      description: If this exposes tokens, local files, command execution, or Discord access controls, stop and follow SECURITY.md instead of posting details publicly.
+      placeholder: No known security impact.
+    validations:
+      required: true

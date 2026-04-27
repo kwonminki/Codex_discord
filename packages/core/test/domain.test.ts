@@ -7,8 +7,8 @@ import {
 
 describe("domain mapping", () => {
   it("names workspace categories with computer context", () => {
-    expect(createWorkspaceCategoryName("macbook-pro-01", "CodexDiscordConnecter")).toBe(
-      "macbook-pro-01 / CodexDiscordConnecter",
+    expect(createWorkspaceCategoryName("macbook-pro-01", "CodexDiscordConnector")).toBe(
+      "macbook-pro-01 / CodexDiscordConnector",
     );
   });
 

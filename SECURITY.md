@@ -1,6 +1,6 @@
 # Security Policy
 
-Codex Discord Connecter can execute shell commands and expose local workspace output through Discord. Treat it as a powerful local administration tool, not as a public bot.
+Codex Discord Connector can execute shell commands and expose local workspace output through Discord. Treat it as a powerful local administration tool, not as a public bot.
 
 ## Supported Versions
 
