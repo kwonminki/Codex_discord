@@ -369,8 +369,8 @@ import {
 
 describe("domain mapping", () => {
   it("names workspace categories with computer context", () => {
-    expect(createWorkspaceCategoryName("macbook-pro-01", "CodexDiscordConnecter")).toBe(
-      "macbook-pro-01 / CodexDiscordConnecter",
+    expect(createWorkspaceCategoryName("macbook-pro-01", "CodexDiscordConnector")).toBe(
+      "macbook-pro-01 / CodexDiscordConnector",
     );
   });
 
@@ -1096,7 +1096,7 @@ Create `packages/codex-adapter/test/fixtures/session_index.jsonl`:
 Create `packages/codex-adapter/test/fixtures/sessions/2026/04/22/rollout-2026-04-22T10-12-15-019db2be-b2b3-7e82-9e61-8c84b28ad287.jsonl`:
 
 ```jsonl
-{"timestamp":"2026-04-22T01:15:24.714Z","type":"session_meta","payload":{"id":"019db2be-b2b3-7e82-9e61-8c84b28ad287","cwd":"/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnecter","originator":"Codex Desktop","cli_version":"0.122.0-alpha.13"}}
+{"timestamp":"2026-04-22T01:15:24.714Z","type":"session_meta","payload":{"id":"019db2be-b2b3-7e82-9e61-8c84b28ad287","cwd":"/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnector","originator":"Codex Desktop","cli_version":"0.122.0-alpha.13"}}
 {"timestamp":"2026-04-22T01:15:25.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"기획하자"}]}}
 ```
 
@@ -1140,7 +1140,7 @@ describe("codex parser", () => {
     expect(sessions[0]).toMatchObject({
       id: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
       threadName: "Codex Discord planning",
-      cwdHint: "/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnecter",
+      cwdHint: "/Users/dgsw36/Desktop/01_프로젝트-개발/앱-도구/CodexDiscordConnector",
     });
   });
 });
