@@ -71,6 +71,124 @@ describe("runWorkspaceCommand", () => {
     }
   });
 
+  it("renders ls as a paginated file browser payload", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      await fs.mkdir(path.join(workspaceRoot, "apps"));
+      await fs.writeFile(path.join(workspaceRoot, "README.md"), "hello\n", "utf8");
+
+      const result = await runWorkspaceCommand({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        command: "ls",
+        timeoutMs: 5_000,
+        confirmedDangerous: false,
+      });
+
+      expect(result).toMatchObject({
+        status: "completed",
+        stderr: "",
+        exitCode: 0,
+        ui: {
+          kind: "file-browser",
+          page: 0,
+          pageSize: 25,
+          totalEntries: 2,
+          entries: [
+            { name: "apps", kind: "directory" },
+            { name: "README.md", kind: "file" },
+          ],
+        },
+      });
+      expect(result.stdout).toContain("apps/");
+      expect(result.stdout).toContain("README.md");
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("opens directories from the file browser and previews files", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      await fs.mkdir(path.join(workspaceRoot, "docs"));
+      await fs.writeFile(path.join(workspaceRoot, "README.md"), "hello preview\n", "utf8");
+
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "__cdc_open docs",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "completed",
+        cwd: await fs.realpath(path.join(workspaceRoot, "docs")),
+        ui: {
+          kind: "file-browser",
+          page: 0,
+        },
+      });
+
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "__cdc_open README.md",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "completed",
+        ui: {
+          kind: "file-card",
+          path: "README.md",
+          preview: "hello preview\n",
+        },
+      });
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns readable file browser errors instead of throwing", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "__cdc_open missing",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        stderr: "Target does not exist.",
+        exitCode: 1,
+      });
+
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "__cdc_open ..",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "blocked",
+        stderr: "Path escapes workspace root",
+        exitCode: null,
+      });
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("returns an updated cwd for cd commands without running a persistent shell", async () => {
     const workspaceRoot = await makeWorkspace();
 
@@ -92,6 +210,70 @@ describe("runWorkspaceCommand", () => {
         stderr: "",
         exitCode: 0,
         cwd: expectedCwd,
+      });
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("allows cd parent traversal when the target stays inside the workspace", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      const nested = path.join(workspaceRoot, "apps");
+      await fs.mkdir(nested);
+      const expectedCwd = await fs.realpath(workspaceRoot);
+
+      const result = await runWorkspaceCommand({
+        workspaceRoot,
+        cwd: nested,
+        command: "cd ..",
+        timeoutMs: 5_000,
+        confirmedDangerous: false,
+      });
+
+      expect(result).toEqual({
+        status: "completed",
+        stdout: `${expectedCwd}\n`,
+        stderr: "",
+        exitCode: 0,
+        cwd: expectedCwd,
+      });
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps cd commands inside the workspace and rejects file targets", async () => {
+    const workspaceRoot = await makeWorkspace();
+
+    try {
+      await fs.writeFile(path.join(workspaceRoot, "README.md"), "hello\n", "utf8");
+
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "cd ..",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "blocked",
+        stderr: "Path escapes workspace root",
+      });
+
+      await expect(
+        runWorkspaceCommand({
+          workspaceRoot,
+          cwd: workspaceRoot,
+          command: "cd README.md",
+          timeoutMs: 5_000,
+          confirmedDangerous: false,
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        stderr: "Target is not a directory.",
       });
     } finally {
       await fs.rm(workspaceRoot, { recursive: true, force: true });

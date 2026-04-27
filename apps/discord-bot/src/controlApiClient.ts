@@ -1,4 +1,4 @@
-import type { ChannelMode, CommandTier, SessionOrigin } from "@codex-discord/core";
+import type { ChannelMode, CommandTier, SessionOrigin } from "../../../packages/core/src/index.js";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
@@ -15,7 +15,16 @@ export interface RunCodexPromptJobPayload {
   prompt: string;
   timeoutMs: number;
   sessionId: string | null;
+  mode?: "prompt" | "review";
+  model?: string | null;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
 }
+
+export type CodexPromptProgressEvent =
+  | { type: "thread-started"; sessionId: string }
+  | { type: "agent-message"; text: string }
+  | { type: "operation-progress"; label: string; detail?: string; eventType: string }
+  | { type: "codex-event"; eventType: string };
 
 export type ControlApiJobResponse =
   | { jobId: string; result: unknown }
@@ -29,11 +38,15 @@ export interface SubmitCommandJobInput {
 export interface SubmitCodexPromptInput {
   computerId: string;
   payload: RunCodexPromptJobPayload;
+  onProgress?: (event: CodexPromptProgressEvent) => Promise<void> | void;
 }
 
 export interface ListCodexSessionsInput {
   computerId: string;
   codexHome: string;
+  activeOnly?: boolean;
+  includeExecSessions?: boolean;
+  includeSessionIds?: string[];
 }
 
 export interface WorkspaceInventoryItem {
@@ -144,6 +157,91 @@ export interface ControlApiClient {
 
 interface ControlApiErrorResponse {
   error?: { message?: string };
+}
+
+function isNdjsonResponse(response: Response): boolean {
+  return response.headers.get("content-type")?.includes("application/x-ndjson") ?? false;
+}
+
+function parseNdjsonLine(line: string): unknown | null {
+  const trimmedLine = line.trim();
+
+  if (trimmedLine.length === 0) {
+    return null;
+  }
+
+  return JSON.parse(trimmedLine) as unknown;
+}
+
+function isControlApiJobError(response: ControlApiJobResponse): response is { jobId: string; error: { message: string } } {
+  return "error" in response;
+}
+
+async function readCodexPromptStream(
+  response: Response,
+  onProgress: (event: CodexPromptProgressEvent) => Promise<void> | void,
+): Promise<ControlApiJobResponse> {
+  if (!response.body) {
+    throw new Error("Control API Codex prompt stream was empty");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResponse: ControlApiJobResponse | null = null;
+
+  async function processLine(line: string): Promise<void> {
+    const parsed = parseNdjsonLine(line) as
+      | { type?: unknown; event?: unknown; jobId?: unknown; result?: unknown; error?: { message?: unknown } }
+      | null;
+
+    if (!parsed) {
+      return;
+    }
+
+    if (parsed.type === "progress" && parsed.event) {
+      await onProgress(parsed.event as CodexPromptProgressEvent);
+      return;
+    }
+
+    if (parsed.type === "result" && typeof parsed.jobId === "string") {
+      finalResponse =
+        parsed.error && typeof parsed.error.message === "string"
+          ? { jobId: parsed.jobId, error: { message: parsed.error.message } }
+          : { jobId: parsed.jobId, result: parsed.result };
+    }
+  }
+
+  for (;;) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      await processLine(line);
+    }
+  }
+
+  buffer += decoder.decode();
+  await processLine(buffer);
+
+  if (!finalResponse) {
+    throw new Error("Control API Codex prompt stream ended without a result");
+  }
+
+  const completedResponse = finalResponse as ControlApiJobResponse;
+
+  if (isControlApiJobError(completedResponse)) {
+    throw new Error(completedResponse.error.message);
+  }
+
+  return completedResponse;
 }
 
 export function createControlApiClient(input: { baseUrl: string }): ControlApiClient {
@@ -302,7 +400,12 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ codexHome: sessionInput.codexHome }),
+          body: JSON.stringify({
+            codexHome: sessionInput.codexHome,
+            activeOnly: sessionInput.activeOnly,
+            includeExecSessions: sessionInput.includeExecSessions,
+            includeSessionIds: sessionInput.includeSessionIds,
+          }),
         },
       );
       const body = (await response.json()) as ControlApiJobResponse | ControlApiErrorResponse;
@@ -342,13 +445,22 @@ export function createControlApiClient(input: { baseUrl: string }): ControlApiCl
         `${baseUrl}/computers/${encodeURIComponent(promptInput.computerId)}/jobs`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...(promptInput.onProgress ? { accept: "application/x-ndjson" } : {}),
+          },
           body: JSON.stringify({
             type: "run-codex-prompt",
+            ...(promptInput.onProgress ? { streamProgress: true } : {}),
             payload: promptInput.payload,
           }),
         },
       );
+
+      if (promptInput.onProgress && response.ok && isNdjsonResponse(response)) {
+        return readCodexPromptStream(response, promptInput.onProgress);
+      }
+
       const body = (await response.json()) as ControlApiJobResponse | ControlApiErrorResponse;
 
       if (!response.ok) {

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ChannelMode } from "@codex-discord/core";
+import type { ChannelMode } from "../../../packages/core/src/index.js";
 
 export interface DirectConnectConfig {
   mode: "direct";
@@ -14,6 +14,7 @@ export interface DirectConnectConfig {
     computerDisplayName: string;
     workspaceId: string;
     workspaceRoot: string;
+    initialCwd?: string;
     workspaceDisplayName: string;
     channelId: string;
     channelMode: ChannelMode;

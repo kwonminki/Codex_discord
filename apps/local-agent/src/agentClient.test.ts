@@ -147,6 +147,93 @@ describe("agent client", () => {
     socket.close();
   });
 
+  it("sends progress envelopes while a Codex websocket job is running", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-agent-"));
+    const fakeCodex = path.join(workspaceRoot, "codex");
+    const server = new WebSocketServer({ port: 0 });
+    const serverReady = once(server, "listening");
+    cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+    cleanup.push(() => fs.rm(workspaceRoot, { recursive: true, force: true }));
+
+    await fs.writeFile(
+      fakeCodex,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "console.log(JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: '중간 출력입니다.' } }));",
+        "fs.writeFileSync(args[outputIndex + 1], 'Final answer');",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.chmod(fakeCodex, 0o755);
+
+    await serverReady;
+    const address = server.address();
+    if (typeof address === "string" || !address) {
+      throw new Error("Expected server to listen on a TCP port");
+    }
+
+    const socket = connectAgent(`ws://127.0.0.1:${address.port}/agents`, {
+      computerId: "computer-1",
+      displayName: "Computer 1",
+      capabilities: ["shell", "codex-import"],
+      workspaces: [],
+    });
+    cleanup.push(
+      () =>
+        new Promise<void>((resolve) => {
+          if (socket.readyState === WebSocket.CLOSED) {
+            resolve();
+            return;
+          }
+
+          socket.once("close", () => resolve());
+          socket.close();
+        }),
+    );
+
+    const [connection] = await once(server, "connection");
+    const serverSocket = connection as WebSocket;
+    await once(serverSocket, "message");
+
+    const progressMessage = once(serverSocket, "message");
+    serverSocket.send(
+      JSON.stringify({
+        jobId: "job-codex-1",
+        type: "run-codex-prompt",
+        payload: {
+          workspaceRoot,
+          cwd: workspaceRoot,
+          prompt: "Explain this",
+          timeoutMs: 5_000,
+          codexCommand: fakeCodex,
+        },
+      }),
+    );
+
+    const [rawProgress] = await progressMessage;
+    expect(JSON.parse(rawProgress.toString())).toEqual({
+      type: "agent-job-progress",
+      jobId: "job-codex-1",
+      event: {
+        type: "agent-message",
+        text: "중간 출력입니다.",
+      },
+    });
+
+    const [rawResult] = await once(serverSocket, "message");
+    expect(JSON.parse(rawResult.toString())).toMatchObject({
+      type: "agent-job-result",
+      jobId: "job-codex-1",
+      result: {
+        status: "completed",
+        finalMessage: "Final answer",
+      },
+    });
+  });
+
   it("sends an error envelope for an unsupported websocket job", async () => {
     const server = new WebSocketServer({ port: 0 });
     cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));

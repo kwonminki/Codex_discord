@@ -1,101 +1,565 @@
-# Codex Discord Sync
+# Codex Discord Connecter
 
-Codex Discord Sync connects a Discord server to one or more computers running Local Agents.
+Codex Discord Connecter는 로컬 컴퓨터의 Codex 세션과 파일 작업을 Discord 서버에서 조작할 수 있게 연결하는 브리지입니다. Discord의 카테고리/채널 구조를 Codex의 폴더/세션 구조와 맞춰서, Discord 안에서 Codex와 대화하고 로컬 파일을 탐색하며 필요한 shell 명령을 실행할 수 있습니다.
 
-## MVP
+> Security notice: this tool can execute shell commands on the machine where the connector is running. Only install it on machines you control, connect it only to trusted private Discord servers, and restrict access with Discord role allowlists.
 
-- Register computers.
-- Map workspaces to Discord categories.
-- Create managed Discord channels.
-- Run role-gated shell commands.
-- Ask Codex from Discord with `codex <prompt>` in shell-admin channels.
-- Import native Codex sessions.
-- Record execution audit events.
+## 핵심 기능
 
-Codex chat uses the local `codex exec` CLI and stores the returned session id per Discord channel while the bot process is running. Shell-admin channels use `codex <prompt>` for Codex prompts. Session-linked channels send regular text to Codex and use `!` for shell commands.
+- Discord 관리자 채널에서 로컬 컴퓨터의 파일 구조를 탐색하고 shell 명령을 실행합니다.
+- Discord에서 Codex에게 자연어로 요청하고 진행 상황과 최종 답변을 받습니다.
+- Codex의 작업 과정을 `파일 탐색 중`, `이미지 생성 중`, `컨텍스트 압축 중`처럼 한국어 진행 상태로 표시합니다.
+- Codex가 최종 답변에 로컬 이미지 파일을 포함하면 Discord 메시지에 이미지 파일로 첨부합니다.
+- Codex workspace 폴더를 Discord 카테고리로, Codex 세션을 Discord 텍스트 채널로 동기화합니다.
+- `sync` 기본값은 세션 선택 UI입니다. 전체 동기화는 `sync all` 또는 `/sync-all`로 명시해야 합니다.
+- Codex thread state에서 활성으로 확인된 앱 세션만 가져옵니다.
+- 보관 세션, sub-agent, `codex exec`/CLI 일회성 세션, thread state 미확인 세션은 sync에서 제외합니다.
+- 동기화된 세션 채널에는 최근 대화 맥락을 일부 올려서 이어서 대화할 수 있게 합니다.
+- 동기화된 세션 채널은 `채팅 시작 시 동기화` 또는 `실시간 동기화` 모드 중 선택할 수 있습니다.
+- `실시간 동기화` 모드에서는 Codex Desktop에서 먼저 시작된 세션 진행 상황도 약 1초 주기로 Discord에 반영됩니다.
+- Discord 버튼/드롭다운으로 파일 이동, 파일 보기, Git 확인, 테스트 실행, Codex 리뷰/수정 요청을 처리합니다.
+- Git 충돌 표식과 공백 오류를 Discord 드롭다운의 `Git 충돌 점검`으로 바로 확인할 수 있습니다.
+- `유지보수` 패널에서 `봇 개발 채팅`, `타입체크`, `테스트 실행`, `명령어 재등록`, `봇 재시작`까지 이어갈 수 있습니다.
+- Discord 안에서 slash command 재등록과 봇 재시작을 요청할 수 있습니다.
+- 관리자 채널에서 `/clear count:<숫자>` 또는 `clear <개수>`로 운영 채널 메시지를 정리할 수 있습니다. 전체 정리는 확인 명령이 필요합니다.
 
-## Development
+## 구조
 
-- `pnpm install`
-- `DATABASE_URL="file:./dev.sqlite" pnpm prisma db push`
-- `pnpm test`
-- `pnpm typecheck`
+기본 사용 방식은 **Direct mode**입니다. Direct mode는 Discord Bot이 이 컴퓨터에서 바로 실행되며, 별도의 Control API나 Local Agent 서버를 열지 않습니다.
 
-## Quick Connect
+```text
+Discord Server
+  ├─ Admin Channel
+  │   ├─ sync / 파일 탐색 / shell / Codex 요청
+  │   └─ 봇 reload / 상태 확인 / 삭제 미리보기
+  └─ Codex Workspace Category
+      ├─ Codex Session Channel
+      └─ Codex Session Channel
 
-For one Discord server connected directly to this computer, run:
-
-```bash
-pnpm connect install --direct
-pnpm connect start --direct
+Local Computer
+  ├─ Codex home: ~/.codex
+  ├─ Project workspace
+  └─ Codex Discord Connecter
 ```
 
-Direct mode writes `.connect/config.json` and `.env`, then starts only the Discord bot. It does not need the Control API or Local Agent process, so it is the easiest single-computer setup. Direct mode cannot control multiple computers.
+Direct mode에서는 `Discord Bot -> 이 컴퓨터`로 바로 연결합니다. 가장 쉽고, 설치 면적이 작고, 현재 권장하는 메인 기능입니다. 단일 컴퓨터만 제어할 수 있지만 대부분의 개인/소규모 운영에는 이 방식을 사용하세요.
 
-In the configured Discord channel:
+여러 컴퓨터를 한 Discord 서버에서 관리하는 **Hub mode**도 있지만, 현재는 실험적 기능입니다. Control API와 Local Agent를 추가로 실행해야 하고, 네트워크로 명령 실행 경로가 넓어지므로 보안 위험이 Direct mode보다 큽니다.
+
+## 빠른 시작
+
+### 1. 설치
+
+npm으로 설치합니다.
+
+```bash
+npm install -g codex-discord-connecter
+```
+
+전역 설치를 원하지 않으면 `npx`로도 실행할 수 있습니다.
+
+```bash
+npx codex-discord-connecter status
+```
+
+설치 후 CLI 명령은 `cdc`입니다. 긴 이름 `codex-discord-connecter`도 같은 명령으로 동작합니다.
+
+```bash
+cdc status
+```
+
+### 2. Direct mode 설정
+
+단일 컴퓨터를 Discord와 바로 연결하는 Direct mode가 기본 사용 방식입니다.
+
+```bash
+cdc install --direct
+```
+
+설치 과정에서 다음 값을 입력합니다.
+
+- Discord bot token
+- Discord guild id
+- 관리자 role id 목록
+- 관리자 채널 id
+- 연결할 workspace root
+- 컴퓨터 이름과 workspace 표시 이름
+- Codex home 경로, 보통 `$HOME/.codex`
+
+비대화형으로도 설정할 수 있습니다.
+
+```bash
+cdc install --direct \
+  --token "DISCORD_BOT_TOKEN" \
+  --guild-id "DISCORD_GUILD_ID" \
+  --role-ids "ROLE_ID_1,ROLE_ID_2" \
+  --channel-id "ADMIN_CHANNEL_ID" \
+  --workspace-root "$PWD" \
+  --workspace-name "CodexDiscordConnecter"
+```
+
+상위 폴더 이동을 허용하면서 특정 프로젝트 폴더에서 시작하려면 workspace root를 더 넓은 허용 루트로 잡고 `--initial-cwd`를 지정합니다.
+
+```bash
+cdc install --direct \
+  --workspace-root "/Users/me/projects" \
+  --initial-cwd "/Users/me/projects/my-app" \
+  --workspace-name "projects"
+```
+
+설정이 끝나면 `.connect/config.json`과 `.env`가 생성됩니다.
+
+### 3. 봇 실행
+
+```bash
+cdc start --direct
+```
+
+처음 실행 후 Discord 관리자 채널에서 `help`를 입력해 버튼과 명령어가 보이면 연결된 상태입니다.
+
+## 실험적 다중 컴퓨터 연결: Hub mode
+
+Hub mode는 여러 컴퓨터를 한 Discord 서버에서 관리하기 위한 실험적 옵션입니다. 아직 테스트 중인 서브 기능이며, 보안 위험이 Direct mode보다 높습니다. 꼭 필요한 경우가 아니라면 Direct mode를 사용하세요.
+
+Hub mode에서는 아래 컴포넌트를 함께 실행합니다.
+
+- Discord Bot
+- Control API
+- Local Agent
+
+위 구조는 여러 컴퓨터를 등록할 수 있게 해주지만, Control API와 Agent 연결 경로가 추가됩니다. 네트워크 노출, 인증 설정, 로그/명령 출력 관리, 운영자 role 관리가 모두 더 중요해집니다.
+
+최소 권장 조건:
+
+- 신뢰하는 private Discord 서버에서만 사용
+- Control API를 공개 인터넷에 직접 노출하지 않기
+- 방화벽, VPN, localhost 터널 등 별도 접근 제어 사용
+- 각 컴퓨터의 workspace root를 필요한 범위로 제한
+- 운영자 role을 최소 인원에게만 부여
+- shell 명령 출력에 민감 정보가 섞이지 않는지 별도 점검
+
+```bash
+cdc setup --hub
+cdc start --hub
+```
+
+```text
+Discord Bot -> Control API -> Local Agent -> Local Computer
+```
+
+Direct mode와 달리 여러 컴퓨터를 등록하고 관리할 수 있습니다. 이 기능은 안정화 전까지 “테스트 중”으로 보고, 중요한 컴퓨터나 민감한 workspace에는 사용하지 않는 것을 권장합니다.
+
+## Discord 사용법
+
+### 관리자 채널
+
+관리자 채널은 컴퓨터 제어용 채널입니다. 일반 메시지는 role 검사를 거친 뒤 shell 명령으로 처리됩니다.
+Codex 대화는 이 채널에서 직접 실행하지 않고, `chat new` 또는 `sync`로 만든 세션 채널에서 진행합니다.
 
 ```text
 help
-sync
-codex sync 10
-sync delete preview
-sync delete all confirm
-codex 이 프로젝트 구조 설명해줘
-codex README에 사용법 추가해줘
+where
 ls
 cd apps
 cat README.md
+chat new name:자유 메모
+chat new current name:지금 폴더 작업
+chat new cwd:/Users/me/project name:새 기능 구현
+sync
+sync status
+reload
 ```
 
-`sync` reads local Codex sessions from `~/.codex/session_index.jsonl`, groups them by workspace folder, creates one Discord category per folder, and creates one Discord text channel per Codex session. The channel mapping is stored in `.connect/state.json`.
-
-Synced Discord channels can be bulk-deleted from the admin channel:
+위험한 명령은 명시 확인이 필요합니다.
 
 ```text
-sync delete preview
-sync delete channels confirm
-sync delete all confirm
+confirm rm path/to/file
 ```
 
-`sync delete channels confirm` deletes only synced Discord text channels and keeps categories in state. `sync delete all confirm` deletes synced Discord text channels and categories, then clears `.connect/state.json`. These commands never delete or move local Codex session files.
+### Codex 세션 채널
 
-After sync, use the generated session channels like Codex rooms:
+`sync`로 만들어진 세션 채널은 Codex 대화방처럼 사용할 수 있습니다. 일반 메시지는 Codex에게 전달되고, shell 명령은 `!` 접두어를 붙입니다.
 
 ```text
 이 세션에서 지금까지 한 일 요약해줘
 다음 단계 구현해줘
+review 보안 위험 위주
+model gpt-5.4
 !ls
 !cat README.md
+archive confirm
 ```
 
-Codex prompts run through the local Codex CLI with workspace-write sandboxing. Restart the bot after code updates so Discord uses the latest behavior.
+### 새 Codex 채팅 만들기
 
-For multi-computer hub mode, run:
+관리자 채널에서 새 Discord 채널을 만들고, 그 채널을 새 Codex 대기 세션으로 연결할 수 있습니다.
+
+```text
+chat new name:자유 메모
+/chat-new location:general name:자유 메모
+```
+
+위 명령은 카테고리 없는 일반 Codex 채팅 채널을 만듭니다. 봇은 일반 채팅용 전용 폴더를 만들고, 새 채널에서 첫 메시지를 보내면 그때 실제 Codex 세션이 열립니다.
+Discord 버튼으로 만들 때는 `새 일반 채팅` 또는 `현재 폴더 채팅`을 누르면 모달이 열립니다. 채널 이름과 첫 요청을 입력할 수 있고, 둘 다 비워도 채널만 먼저 만들 수 있습니다.
+
+현재 Discord 채널의 작업 폴더에서 새 채팅을 시작하려면 `current`를 사용합니다. 특정 폴더에서 시작하려면 `cwd`를 지정합니다. 이 경우 해당 폴더 이름의 Discord 카테고리 아래에 채널이 생성됩니다.
+
+```text
+chat new current name:지금 폴더 작업
+/chat-new location:current name:지금 폴더 작업
+chat new cwd:/Users/me/project name:주간 보고서
+/chat-new location:path name:주간 보고서 cwd:/Users/me/project category:true
+```
+
+`location:general` 또는 `cwd` 생략 기본값은 프로젝트 폴더와 분리된 일반 채팅입니다.
+
+## Slash commands
+
+봇은 시작 시 Discord-native slash command를 등록합니다. 명령어는 전역으로 보이지만, 실제 실행 가능 범위는 채널 모드로 나뉩니다. main/admin 채널에서 Codex 대화 명령을 실행하거나, session 채널에서 동기화/봇 관리 명령을 실행하면 안내 메시지와 함께 차단됩니다.
+
+### Admin 전용 또는 Admin 중심 명령
+
+| 명령어 | 설명 |
+| --- | --- |
+| `/where` | 현재 채널의 컴퓨터, workspace, cwd, 세션 연결 상태를 보여줍니다. |
+| `/status` | `/where`와 동일한 상태 카드를 보여줍니다. |
+| `/browse` | 현재 폴더의 파일 브라우저 UI를 엽니다. |
+| `/shell command:<명령>` | 현재 cwd에서 shell 명령을 실행합니다. |
+| `/diff` | 현재 cwd에서 `git diff --stat`을 실행합니다. |
+| `/clear count:<숫자>` | 관리자 채널의 최근 메시지를 지정한 수만큼 삭제합니다. 최대 100개까지 삭제합니다. |
+| `/clear all:true` | 관리자 채널의 가능한 최근 메시지 전체 삭제 확인 카드를 엽니다. 실제 삭제는 `clear all confirm`으로 확정합니다. |
+| `/sync limit:<숫자>` | 활성 Codex 세션 선택 드롭다운을 엽니다. |
+| `/sync-select limit:<숫자>` | `/sync`와 동일하게 선택 드롭다운을 엽니다. |
+| `/sync-all limit:<숫자>` | 활성 세션을 선택 없이 즉시 동기화합니다. |
+| `/sync-status` | 동기화된 카테고리, 채널, 보관 세션 상태를 보여줍니다. |
+| `/sync-mode mode:on-chat 또는 realtime` | 동기화된 세션 채널의 transcript 반영 방식을 선택합니다. |
+| `/sync-delete mode:preview/all/channels/session session_id:<id> confirm:<true/false>` | 동기화된 Discord 채널 삭제를 미리보기/확정합니다. 미리보기 카드에서 삭제할 채널 하나를 드롭다운으로 고를 수 있습니다. 로컬 Codex 세션 파일은 삭제하지 않습니다. |
+| `/sync-archive session_id:<id> confirm:<true/false>` | 특정 Codex 세션을 bridge 보관 목록에 넣어 다음 sync에서 제외합니다. |
+| `/schedule action:create mode:once/every/daily/weekly command:<명령> at:<시간> every:<주기> weekdays:<요일>` | 기존 채팅형 명령을 특정 시간/주기/요일에 반복 실행하도록 예약합니다. |
+| `/schedule action:list` | 등록된 예약 명령을 보여줍니다. |
+| `/schedule action:delete id:<id>` | 예약 명령을 삭제합니다. |
+| `/chat-new location:general/current/path name:<이름> cwd:<경로> category:<true/false> prompt:<요청>` | 새 Codex 채팅 채널을 만듭니다. `general`은 일반 채팅, `current`는 현재 채널의 작업 폴더, `path`는 지정한 `cwd`에서 시작합니다. |
+| `/reload mode:commands` | Discord slash command를 다시 등록합니다. |
+| `/reload mode:restart confirm:true` | 봇 프로세스를 Discord에서 재시작 요청합니다. |
+| `/codex-command command:<name> prompt:<args>` | 운영 단축 명령을 실행합니다. Admin에서는 `diff`, `mcp` 등 운영 명령만 사용하고 Codex 대화형 shortcut은 차단됩니다. |
+
+### Session 전용 또는 Session 중심 명령
+
+| 명령어 | 설명 |
+| --- | --- |
+| `/codex prompt:<요청>` | Codex에게 자연어 요청을 보냅니다. |
+| `/review prompt:<관점>` | `codex exec review`로 현재 변경사항을 리뷰시킵니다. |
+| `/fix-tests` | 테스트 실행, 실패 분석, 수정, 재검증을 요청합니다. |
+| `/summarize target:<대상>` | 현재 채널 또는 지정 대상을 요약합니다. |
+| `/compact prompt:<요청>` | 대화형 `/compact` passthrough가 아니라, 현재 작업 맥락을 압축 요약하도록 Codex에 요청합니다. |
+| `/skill name:<skill> prompt:<요청>` | 지정한 skill 관점으로 Codex 요청을 실행합니다. |
+| `/model model:<모델>` | 이 Discord 채널의 이후 Codex 실행에 사용할 모델을 설정합니다. |
+| `/archive` | 현재 세션 채널의 보관 확인 카드를 엽니다. 확정하려면 `archive confirm`을 사용합니다. |
+| `/where` 또는 `/status` | 현재 채널의 컴퓨터, workspace, cwd, 세션, 모델 상태를 보여줍니다. |
+| `/browse` | 현재 폴더의 파일 브라우저 UI를 엽니다. |
+| `/shell command:<명령>` | 현재 cwd에서 shell 명령을 실행합니다. 일반 텍스트 shell 명령은 `!` 접두어를 사용합니다. |
+| `/diff` | 현재 cwd에서 `git diff --stat`을 실행합니다. |
+| `/codex-command command:<name> prompt:<args>` | `model`, `review`, `compact`, `mcp` 같은 session shortcut을 같은 라우터로 실행합니다. |
+| `/schedule action:create mode:once/every/daily/weekly command:<명령> at:<시간> every:<주기> weekdays:<요일>` | 이 세션 채널에서 기존 채팅형 명령을 예약 실행합니다. |
+
+### 채팅형 예약 명령
+
+`/schedule`은 아래 채팅형 명령과 같은 라우터를 사용합니다. 예약 대상 `command:`에는 이미 지원되는 채팅형 명령을 넣습니다.
+
+```text
+schedule list
+schedule every 10m command:shell pwd
+schedule daily at 09:30 command:codex 오늘 계획 정리
+schedule weekly mon,wed,fri at 09:30 command:shell pnpm test
+schedule once at 2026-04-25 09:30 command:sync status
+schedule delete <schedule-id>
+```
+
+```text
+/schedule action:create mode:every every:10m command:shell pwd
+/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리
+/schedule action:create mode:weekly weekdays:mon,wed,fri at:09:30 command:shell pnpm test
+/schedule action:list
+/schedule action:delete id:<schedule-id>
+```
+
+예약은 `.connect/state.json`에 저장되고 봇 재시작 후에도 유지됩니다. 봇은 기본 30초 주기로 만료된 예약을 확인합니다. `CONNECT_SCHEDULE_POLL_INTERVAL_MS`로 확인 주기를 조정할 수 있습니다.
+
+## 세션 동기화
+
+`sync`는 기본적으로 바로 생성하지 않고 선택 UI를 엽니다.
+
+```text
+sync
+sync 10
+sync select 25
+/sync limit:25
+```
+
+위 명령은 최근 활성 Codex 세션 목록을 드롭다운으로 보여주고, 선택한 세션만 Discord 채널로 생성합니다.
+
+전체 활성 세션을 즉시 동기화하려면 명시적으로 `all`을 사용합니다.
+
+```text
+sync all 25
+/sync-all limit:25
+```
+
+동기화 대상은 Codex thread state에서 활성으로 확인된 앱 세션만입니다. 다음 항목은 제외됩니다.
+
+- Codex에서 보관된 세션
+- bridge에서 보관한 세션
+- sub-agent 세션
+- `codex exec` 또는 CLI 일회성 세션
+- `session_index.jsonl`에는 있지만 thread state에서 확인되지 않는 만료/유실 세션
+
+동기화 상태는 아래 명령으로 확인합니다.
+
+```text
+sync status
+/sync-status
+```
+
+동기화된 세션 채널의 Codex transcript 반영 방식은 두 가지입니다.
+
+```text
+sync mode on-chat
+sync mode realtime
+/sync-mode mode:on-chat
+/sync-mode mode:realtime
+```
+
+- `on-chat`: 실시간 폴링은 하지 않고, 동기화된 세션 채널에서 다시 채팅을 시작할 때 Codex 데스크탑의 최신 대화 내용을 먼저 반영합니다.
+- `realtime`: 봇이 기본 약 1초 주기로 동기화된 세션을 확인해 Codex 데스크탑에서 생긴 새 대화 내용을 Discord 채널에 반영합니다.
+- `realtime`은 최근 세션 이벤트를 따라가므로, Desktop에서 먼저 보낸 사용자 메시지, Codex commentary, 도구 실행 상태도 Discord에서 이어서 볼 수 있습니다.
+- `realtime`은 새 Discord 채널을 자동 생성하지 않습니다. 열려 있지 않은 Codex 세션을 Discord로 가져오려면 admin 채널에서 `sync` 또는 `/sync`를 명시적으로 실행합니다.
+- 폴링 간격은 `CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS`로 조정할 수 있습니다.
+
+처음 동기화된 채널은 과거 로그를 한꺼번에 쏟아내지 않도록 기준점만 잡고, 이후 새 transcript만 올립니다.
+
+## Codex 진행 표시와 이미지
+
+Codex 요청 중에는 raw 이벤트명 대신 읽기 쉬운 한국어 상태가 표시됩니다.
+
+```text
+42개 파일 · rg --files
+진행: 파일 탐색 중
+
+진행: 이미지 생성 중
+진행: 컨텍스트 압축 중
+진행: 답변 작성 중
+```
+
+Codex가 최종 답변에 `![이미지](/로컬/절대/경로.png)` 형태의 로컬 이미지 파일을 포함하면, 봇은 해당 파일을 Discord 메시지에 첨부합니다. `https://...png` 같은 원격 이미지 URL은 메시지 본문에 함께 표시되어 Discord에서 미리보기로 볼 수 있습니다.
+
+동기화된 세션 채널에서 Discord로 보낸 요청은 항상 같은 Codex 세션에 `resume`되므로, Codex Desktop 쪽에서도 같은 세션 안에서 새 사용자 요청과 처리 과정이 이어집니다.
+
+## 보관과 삭제
+
+로컬 Codex 세션 파일을 삭제하지 않고 Discord mapping에서만 제외하려면 보관을 사용합니다.
+
+```text
+archive confirm
+sync archive <session-id> confirm
+/sync-archive session_id:<session-id> confirm:true
+```
+
+동기화로 생성된 Discord 채널을 삭제하려면 먼저 미리보기를 확인합니다.
+
+```text
+sync delete preview
+sync delete session <session-id>
+sync delete session <session-id> confirm
+sync delete channels confirm
+sync delete all confirm
+/sync-delete mode:preview
+/sync-delete mode:session session_id:<session-id> confirm:true
+```
+
+`sync delete session <session-id> confirm`은 해당 세션의 Discord 채널과 mapping만 삭제하고, 나중에 다시 `sync`하면 다시 가져올 수 있습니다. `sync archive <session-id> confirm`은 세션을 보관 목록에 넣어 다음 sync에서도 제외합니다. `sync delete channels confirm`은 텍스트 채널만 삭제합니다. `sync delete all confirm`은 텍스트 채널과 카테고리를 삭제하고 `.connect/state.json`의 동기화 상태를 정리합니다. 로컬 Codex 세션 파일은 삭제하지 않습니다.
+
+## 파일 브라우저와 작업 버튼
+
+`ls` 또는 `/browse` 결과에는 Discord UI가 붙습니다.
+
+- `상위 폴더`: 현재 cwd를 상위 폴더로 이동합니다.
+- `새로고침`: 현재 폴더 목록을 다시 불러옵니다.
+- `여기서 새 채팅`: 현재 브라우저 위치에서 새 Codex 채팅 모달을 엽니다.
+- `하위 항목으로 이동`: 드롭다운에서 폴더를 선택해 이동합니다.
+- `파일 보기`: 드롭다운에서 파일을 선택해 미리봅니다.
+- `Codex에게 요청`: session 채널에서만 표시되며, 모달을 열어 현재 컨텍스트로 Codex에게 요청합니다.
+
+Git과 테스트 결과에도 작업 버튼이 붙습니다.
+
+- Admin 채널의 `git status --short`: Diff 보기, 테스트 실행 버튼 제공
+- Session 채널의 `git status --short`: Diff 보기, Codex 리뷰, 테스트 실행 버튼 제공
+- Admin 채널의 `pnpm test`: 테스트 다시 실행 버튼 제공
+- Session 채널의 `pnpm test`: 테스트 다시 실행, 실패 시 Codex에게 수정 요청 버튼 제공
+- `유지보수` 패널: Git 상태, Diff 보기, 충돌 점검, 테스트 실행, 봇 재시작 또는 Codex 리뷰/수정 버튼을 한곳에 모읍니다.
+
+## Discord에서 봇 자체 유지보수
+
+관리자 채널에서 `help`를 누른 뒤 `유지보수` 패널을 엽니다.
+
+```text
+유지보수 → 봇 개발 채팅 → Codex에게 수정 요청 → 타입체크 → 테스트 실행 → 명령어 재등록 또는 봇 재시작
+```
+
+- `봇 개발 채팅`: 현재 workspace에서 이 봇 유지보수용 Codex 세션 채널을 만듭니다.
+- `타입체크`: `pnpm typecheck`를 실행합니다.
+- `테스트 실행`: `pnpm test`를 실행합니다.
+- `명령어 재등록`: 코드 변경 없이 slash command만 다시 등록합니다.
+- `봇 재시작`: 실행 중인 봇 프로세스를 재시작 요청합니다. `cdc start` 또는 `pnpm connect start`로 실행 중일 때 사용하세요.
+
+## 봇 업데이트
+
+Discord에서 봇 명령어를 다시 등록할 수 있습니다.
+
+```text
+reload
+/reload mode:commands
+```
+
+새 코드까지 반영하려면 봇 재시작을 요청합니다.
+
+```text
+reload restart confirm
+/reload mode:restart confirm:true
+```
+
+자동 재시작은 `cdc start --direct`, `cdc start --hub`, `pnpm connect start --direct`, `pnpm connect start --hub`로 실행 중일 때 동작합니다. `pnpm dev:bot`로 직접 실행 중이면 프로세스가 종료되므로 터미널에서 다시 시작해야 합니다.
+
+## 안전 정책
+
+- 허용된 Discord role을 가진 사용자만 명령을 실행할 수 있습니다.
+- 각 Discord 채널은 독립적인 cwd를 가집니다.
+- `cd`는 해당 채널의 cwd만 변경합니다.
+- Local Agent는 OS sandbox가 아니므로 명령은 로컬 사용자 권한으로 실행됩니다.
+- Direct mode가 기본 권장 구성입니다. Hub mode는 다중 컴퓨터 실험 기능이며 네트워크 공격면이 더 넓습니다.
+- 절대 경로, 상위 경로 이동, shell escape, 위험 명령은 확인이 필요합니다.
+- 보관과 Discord 채널 삭제는 로컬 Codex 세션 파일을 삭제하지 않습니다.
+- `.env`, `.connect/config.json`, `.connect/state.json`, 로그, 로컬 DB, Codex 세션 파일은 커밋하거나 npm 패키지에 포함하지 마세요.
+- Discord bot token이 노출되면 Discord Developer Portal에서 즉시 token을 재발급하고 봇을 재시작하세요.
+- 공개 Discord 서버나 신뢰하지 않는 role에는 연결하지 마세요. 이 도구는 private server와 제한된 운영자 role을 전제로 합니다.
+
+## 기여와 라이선스
+
+기여 가이드는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요. 이 프로젝트는 [MIT License](LICENSE)로 배포됩니다. 기여를 제출하면 해당 기여도 MIT License로 제공하는 데 동의한 것으로 간주합니다.
+
+## npm 공개 전 점검
+
+배포 전에 아래 명령으로 테스트, 타입체크, 패키지 포함 파일을 확인합니다.
 
 ```bash
-pnpm connect setup --hub
-pnpm connect start --hub
+pnpm test
+pnpm typecheck
+npm pack --dry-run
 ```
 
-Hub mode keeps the existing `Discord Bot -> Control API -> Local Agent` topology and supports multiple computers.
+`npm pack --dry-run` 출력에 아래 항목이 포함되지 않아야 합니다.
 
-## Processes
+- `.env`
+- `.connect/`
+- `*.sqlite`, `*.log`
+- Discord token 또는 guild/channel/role secret이 들어 있는 파일
+- Codex transcript/session 원본 파일
 
-- `pnpm dev:control`
-- `pnpm dev:agent`
-- `pnpm dev:bot`
+취약점 제보와 운영 보안 모델은 [SECURITY.md](SECURITY.md)를 참고하세요.
 
-## Control API Loop
+## 프로젝트 구성
 
-- Local Agents connect to the Control API over `ws://<host>:<port>/agents`.
-- Agent hello messages persist computer presence and advertised workspaces in the Control DB.
-- Persisted computers and workspaces can be listed with `GET /inventory`.
-- Workspace mappings can be created with `POST /workspaces/:workspaceId/category-mappings` and `POST /workspaces/:workspaceId/channels`.
-- The Discord bot has a guild sync service that creates workspace categories/channels and registers their IDs with the Control API.
-- Codex sessions can be attached to managed Discord channels with `POST /discord/channels/:discordChannelId/session-links`.
-- Existing native Codex sessions can be listed through an online agent with `POST /computers/:computerId/codex-sessions`.
-- Command jobs can be submitted with `POST /computers/:computerId/jobs`.
-- The Control API forwards each job to the online Local Agent and returns the agent result envelope.
-- The Discord bot resolves managed channel context from `CONTROL_API_URL` and sends command messages to the linked computer.
+```text
+apps/
+  connect-cli/      설치, 설정, 실행 CLI
+  control-api/      hub mode용 Control API
+  discord-bot/      Discord bot, slash command, 버튼/드롭다운 처리
+  local-agent/      hub mode용 로컬 컴퓨터 agent
+packages/
+  codex-adapter/    Codex session index/thread state/transcript parser
+  core/             command policy, domain model
+docs/
+  operator-guide.md 운영자용 세부 가이드
+```
 
-Copy `.env.example` to `.env` and fill in the Discord credentials before starting the services.
+상태 파일은 주로 아래 위치에 저장됩니다.
+
+- `.connect/config.json`: 연결 설정
+- `.connect/state.json`: direct mode 동기화 상태
+- `.env`: 실행 환경 변수
+- `$HOME/.codex`: Codex native 세션, thread state, transcript
+
+## 개발 명령
+
+소스에서 개발할 때는 pnpm workspace 명령을 사용합니다.
+
+```bash
+pnpm install
+pnpm connect install --direct
+pnpm connect start --direct
+```
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm test:watch
+```
+
+개별 프로세스 실행:
+
+```bash
+pnpm dev:control
+pnpm dev:agent
+pnpm dev:bot
+```
+
+Prisma를 사용하는 hub mode DB 작업:
+
+```bash
+DATABASE_URL="file:./dev.sqlite" pnpm prisma db push
+pnpm prisma:generate
+pnpm prisma:migrate
+```
+
+## 문제 해결
+
+### Slash command가 Discord에 보이지 않음
+
+관리자 채널에서 명령어를 다시 등록합니다.
+
+```text
+reload
+```
+
+그래도 보이지 않으면 봇을 재시작합니다.
+
+```text
+reload restart confirm
+```
+
+### `sync`에 원하지 않는 세션이 보임
+
+`sync`는 thread state에서 활성으로 확인된 앱 세션만 가져옵니다. 이미 Discord에 만들어진 오래된 채널은 아래 순서로 정리할 수 있습니다.
+
+```text
+sync delete preview
+sync delete session <session-id> confirm
+sync delete channels confirm
+sync
+```
+
+### 현재 채널이 어디에 연결됐는지 모르겠음
+
+```text
+where
+/where
+```
+
+### 작업 중인 봇 버전이 최신인지 모르겠음
+
+```text
+reload restart confirm
+```
+
+## 참고 문서
+
+- [Operator Guide](docs/operator-guide.md)

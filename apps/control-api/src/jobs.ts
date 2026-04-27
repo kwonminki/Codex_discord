@@ -13,6 +13,12 @@ export type AgentJobResult =
 
 export type AgentJobResultEnvelope = AgentJobResult & { type: "agent-job-result" };
 
+export interface AgentJobProgressEnvelope {
+  type: "agent-job-progress";
+  jobId: string;
+  event: unknown;
+}
+
 export function createJob(
   computerId: string,
   type: AgentJob["type"],
@@ -52,19 +58,24 @@ export function createJobDispatcher(
     {
       resolve(result: AgentJobResult): void;
       reject(error: Error): void;
+      onProgress?: (event: unknown) => void;
       timeout: NodeJS.Timeout;
     }
   >();
 
   return {
-    async dispatchAndWait(computerId: string, job: AgentJob): Promise<AgentJobResult> {
+    async dispatchAndWait(
+      computerId: string,
+      job: AgentJob,
+      options: { onProgress?: (event: unknown) => void } = {},
+    ): Promise<AgentJobResult> {
       return new Promise<AgentJobResult>((resolve, reject) => {
         const timeout = setTimeout(() => {
           pendingJobs.delete(job.jobId);
           reject(new Error("Agent job timed out"));
         }, timeoutMs);
 
-        pendingJobs.set(job.jobId, { resolve, reject, timeout });
+        pendingJobs.set(job.jobId, { resolve, reject, onProgress: options.onProgress, timeout });
 
         dispatchJob(registry, computerId, job).catch((error: unknown) => {
           pendingJobs.delete(job.jobId);
@@ -72,6 +83,16 @@ export function createJobDispatcher(
           reject(error instanceof Error ? error : new Error("Agent job dispatch failed"));
         });
       });
+    },
+    progress(jobId: string, event: unknown) {
+      const pendingJob = pendingJobs.get(jobId);
+
+      if (!pendingJob) {
+        return false;
+      }
+
+      pendingJob.onProgress?.(event);
+      return true;
     },
     complete(result: AgentJobResult) {
       const pendingJob = pendingJobs.get(result.jobId);

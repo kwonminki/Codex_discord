@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readlink, rm, symlink, unlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,7 +12,17 @@ export interface RunCodexPromptInput {
   sessionId?: string | null;
   codexHome?: string;
   codexCommand?: string;
+  onProgress?: (event: CodexRunnerProgressEvent) => Promise<void> | void;
+  mode?: "prompt" | "review";
+  model?: string | null;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
 }
+
+export type CodexRunnerProgressEvent =
+  | { type: "thread-started"; sessionId: string }
+  | { type: "agent-message"; text: string }
+  | { type: "operation-progress"; label: string; detail?: string; eventType: string }
+  | { type: "codex-event"; eventType: string };
 
 export interface RunCodexPromptResult {
   status: "completed" | "failed";
@@ -22,6 +32,25 @@ export interface RunCodexPromptResult {
   exitCode: number | null;
   signal?: string | null;
   timedOut?: boolean;
+}
+
+interface RawCodexProgressItem {
+  type?: unknown;
+  text?: unknown;
+  name?: unknown;
+  arguments?: unknown;
+  command?: unknown;
+  file_count?: unknown;
+  files?: unknown;
+}
+
+interface RawCodexProgressPayload {
+  type?: unknown;
+  role?: unknown;
+  phase?: unknown;
+  content?: unknown;
+  message?: unknown;
+  last_agent_message?: unknown;
 }
 
 function isAscii(value: string): boolean {
@@ -79,13 +108,364 @@ function parseThreadId(stdout: string): string | null {
   return null;
 }
 
+function parseCodexProgressLine(line: string): CodexRunnerProgressEvent | null {
+  if (!line.startsWith("{")) {
+    return null;
+  }
+
+  try {
+    const event = JSON.parse(line) as {
+      type?: unknown;
+      thread_id?: unknown;
+      item?: RawCodexProgressItem;
+      payload?: RawCodexProgressPayload;
+    };
+
+    if (event.type === "thread.started" && typeof event.thread_id === "string") {
+      return { type: "thread-started", sessionId: event.thread_id };
+    }
+
+    const payloadAgentMessage = parsePayloadAgentMessage(event);
+    if (payloadAgentMessage) {
+      return payloadAgentMessage;
+    }
+
+    if (
+      event.type === "item.completed" &&
+      event.item?.type === "agent_message" &&
+      typeof event.item.text === "string"
+    ) {
+      return { type: "agent-message", text: event.item.text };
+    }
+
+    if (typeof event.type === "string") {
+      const operationProgress = parseOperationProgress({
+        type: event.type,
+        item: event.item,
+      });
+
+      if (operationProgress) {
+        return operationProgress;
+      }
+
+      return { type: "codex-event", eventType: event.type };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function parsePayloadAgentMessage(event: {
+  type?: unknown;
+  payload?: RawCodexProgressPayload;
+}): CodexRunnerProgressEvent | null {
+  const payload = event.payload;
+
+  if (!payload) {
+    return null;
+  }
+
+  if (
+    event.type === "event_msg" &&
+    payload.type === "agent_message" &&
+    typeof payload.message === "string" &&
+    payload.message.trim().length > 0
+  ) {
+    return { type: "agent-message", text: payload.message.trim() };
+  }
+
+  if (
+    event.type === "event_msg" &&
+    payload.type === "task_complete" &&
+    typeof payload.last_agent_message === "string" &&
+    payload.last_agent_message.trim().length > 0
+  ) {
+    return { type: "agent-message", text: payload.last_agent_message.trim() };
+  }
+
+  if (event.type === "response_item" && payload.type === "message" && payload.role === "assistant") {
+    const text = extractProgressContentText(payload.content);
+
+    if (text.length > 0) {
+      return { type: "agent-message", text };
+    }
+  }
+
+  return null;
+}
+
+function extractProgressContentText(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+
+      if (typeof item !== "object" || item === null) {
+        return "";
+      }
+
+      const text = (item as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .map((text) => text.trim())
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function compactDetail(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function itemName(item: RawCodexProgressItem): string {
+  const name = typeof item.name === "string" ? item.name : "";
+  const type = typeof item.type === "string" ? item.type : "";
+  return name || type || "tool";
+}
+
+function itemCommand(item: RawCodexProgressItem): string | null {
+  if (typeof item.command === "string" && item.command.trim().length > 0) {
+    return compactDetail(item.command);
+  }
+
+  const parsedArguments = parseJsonObject(item.arguments);
+  const command = parsedArguments?.cmd ?? parsedArguments?.command ?? parsedArguments?.query ?? parsedArguments?.prompt;
+
+  return typeof command === "string" && command.trim().length > 0 ? compactDetail(command) : null;
+}
+
+function fileCountDetail(item: RawCodexProgressItem): string | null {
+  if (typeof item.file_count === "number" && Number.isFinite(item.file_count)) {
+    return `${item.file_count}개 파일`;
+  }
+
+  if (Array.isArray(item.files)) {
+    return `${item.files.length}개 파일`;
+  }
+
+  return null;
+}
+
+function itemArgumentText(item: RawCodexProgressItem): string {
+  const parts: string[] = [];
+
+  if (typeof item.command === "string") {
+    parts.push(item.command);
+  }
+
+  if (typeof item.arguments === "string") {
+    const parsedArguments = parseJsonObject(item.arguments);
+    let addedParsedArgument = false;
+
+    for (const value of Object.values(parsedArguments ?? {})) {
+      if (typeof value === "string") {
+        parts.push(value);
+        addedParsedArgument = true;
+      }
+    }
+
+    if (!addedParsedArgument) {
+      parts.push(item.arguments);
+    }
+  }
+
+  return parts.join("\n");
+}
+
+function fileEditDetail(item: RawCodexProgressItem): string | null {
+  const text = itemArgumentText(item);
+  const fileMatches = [...text.matchAll(/\*\*\* (?:Add|Update|Delete) File:\s+(.+)/g)];
+  const fileName = path.basename(fileMatches[0]?.[1]?.trim() ?? "");
+
+  if (!fileName) {
+    return null;
+  }
+
+  const additions = text
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++") && !line.startsWith("***")).length;
+  const deletions = text
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+
+  return `편집함 ${fileName} +${additions} -${deletions}`;
+}
+
+function operationDetail(parts: Array<string | null>): string | undefined {
+  const detail = parts.filter((part): part is string => Boolean(part && part.trim().length > 0)).join(" · ");
+  return detail.length > 0 ? detail : undefined;
+}
+
+function parseOperationProgress(event: {
+  type: string;
+  item?: RawCodexProgressItem;
+}): CodexRunnerProgressEvent | null {
+  const normalizedType = event.type.replace(/_/g, ".");
+  const item = event.item;
+
+  if (normalizedType.includes("context.compaction") || normalizedType.includes("compact")) {
+    return {
+      type: "operation-progress",
+      label: "컨텍스트 압축 중",
+      detail: event.type,
+      eventType: event.type,
+    };
+  }
+
+  if (!item) {
+    return null;
+  }
+
+  const name = itemName(item);
+  const command = itemCommand(item);
+  const searchable = `${name} ${command ?? ""}`.toLowerCase();
+  const fileCount = fileCountDetail(item);
+
+  if (normalizedType.startsWith("item.completed")) {
+    if (
+      searchable.includes("rg --files") ||
+      searchable.includes("find ") ||
+      searchable.includes("glob") ||
+      searchable.includes("file_search")
+    ) {
+      return {
+        type: "operation-progress",
+        label: "탐색마침",
+        detail: operationDetail([fileCount, command, name === "exec_command" ? null : name]),
+        eventType: event.type,
+      };
+    }
+
+    if (searchable.includes("apply_patch") || searchable.includes("write") || searchable.includes("edit")) {
+      return {
+        type: "operation-progress",
+        label: "파일 수정 완료",
+        detail: fileEditDetail(item) ?? operationDetail([command, name]),
+        eventType: event.type,
+      };
+    }
+
+    return null;
+  }
+
+  if (!normalizedType.startsWith("item.started")) {
+    return null;
+  }
+
+  if (
+    searchable.includes("image") ||
+    searchable.includes("imagegen") ||
+    searchable.includes("generate_image") ||
+    searchable.includes("dall-e")
+  ) {
+    return {
+      type: "operation-progress",
+      label: "이미지 생성 중",
+      detail: operationDetail([command, name]),
+      eventType: event.type,
+    };
+  }
+
+  if (
+    searchable.includes("rg --files") ||
+    searchable.includes("find ") ||
+    searchable.includes("glob") ||
+    searchable.includes("file_search")
+  ) {
+    return {
+      type: "operation-progress",
+      label: "파일 탐색 중",
+      detail: operationDetail([fileCount, command, name === "exec_command" ? null : name]),
+      eventType: event.type,
+    };
+  }
+
+  if (searchable.includes("web_search") || searchable.includes("search_query")) {
+    return {
+      type: "operation-progress",
+      label: "웹 검색 중",
+      detail: operationDetail([command, name]),
+      eventType: event.type,
+    };
+  }
+
+  if (searchable.includes("apply_patch") || searchable.includes("write") || searchable.includes("edit")) {
+    return {
+      type: "operation-progress",
+      label: "파일 수정 중",
+      detail: fileEditDetail(item) ?? operationDetail([command, name]),
+      eventType: event.type,
+    };
+  }
+
+  if (name === "exec_command" || searchable.includes("shell")) {
+    return {
+      type: "operation-progress",
+      label: "명령 실행 중",
+      detail: operationDetail([command, name]),
+      eventType: event.type,
+    };
+  }
+
+  return null;
+}
+
+function modelArgs(input: RunCodexPromptInput): string[] {
+  const model = input.model?.trim();
+  return model ? ["-m", model] : [];
+}
+
+function reasoningEffortArgs(input: RunCodexPromptInput): string[] {
+  const effort = input.reasoningEffort?.trim();
+  return effort ? ["-c", `model_reasoning_effort="${effort}"`] : [];
+}
+
 function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspaceRoot: string): string[] {
+  if (input.mode === "review") {
+    return [
+      "exec",
+      "review",
+      "--json",
+      "--full-auto",
+      ...modelArgs(input),
+      ...reasoningEffortArgs(input),
+      "--output-last-message",
+      outputPath,
+      input.prompt,
+    ];
+  }
+
   if (input.sessionId) {
     return [
       "exec",
       "resume",
       "--json",
       "--full-auto",
+      ...modelArgs(input),
+      ...reasoningEffortArgs(input),
       "--output-last-message",
       outputPath,
       input.sessionId,
@@ -97,6 +477,8 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspa
     "exec",
     "--json",
     "--full-auto",
+    ...modelArgs(input),
+    ...reasoningEffortArgs(input),
     "--skip-git-repo-check",
     "--cd",
     workspaceRoot,
@@ -104,6 +486,45 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspa
     outputPath,
     input.prompt,
   ];
+}
+
+function defaultCodexHome(): string {
+  return path.join(os.homedir(), ".codex");
+}
+
+function isGeneratedImageFile(fileName: string): boolean {
+  return /\.(?:png|jpe?g|gif|webp)$/i.test(fileName);
+}
+
+async function generatedImageMarkdown(input: {
+  codexHome?: string;
+  sessionId: string | null;
+}): Promise<string> {
+  if (!input.sessionId) {
+    return "";
+  }
+
+  const imageDir = path.join(input.codexHome ?? defaultCodexHome(), "generated_images", input.sessionId);
+  let entries: import("node:fs").Dirent[];
+
+  try {
+    entries = await readdir(imageDir, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return "";
+    }
+
+    throw error;
+  }
+
+  const imagePaths = entries
+    .filter((entry) => entry.isFile() && isGeneratedImageFile(entry.name))
+    .map((entry) => path.join(imageDir, entry.name))
+    .sort();
+
+  return imagePaths
+    .map((imagePath, index) => `![generated image ${index + 1}](${imagePath})`)
+    .join("\n\n");
 }
 
 export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCodexPromptResult> {
@@ -114,6 +535,22 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
   const codexCommand = input.codexCommand ?? "codex";
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
+  const progressTasks: Promise<void>[] = [];
+  let stdoutLineBuffer = "";
+
+  function queueProgressLine(line: string): void {
+    const event = parseCodexProgressLine(line);
+
+    if (!event || !input.onProgress) {
+      return;
+    }
+
+    progressTasks.push(
+      Promise.resolve(input.onProgress(event)).catch((error) => {
+        console.error("codex runner progress callback failed", error);
+      }),
+    );
+  }
 
   try {
     const child = spawn(codexCommand, args, {
@@ -136,7 +573,17 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
         child.kill("SIGTERM");
       }, input.timeoutMs);
 
-      child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdoutChunks.push(chunk);
+        stdoutLineBuffer += chunk.toString("utf8");
+
+        const lines = stdoutLineBuffer.split(/\r?\n/);
+        stdoutLineBuffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          queueProgressLine(line);
+        }
+      });
       child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
       child.once("error", (error) => {
         clearTimeout(timeout);
@@ -144,14 +591,26 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       });
       child.once("close", (exitCode, signal) => {
         clearTimeout(timeout);
+        if (stdoutLineBuffer.trim().length > 0) {
+          queueProgressLine(stdoutLineBuffer);
+          stdoutLineBuffer = "";
+        }
         resolve({ exitCode, signal, timedOut });
       });
     });
+    await Promise.all(progressTasks);
 
     const stdout = Buffer.concat(stdoutChunks).toString("utf8");
     const stderr = Buffer.concat(stderrChunks).toString("utf8");
-    const finalMessage = await readFile(outputPath, "utf8").catch(() => "");
     const sessionId = parseThreadId(stdout) ?? input.sessionId ?? null;
+    const outputMessage = await readFile(outputPath, "utf8").catch(() => "");
+    const generatedImagesMessage = outputMessage.trim().length > 0
+      ? ""
+      : await generatedImageMarkdown({
+          codexHome: input.codexHome,
+          sessionId,
+        });
+    const finalMessage = outputMessage.trim().length > 0 ? outputMessage : generatedImagesMessage;
     const completed = result.exitCode === 0 && finalMessage.trim().length > 0 && !result.timedOut;
 
     return {

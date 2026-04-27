@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import {
@@ -10,6 +11,47 @@ import {
   type ConnectMode,
   writeSetupFiles,
 } from "./config.js";
+
+export const BOT_RELOAD_EXIT_CODE = 42;
+
+export function shouldRestartManagedProcess(input: { script: string; code: number | null }): boolean {
+  return input.script === "dev:bot" && input.code === BOT_RELOAD_EXIT_CODE;
+}
+
+type ManagedProcessCommand = [command: string, args: string[], script: string];
+
+export function buildManagedProcessCommands(mode: ConnectMode): ManagedProcessCommand[] {
+  const runTs = (entrypoint: string, script: string): ManagedProcessCommand => [
+    "node",
+    ["--import", "tsx", entrypoint],
+    script,
+  ];
+
+  return mode === "hub"
+    ? [
+        runTs("apps/control-api/src/index.ts", "dev:control"),
+        runTs("apps/local-agent/src/index.ts", "dev:agent"),
+        runTs("apps/discord-bot/src/index.ts", "dev:bot"),
+      ]
+    : [runTs("apps/discord-bot/src/index.ts", "dev:bot")];
+}
+
+export function buildManagedProcessEnv(
+  mode: ConnectMode,
+  launchDirectory: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return {
+    ...baseEnv,
+    CONNECT_CONFIG_PATH: path.join(launchDirectory, ".connect", "config.json"),
+    CONNECT_STATE_PATH: path.join(launchDirectory, ".connect", "state.json"),
+    CONNECT_MODE: mode,
+  };
+}
+
+function packageRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+}
 
 function parseArgs(args: string[]): { command: string; flags: Map<string, string | boolean> } {
   const [command = "help", ...rest] = args;
@@ -85,6 +127,7 @@ async function setup(flags: Map<string, string | boolean>) {
           roleIds,
           channelId: await askMissing(flag(flags, "channel-id"), "Discord channel id: "),
           workspaceRoot: await askMissing(flag(flags, "workspace-root") ?? process.cwd(), "Workspace root: "),
+          initialCwd: flag(flags, "initial-cwd"),
           workspaceDisplayName: flag(flags, "workspace-name"),
           computerId: flag(flags, "computer-id"),
           computerDisplayName: flag(flags, "computer-name"),
@@ -94,14 +137,14 @@ async function setup(flags: Map<string, string | boolean>) {
   await writeSetupFiles({ cwd: process.cwd(), config });
 
   console.info("Wrote .connect/config.json and .env");
-  console.info(mode === "direct" ? "Start with: pnpm connect start --direct" : "Start with: pnpm connect start --hub");
+  console.info(mode === "direct" ? "Start with: cdc start --direct" : "Start with: cdc start --hub");
 }
 
 async function status() {
   const configPath = ".connect/config.json";
 
   if (!existsSync(configPath)) {
-    console.info("No .connect/config.json found. Run: pnpm connect setup --direct");
+    console.info("No .connect/config.json found. Run: cdc setup --direct");
     return;
   }
 
@@ -113,37 +156,76 @@ async function status() {
 
 async function start(flags: Map<string, string | boolean>) {
   const mode = (flag(flags, "mode") ?? (flags.has("hub") ? "hub" : "direct")) as ConnectMode;
-  const env = { ...process.env, CONNECT_CONFIG_PATH: ".connect/config.json", CONNECT_MODE: mode };
-  const commands =
-    mode === "hub"
-      ? [
-          ["pnpm", "dev:control"],
-          ["pnpm", "dev:agent"],
-          ["pnpm", "dev:bot"],
-        ]
-      : [["pnpm", "dev:bot"]];
+  const env = buildManagedProcessEnv(mode, process.cwd());
+  const commands = buildManagedProcessCommands(mode);
+  const commandCwd = packageRoot();
 
-  const children = commands.map(([cmd, script]) =>
-    spawn(cmd, [script], {
-      env,
-      stdio: "inherit",
-    }),
-  );
+  await new Promise<void>((resolve, reject) => {
+    const children = new Map<string, ChildProcess>();
+    let settled = false;
 
-  await Promise.race(
-    children.map(
-      (child) =>
-        new Promise<void>((resolve, reject) => {
-          child.once("exit", (code) => {
-            if (code === 0) {
-              resolve();
-            } else {
-              reject(new Error(`${child.spawnargs.join(" ")} exited with code ${code ?? "unknown"}`));
-            }
-          });
-        }),
-    ),
-  );
+    function stopOtherChildren(exceptScript: string) {
+      for (const [script, child] of children) {
+        if (script !== exceptScript && !child.killed) {
+          child.kill();
+        }
+      }
+    }
+
+    function settleFromExit(script: string, code: number | null) {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      stopOtherChildren(script);
+
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${script} exited with code ${code ?? "unknown"}`));
+    }
+
+    function launch([cmd, args, script]: ManagedProcessCommand) {
+      const child = spawn(cmd === "node" ? process.execPath : cmd, args, {
+        cwd: commandCwd,
+        env,
+        stdio: "inherit",
+      });
+
+      children.set(script, child);
+      child.once("error", (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        stopOtherChildren(script);
+        reject(error);
+      });
+      child.once("exit", (code) => {
+        children.delete(script);
+
+        if (settled) {
+          return;
+        }
+
+        if (shouldRestartManagedProcess({ script, code })) {
+          console.info("Discord requested bot reload; restarting dev:bot...");
+          launch([cmd, args, script]);
+          return;
+        }
+
+        settleFromExit(script, code);
+      });
+    }
+
+    for (const command of commands) {
+      launch(command);
+    }
+  });
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -165,11 +247,11 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   }
 
   console.info("Usage:");
-  console.info("  pnpm connect install --direct");
-  console.info("  pnpm connect setup --direct");
-  console.info("  pnpm connect setup --hub");
-  console.info("  pnpm connect start --direct");
-  console.info("  pnpm connect status");
+  console.info("  cdc install --direct");
+  console.info("  cdc setup --direct");
+  console.info("  cdc setup --hub");
+  console.info("  cdc start --direct");
+  console.info("  cdc status");
 }
 
 const isDirectExecution =

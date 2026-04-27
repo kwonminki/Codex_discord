@@ -1,17 +1,95 @@
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
+import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
+import { createNewCodexChatChannel, linkPendingNewCodexChatSession } from "./codexNewChat.js";
+import { archiveSyncedCodexSession } from "./codexSessionArchive.js";
 import {
   deleteSyncedDiscordSessions,
   previewSyncedDiscordSessionDelete,
+  type SyncedDeleteMode,
 } from "./codexSessionDelete.js";
-import { syncCodexSessionsToDiscord, type DiscordGuildSurface } from "./codexSessionSync.js";
+import {
+  syncCodexSessionsToDiscord,
+  type DiscordGuildSurface,
+  type SyncCodexSessionsProgress,
+} from "./codexSessionSync.js";
+import { syncCodexSessionTranscriptUpdates } from "./codexTranscriptSync.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
 import { createDirectControlClient } from "./directControlClient.js";
-import { attachDiscordMessageHandler, createDiscordClient } from "./discordClient.js";
+import {
+  attachDiscordInteractionHandler,
+  attachDiscordMessageHandler,
+  createDiscordGuildSurface,
+  createDiscordClient,
+  registerDiscordApplicationCommands,
+} from "./discordClient.js";
 import { createDiscordMessageHandler } from "./messageHandler.js";
+import type { DiscordOutgoingMessage } from "./messageHandler.js";
+import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js";
+
+export const BOT_RELOAD_EXIT_CODE = 42;
+const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 1_000;
+const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 30_000;
+
+export function resolveRealtimeIntervalMs(value: string | undefined, fallbackMs: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsed)) {
+    return fallbackMs;
+  }
+
+  return Math.min(Math.max(parsed, 500), 60_000);
+}
+
+export function shouldRunRealtimeSessionAutosync(input: {
+  mode: "on-chat" | "realtime";
+  now: number;
+  lastAutoSyncAt: number;
+  intervalMs: number;
+}): boolean {
+  void input;
+  return false;
+}
+
+const TRANSCRIPT_SYNC_INTERVAL_MS = resolveRealtimeIntervalMs(
+  process.env.CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS,
+  DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS,
+);
+const SCHEDULE_POLL_INTERVAL_MS = resolveRealtimeIntervalMs(
+  process.env.CONNECT_SCHEDULE_POLL_INTERVAL_MS,
+  DEFAULT_SCHEDULE_POLL_INTERVAL_MS,
+);
+
+function outgoingMessageToText(message: DiscordOutgoingMessage): string {
+  if (typeof message === "string") {
+    return message;
+  }
+
+  const lines = [
+    message.content,
+    ...(message.embeds ?? []).flatMap((embed) => [
+      embed.title,
+      embed.description,
+      ...(embed.fields ?? []).flatMap((field) => [`${field.name}:`, field.value]),
+    ]),
+  ].filter((line): line is string => typeof line === "string" && line.trim().length > 0);
+  const text = lines.join("\n");
+
+  return text.length <= 1_900 ? text : `${text.slice(0, 1_875)}\n... (일부만 표시)`;
+}
+
+function resolveReadyGuildSurface(
+  client: ReturnType<typeof createDiscordClient>,
+  guildId?: string,
+): DiscordGuildSurface | null {
+  const cache = client.guilds.cache;
+  const guild = guildId ? cache.get(guildId) : cache.first();
+
+  return createDiscordGuildSurface(guild ?? null);
+}
 
 export async function startBot(): Promise<void> {
   const connectConfig = await loadConnectConfig();
@@ -22,8 +100,10 @@ export async function startBot(): Promise<void> {
   }
 
   const client = createDiscordClient();
+  const startedAt = new Date().toISOString();
   const requestedMode = connectConfig?.mode ?? process.env.CONNECT_MODE;
   const directStateStore = connectConfig?.mode === "direct" ? createDirectSyncStateStore() : null;
+  const activelyStreamedSessionIds = new Set<string>();
 
   if (requestedMode === "direct" && connectConfig?.mode !== "direct") {
     throw new Error("Direct mode requires .connect/config.json. Run `pnpm connect setup --direct`.");
@@ -33,22 +113,53 @@ export async function startBot(): Promise<void> {
     connectConfig?.mode === "direct"
       ? createDirectControlClient(connectConfig, { stateStore: directStateStore ?? undefined })
       : createControlApiClient({
-          baseUrl:
+            baseUrl:
             connectConfig?.mode === "hub"
               ? connectConfig.hub.controlApiUrl
               : process.env.CONTROL_API_URL ?? "http://127.0.0.1:4317",
         });
-  const syncCodexSessions =
-    connectConfig?.mode === "direct" && directStateStore
-      ? async (input: { guild: DiscordGuildSurface; limit: number }) => {
+  const listDirectCodexSessions =
+    connectConfig?.mode === "direct"
+      ? async (
+          options: {
+            activeOnly?: boolean;
+            includeExecSessions?: boolean;
+            includeSessionIds?: string[];
+          } = {},
+        ): Promise<DiscoveredCodexSession[]> => {
           const response = await controlApiClient.listCodexSessions({
             computerId: connectConfig.direct.computerId,
             codexHome: connectConfig.direct.codexHome,
+            activeOnly: options.activeOnly,
+            includeExecSessions: options.includeExecSessions,
+            includeSessionIds: options.includeSessionIds,
           });
 
           if ("error" in response) {
             throw new Error(response.error.message);
           }
+
+          return response.result as DiscoveredCodexSession[];
+        }
+      : undefined;
+  const syncCodexSessions =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: {
+          guild: DiscordGuildSurface;
+          limit: number;
+          sessionIds?: string[];
+          onProgress?: (progress: SyncCodexSessionsProgress) => Promise<void> | void;
+        }) => {
+          const sessions = await listDirectCodexSessions?.();
+
+          if (!sessions) {
+            throw new Error("Direct Codex session listing is not connected.");
+          }
+
+          const selectedSessionIds = input.sessionIds ? new Set(input.sessionIds) : null;
+          const syncSessions = selectedSessionIds
+            ? sessions.filter((session) => selectedSessionIds.has(session.id))
+            : sessions;
 
           return syncCodexSessionsToDiscord({
             guild: input.guild,
@@ -57,22 +168,123 @@ export async function startBot(): Promise<void> {
             computerId: connectConfig.direct.computerId,
             computerDisplayName: connectConfig.direct.computerDisplayName,
             defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
-            sessions: response.result as DiscoveredCodexSession[],
+            sessions: syncSessions,
             limit: input.limit,
+            onProgress: input.onProgress,
           });
         }
       : undefined;
+  const previewSelectableCodexSessions =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: { limit: number }) => {
+          const sessions = await listDirectCodexSessions?.();
+
+          if (!sessions) {
+            throw new Error("Direct Codex session listing is not connected.");
+          }
+
+          const state = await directStateStore.read();
+          const archivedSessionIds = new Set(state.archivedCodexSessionIds);
+          const activeSessions = sessions.filter((session) => !archivedSessionIds.has(session.id));
+          const limit = Math.min(input.limit, 25);
+
+          return {
+            sessions: activeSessions.slice(0, limit).map((session) => ({
+              id: session.id,
+              threadName: session.threadName,
+              updatedAt: session.updatedAt,
+              workspaceDisplayName:
+                session.cwdHint?.split("/").filter(Boolean).at(-1) ?? connectConfig.direct.workspaceDisplayName,
+            })),
+            totalAvailable: activeSessions.length,
+            limit,
+          };
+        }
+      : undefined;
+  const syncTranscriptUpdates =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: {
+          guild: DiscordGuildSurface;
+          discordChannelId?: string;
+          trigger: "on-chat" | "realtime";
+          postUpdates?: boolean;
+        }) => {
+          const state = await directStateStore.read();
+          const sessions = await listDirectCodexSessions?.({
+            activeOnly: false,
+            includeExecSessions: true,
+            includeSessionIds: state.sessionChannels
+              .map((channel) => channel.codexSessionId)
+              .filter((sessionId): sessionId is string => Boolean(sessionId)),
+          });
+
+          if (!sessions) {
+            throw new Error("Direct Codex session listing is not connected.");
+          }
+
+          return syncCodexSessionTranscriptUpdates({
+            guild: input.guild,
+            stateStore: directStateStore,
+            sessions,
+            trigger: input.trigger,
+            discordChannelId: input.discordChannelId,
+            postUpdates: input.postUpdates,
+            ignoredSessionIds: activelyStreamedSessionIds,
+          });
+        }
+      : undefined;
+  const getSyncStatus =
+    directStateStore
+      ? async () => {
+          const state = await directStateStore.read();
+
+          return {
+            workspaceCount: state.workspaces.length,
+            sessionChannelCount: state.sessionChannels.length,
+            archivedSessionCount: state.archivedCodexSessionIds.length,
+            contextPostedCount: state.sessionChannels.filter((channel) => Boolean(channel.contextPostedAt)).length,
+            transcriptSyncMode: state.transcriptSyncMode,
+            transcriptSyncedChannelCount: state.sessionChannels.filter((channel) =>
+              Boolean(channel.lastTranscriptMessageKey),
+            ).length,
+          };
+      }
+      : undefined;
+  const setTranscriptSyncMode =
+    directStateStore
+      ? async (mode: "on-chat" | "realtime") => {
+          await directStateStore.updateTranscriptSyncMode(mode);
+          return { mode };
+        }
+      : undefined;
+  const reloadBot = async (input: { mode: "commands" | "restart" }) => {
+    await registerDiscordApplicationCommands(client, connectConfig?.discord.guildId);
+
+    if (input.mode === "restart") {
+      setTimeout(() => {
+        process.exit(BOT_RELOAD_EXIT_CODE);
+      }, 1_500).unref();
+    }
+
+    return {
+      mode: input.mode,
+      commandCount: DISCORD_APPLICATION_COMMANDS.length,
+      restarting: input.mode === "restart",
+      startedAt,
+    };
+  };
   const previewSyncedChannelsDelete =
     directStateStore
-      ? async (input: { mode: "all" | "channels" }) =>
+      ? async (input: { mode: SyncedDeleteMode; sessionId?: string | null }) =>
           previewSyncedDiscordSessionDelete({
             stateStore: directStateStore,
             mode: input.mode,
+            sessionId: input.sessionId,
           })
       : undefined;
   const deleteSyncedChannels =
     directStateStore
-      ? async (input: { guild: DiscordGuildSurface; mode: "all" | "channels" }) =>
+      ? async (input: { guild: DiscordGuildSurface; mode: SyncedDeleteMode; sessionId?: string | null }) =>
           deleteSyncedDiscordSessions({
             guild: {
               deleteChannel: async (id) => {
@@ -92,6 +304,68 @@ export async function startBot(): Promise<void> {
             },
             stateStore: directStateStore,
             mode: input.mode,
+            sessionId: input.sessionId,
+          })
+      : undefined;
+  const archiveSyncedSession =
+    directStateStore
+      ? async (input: { guild: DiscordGuildSurface | null | undefined; discordChannelId: string; codexSessionId?: string | null }) =>
+          archiveSyncedCodexSession({
+            guild: input.guild,
+            stateStore: directStateStore,
+            discordChannelId: input.discordChannelId,
+            codexSessionId: input.codexSessionId,
+          })
+      : undefined;
+  const scheduleCommand =
+    directStateStore
+      ? async (input: {
+          request: Parameters<typeof manageScheduledCommand>[0]["request"];
+          channelId: string;
+          userId: string;
+          roleIds: string[];
+        }) =>
+          manageScheduledCommand({
+            stateStore: directStateStore,
+            request: input.request,
+            channelId: input.channelId,
+            userId: input.userId,
+            roleIds: input.roleIds,
+          })
+      : undefined;
+  const createNewCodexChat =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: {
+          guild: DiscordGuildSurface;
+          name: string | null;
+          cwd: string | null;
+          currentCwd: string;
+          useCategory: boolean;
+          initialPrompt: string | null;
+        }) =>
+          createNewCodexChatChannel({
+            guild: input.guild,
+            controlApi: controlApiClient,
+            stateStore: directStateStore,
+            computerId: connectConfig.direct.computerId,
+            computerDisplayName: connectConfig.direct.computerDisplayName,
+            defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
+            currentCwd: input.currentCwd,
+            name: input.name,
+            cwd: input.cwd,
+            useCategory: input.useCategory,
+            initialPrompt: input.initialPrompt,
+          })
+      : undefined;
+  const linkNewCodexSession =
+    directStateStore
+      ? async (input: { discordChannelId: string; codexSessionId: string; threadName: string }) =>
+          linkPendingNewCodexChatSession({
+            controlApi: controlApiClient,
+            stateStore: directStateStore,
+            discordChannelId: input.discordChannelId,
+            codexSessionId: input.codexSessionId,
+            threadName: input.threadName,
           })
       : undefined;
   const handleMessage = createDiscordMessageHandler({
@@ -99,16 +373,108 @@ export async function startBot(): Promise<void> {
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
     syncCodexSessions,
+    createNewCodexChat,
+    linkNewCodexSession,
+    previewSelectableCodexSessions,
+    getSyncStatus,
+    setTranscriptSyncMode,
+    syncTranscriptUpdates,
+    setSessionStreaming: (sessionId, active) => {
+      if (active) {
+        activelyStreamedSessionIds.add(sessionId);
+        return;
+      }
+
+      activelyStreamedSessionIds.delete(sessionId);
+    },
+    reloadBot,
     previewSyncedChannelsDelete,
     deleteSyncedChannels,
+    archiveSyncedSession,
+    scheduleCommand,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
   });
 
   client.once("ready", () => {
     console.info(`Discord bot ready as ${client.user?.tag ?? "unknown"}`);
+    void registerDiscordApplicationCommands(client, connectConfig?.discord.guildId).catch((error) => {
+      console.error("discord-bot failed to register slash commands", error);
+    });
+
+    if (syncTranscriptUpdates) {
+      let running = false;
+      const timer = setInterval(() => {
+        if (running) {
+          return;
+        }
+
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+
+        if (!guild) {
+          return;
+        }
+
+        running = true;
+        void (async () => {
+          await syncTranscriptUpdates({ guild, trigger: "realtime" });
+        })()
+          .catch((error) => {
+            console.error("discord-bot failed to sync Codex transcripts", error);
+          })
+          .finally(() => {
+            running = false;
+          });
+      }, TRANSCRIPT_SYNC_INTERVAL_MS);
+      timer.unref();
+    }
+
+    if (directStateStore) {
+      let running = false;
+      const timer = setInterval(() => {
+        if (running) {
+          return;
+        }
+
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+
+        if (!guild?.sendTextMessage) {
+          return;
+        }
+
+        running = true;
+        void runDueScheduledCommands({
+          stateStore: directStateStore,
+          execute: async (schedule) => {
+            await guild.sendTextMessage?.(
+              schedule.channelId,
+              `예약 실행: \`${schedule.command.replace(/`/g, "'")}\``,
+            );
+            await handleMessage({
+              authorBot: false,
+              userId: schedule.userId,
+              channelId: schedule.channelId,
+              content: schedule.command,
+              roleIds: schedule.roleIds,
+              guild,
+              reply: async (replyMessage) => {
+                await guild.sendTextMessage?.(schedule.channelId, outgoingMessageToText(replyMessage));
+              },
+            });
+          },
+        })
+          .catch((error) => {
+            console.error("discord-bot failed to run scheduled commands", error);
+          })
+          .finally(() => {
+            running = false;
+          });
+      }, SCHEDULE_POLL_INTERVAL_MS);
+      timer.unref();
+    }
   });
   attachDiscordMessageHandler(client, handleMessage);
+  attachDiscordInteractionHandler(client, handleMessage);
 
   await client.login(token);
 }

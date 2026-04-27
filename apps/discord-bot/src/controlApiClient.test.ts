@@ -350,4 +350,93 @@ describe("createControlApiClient", () => {
       },
     ]);
   });
+
+  it("streams Codex prompt progress from the control api", async () => {
+    const requests: Array<{ url: string; body: unknown; accept: string | undefined }> = [];
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        requests.push({
+          url: request.url ?? "",
+          body: JSON.parse(Buffer.concat(chunks).toString()) as unknown,
+          accept: request.headers.accept,
+        });
+        response.writeHead(200, { "content-type": "application/x-ndjson" });
+        response.write(
+          `${JSON.stringify({
+            type: "progress",
+            event: {
+              type: "agent-message",
+              text: "중간 출력입니다.",
+            },
+          })}\n`,
+        );
+        response.end(
+          `${JSON.stringify({
+            type: "result",
+            jobId: "job-1",
+            result: {
+              status: "completed",
+              finalMessage: "최종 답변입니다.",
+              sessionId: "session-1",
+            },
+          })}\n`,
+        );
+      });
+    });
+    const progressEvents: unknown[] = [];
+
+    server.listen(0, "127.0.0.1");
+    cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    await once(server, "listening");
+    const address = server.address() as AddressInfo;
+    const client = createControlApiClient({ baseUrl: `http://127.0.0.1:${address.port}` });
+
+    await expect(
+      client.submitCodexPrompt({
+        computerId: "computer-1",
+        payload: {
+          workspaceRoot: "/repo",
+          cwd: "/repo",
+          prompt: "요약해줘",
+          timeoutMs: 3_000,
+          sessionId: "session-1",
+        },
+        onProgress: async (event) => {
+          progressEvents.push(event);
+        },
+      }),
+    ).resolves.toEqual({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "최종 답변입니다.",
+        sessionId: "session-1",
+      },
+    });
+    expect(progressEvents).toEqual([
+      {
+        type: "agent-message",
+        text: "중간 출력입니다.",
+      },
+    ]);
+    expect(requests).toEqual([
+      {
+        url: "/computers/computer-1/jobs",
+        accept: "application/x-ndjson",
+        body: {
+          type: "run-codex-prompt",
+          streamProgress: true,
+          payload: {
+            workspaceRoot: "/repo",
+            cwd: "/repo",
+            prompt: "요약해줘",
+            timeoutMs: 3_000,
+            sessionId: "session-1",
+          },
+        },
+      },
+    ]);
+  });
 });

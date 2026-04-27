@@ -1,4 +1,4 @@
-import { createWorkspaceCategoryName, type ChannelMode } from "@codex-discord/core";
+import { createWorkspaceCategoryName, type ChannelMode } from "../../../packages/core/src/index.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 
 export interface DiscordGuildSurface {

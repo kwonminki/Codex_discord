@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
 import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
+import { assertInsideWorkspace } from "../../local-agent/src/workspace.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type { DirectConnectConfig } from "./connectConfig.js";
 import type { DirectSyncStateStore } from "./directState.js";
@@ -10,7 +11,9 @@ export function createDirectControlClient(
   config: DirectConnectConfig,
   options: { stateStore?: DirectSyncStateStore } = {},
 ): ControlApiClient {
-  let cwd = config.direct.workspaceRoot;
+  let cwd = config.direct.initialCwd
+    ? assertInsideWorkspace(config.direct.workspaceRoot, config.direct.initialCwd)
+    : config.direct.workspaceRoot;
   const sessionLinks = new Map<string, {
     id: string;
     channelId: string;
@@ -133,7 +136,18 @@ export function createDirectControlClient(
         return { jobId: randomUUID(), error: { message: "Computer is offline" } };
       }
 
-      return { jobId: randomUUID(), result: await discoverCodexSessions(input.codexHome) };
+      return {
+        jobId: randomUUID(),
+        result: await discoverCodexSessions(input.codexHome, {
+          activeOnly: input.activeOnly ?? true,
+          includeExecSessions: input.includeExecSessions ?? false,
+          includeSessionIds: input.includeSessionIds,
+          includeContextPreview: true,
+          includeRealtimeEvents: true,
+          contextMessageLimit: 25,
+          realtimeEventLimit: 40,
+        }),
+      };
     },
     async submitCommandJob(input) {
       if (input.computerId !== config.direct.computerId) {
@@ -151,6 +165,7 @@ export function createDirectControlClient(
       const result = await runCodexPrompt({
         ...input.payload,
         codexHome: config.direct.codexHome,
+        onProgress: input.onProgress,
       });
       return { jobId: randomUUID(), result };
     },

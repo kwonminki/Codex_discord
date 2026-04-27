@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { listNativeCodexSessions } from "./codexAdapter.js";
-import { runCodexPrompt } from "./codexRunner.js";
+import { runCodexPrompt, type CodexRunnerProgressEvent } from "./codexRunner.js";
 import { runWorkspaceCommand } from "./runner.js";
 
 export interface AgentConfig {
@@ -22,6 +22,10 @@ export interface AgentJob {
   payload: unknown;
 }
 
+interface AgentJobOptions {
+  onProgress?: (event: CodexRunnerProgressEvent) => Promise<void> | void;
+}
+
 interface ParsedAgentJob extends AgentJob {
   jobId: string;
 }
@@ -38,18 +42,30 @@ export function createAgentHelloMessage(config: AgentConfig) {
   };
 }
 
-export async function handleAgentJob(job: AgentJob) {
+export async function handleAgentJob(job: AgentJob, options: AgentJobOptions = {}) {
   if (job.type === "run-command") {
     return runWorkspaceCommand(job.payload as Parameters<typeof runWorkspaceCommand>[0]);
   }
 
   if (job.type === "list-codex-sessions") {
-    const payload = job.payload as { codexHome: string };
-    return listNativeCodexSessions(payload.codexHome);
+    const payload = job.payload as {
+      codexHome: string;
+      activeOnly?: boolean;
+      includeExecSessions?: boolean;
+      includeSessionIds?: string[];
+    };
+    return listNativeCodexSessions(payload.codexHome, {
+      activeOnly: payload.activeOnly,
+      includeExecSessions: payload.includeExecSessions,
+      includeSessionIds: payload.includeSessionIds,
+    });
   }
 
   if (job.type === "run-codex-prompt") {
-    return runCodexPrompt(job.payload as Parameters<typeof runCodexPrompt>[0]);
+    return runCodexPrompt({
+      ...(job.payload as Parameters<typeof runCodexPrompt>[0]),
+      onProgress: options.onProgress,
+    });
   }
 
   throw new Error("Unsupported agent job type");
@@ -78,6 +94,10 @@ function sendJobResult(socket: WebSocket, jobId: string, result: unknown) {
   socket.send(JSON.stringify({ type: "agent-job-result", jobId, result }));
 }
 
+function sendJobProgress(socket: WebSocket, jobId: string, event: CodexRunnerProgressEvent) {
+  socket.send(JSON.stringify({ type: "agent-job-progress", jobId, event }));
+}
+
 function sendJobError(socket: WebSocket, jobId: string, error: Error) {
   socket.send(JSON.stringify({ type: "agent-job-result", jobId, error: { message: error.message } }));
 }
@@ -98,7 +118,11 @@ export function connectAgent(wsUrl: string, config: AgentConfig) {
       }
 
       try {
-        const result = await handleAgentJob(job);
+        const result = await handleAgentJob(job, {
+          onProgress: async (event) => {
+            sendJobProgress(socket, job.jobId, event);
+          },
+        });
         sendJobResult(socket, job.jobId, result);
       } catch (error) {
         const jobError = error instanceof Error ? error : new Error("Unknown agent job failure");

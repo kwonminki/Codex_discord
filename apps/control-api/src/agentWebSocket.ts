@@ -3,7 +3,12 @@ import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import type { AgentRegistry, RegisteredAgent } from "./agentRegistry.js";
 import type { AdvertisedWorkspace, ComputerPresenceService } from "./computerPresence.js";
-import type { AgentJobResult, AgentJobResultEnvelope, createJobDispatcher } from "./jobs.js";
+import type {
+  AgentJobProgressEnvelope,
+  AgentJobResult,
+  AgentJobResultEnvelope,
+  createJobDispatcher,
+} from "./jobs.js";
 
 interface AgentHelloMessage {
   type: "agent-hello";
@@ -65,6 +70,19 @@ function isAgentJobResultEnvelope(message: unknown): message is AgentJobResultEn
   const hasError = typeof candidate.error?.message === "string";
 
   return candidate.type === "agent-job-result" && typeof candidate.jobId === "string" && (hasResult || hasError);
+}
+
+function isAgentJobProgressEnvelope(message: unknown): message is AgentJobProgressEnvelope {
+  if (typeof message !== "object" || message === null) {
+    return false;
+  }
+
+  const candidate = message as {
+    type?: unknown;
+    jobId?: unknown;
+  };
+
+  return candidate.type === "agent-job-progress" && typeof candidate.jobId === "string";
 }
 
 function toJobResult(envelope: AgentJobResultEnvelope): AgentJobResult {
@@ -159,6 +177,11 @@ export function attachAgentWebSocketServer(input: {
 
       if (isAgentJobResultEnvelope(message)) {
         input.jobDispatcher.complete(toJobResult(message));
+        return;
+      }
+
+      if (isAgentJobProgressEnvelope(message)) {
+        input.jobDispatcher.progress(message.jobId, message.event);
       }
     });
 

@@ -24,6 +24,10 @@ function isAgentJobType(value: unknown): value is AgentJob["type"] {
   return value === "run-command" || value === "list-codex-sessions" || value === "run-codex-prompt";
 }
 
+function acceptsNdjson(value: string | undefined): boolean {
+  return Boolean(value?.split(",").some((part) => part.trim().startsWith("application/x-ndjson")));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -31,6 +35,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function stringField(body: Record<string, unknown>, fieldName: string): string | null {
   const value = body[fieldName];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function booleanField(body: Record<string, unknown>, fieldName: string): boolean | undefined {
+  const value = body[fieldName];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArrayField(body: Record<string, unknown>, fieldName: string): string[] | undefined {
+  const value = body[fieldName];
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
 function isChannelMode(value: unknown): value is "shell-admin" | "session-linked" {
@@ -272,7 +291,12 @@ export function createServer({
       return reply.code(400).send({ error: { message: "Invalid Codex session listing request" } });
     }
 
-    const { job } = createJob(request.params.computerId, "list-codex-sessions", { codexHome });
+    const { job } = createJob(request.params.computerId, "list-codex-sessions", {
+      codexHome,
+      activeOnly: booleanField(request.body, "activeOnly"),
+      includeExecSessions: booleanField(request.body, "includeExecSessions"),
+      includeSessionIds: stringArrayField(request.body, "includeSessionIds"),
+    });
 
     try {
       return await jobDispatcher.dispatchAndWait(request.params.computerId, job);
@@ -284,7 +308,7 @@ export function createServer({
   });
   app.post<{
     Params: { computerId: string };
-    Body: { type?: unknown; payload?: unknown } | undefined;
+    Body: { type?: unknown; payload?: unknown; streamProgress?: unknown } | undefined;
   }>("/computers/:computerId/jobs", async (request, reply) => {
     const body = request.body ?? {};
 
@@ -293,6 +317,31 @@ export function createServer({
     }
 
     const { job } = createJob(request.params.computerId, body.type, body.payload);
+
+    if (body.streamProgress === true && acceptsNdjson(request.headers.accept)) {
+      reply.hijack();
+      reply.raw.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8" });
+
+      const writeLine = (value: unknown) => {
+        reply.raw.write(`${JSON.stringify(value)}\n`);
+      };
+
+      try {
+        const result = await jobDispatcher.dispatchAndWait(request.params.computerId, job, {
+          onProgress: (event) => {
+            writeLine({ type: "progress", event });
+          },
+        });
+        writeLine({ type: "result", ...result });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Agent job failed";
+        writeLine({ type: "result", jobId: job.jobId, error: { message } });
+      } finally {
+        reply.raw.end();
+      }
+
+      return reply;
+    }
 
     try {
       return await jobDispatcher.dispatchAndWait(request.params.computerId, job);

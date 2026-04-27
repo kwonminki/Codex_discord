@@ -19,25 +19,55 @@ afterEach(() => {
 });
 
 describe("bot entrypoint", () => {
+  it("uses fast realtime polling without auto-creating session channels", async () => {
+    const { resolveRealtimeIntervalMs, shouldRunRealtimeSessionAutosync } = await import("./index.js");
+
+    expect(resolveRealtimeIntervalMs(undefined, 1_000)).toBe(1_000);
+    expect(resolveRealtimeIntervalMs("250", 1_000)).toBe(500);
+    expect(resolveRealtimeIntervalMs("2000", 1_000)).toBe(2_000);
+    expect(resolveRealtimeIntervalMs("bad", 1_000)).toBe(1_000);
+    expect(
+      shouldRunRealtimeSessionAutosync({
+        mode: "realtime",
+        now: 10_000,
+        lastAutoSyncAt: 0,
+        intervalMs: 10_000,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunRealtimeSessionAutosync({
+        mode: "on-chat",
+        now: 10_000,
+        lastAutoSyncAt: 0,
+        intervalMs: 10_000,
+      }),
+    ).toBe(false);
+  });
+
   it("does not start the bot when imported", async () => {
     const login = vi.fn();
     const once = vi.fn();
     const attachDiscordMessageHandler = vi.fn();
+    const attachDiscordInteractionHandler = vi.fn();
+    const registerDiscordApplicationCommands = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordInteractionHandler,
       attachDiscordMessageHandler,
+      createDiscordGuildSurface: vi.fn(() => null),
       createDiscordClient,
+      registerDiscordApplicationCommands,
     }));
 
     await expect(import("./index.js")).resolves.toBeTruthy();
     expect(createDiscordClient).not.toHaveBeenCalled();
     expect(login).not.toHaveBeenCalled();
     expect(once).not.toHaveBeenCalled();
-  });
+  }, 15_000);
 
   it("starts the bot when requested", async () => {
     process.env.DISCORD_TOKEN = "discord-token";
@@ -46,6 +76,8 @@ describe("bot entrypoint", () => {
     const once = vi.fn();
     const on = vi.fn();
     const attachDiscordMessageHandler = vi.fn();
+    const attachDiscordInteractionHandler = vi.fn();
+    const registerDiscordApplicationCommands = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
@@ -53,8 +85,11 @@ describe("bot entrypoint", () => {
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordInteractionHandler,
       attachDiscordMessageHandler,
+      createDiscordGuildSurface: vi.fn(() => null),
       createDiscordClient,
+      registerDiscordApplicationCommands,
     }));
 
     const { startBot } = await import("./index.js");
@@ -66,8 +101,12 @@ describe("bot entrypoint", () => {
       { login, once, on },
       expect.any(Function),
     );
+    expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
+      { login, once, on },
+      expect.any(Function),
+    );
     expect(login).toHaveBeenCalledWith("discord-token");
-  });
+  }, 15_000);
 
   it("starts the bot from a generated direct mode config", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-config-"));
@@ -103,6 +142,8 @@ describe("bot entrypoint", () => {
       const once = vi.fn();
       const on = vi.fn();
       const attachDiscordMessageHandler = vi.fn();
+      const attachDiscordInteractionHandler = vi.fn();
+      const registerDiscordApplicationCommands = vi.fn().mockResolvedValue(undefined);
       const createDiscordClient = vi.fn(() => ({
         login,
         once,
@@ -110,8 +151,11 @@ describe("bot entrypoint", () => {
       }));
 
       vi.doMock("./discordClient.js", () => ({
+        attachDiscordInteractionHandler,
         attachDiscordMessageHandler,
+        createDiscordGuildSurface: vi.fn(() => null),
         createDiscordClient,
+        registerDiscordApplicationCommands,
       }));
 
       const { startBot } = await import("./index.js");
@@ -121,7 +165,17 @@ describe("bot entrypoint", () => {
         { login, once, on },
         expect.any(Function),
       );
+      expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
+        { login, once, on },
+        expect.any(Function),
+      );
       expect(login).toHaveBeenCalledWith("discord-token");
+
+      const readyHandler = once.mock.calls.find(([eventName]) => eventName === "ready")?.[1] as
+        | (() => void)
+        | undefined;
+      readyHandler?.();
+      expect(registerDiscordApplicationCommands).toHaveBeenCalledWith({ login, once, on }, "guild-1");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -131,14 +185,19 @@ describe("bot entrypoint", () => {
     const login = vi.fn();
     const once = vi.fn();
     const attachDiscordMessageHandler = vi.fn();
+    const attachDiscordInteractionHandler = vi.fn();
+    const registerDiscordApplicationCommands = vi.fn();
     const createDiscordClient = vi.fn(() => ({
       login,
       once,
     }));
 
     vi.doMock("./discordClient.js", () => ({
+      attachDiscordInteractionHandler,
       attachDiscordMessageHandler,
+      createDiscordGuildSurface: vi.fn(() => null),
       createDiscordClient,
+      registerDiscordApplicationCommands,
     }));
 
     const { startBot } = await import("./index.js");

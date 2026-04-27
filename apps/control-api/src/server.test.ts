@@ -72,7 +72,7 @@ describe("control api server", () => {
     } finally {
       await app.close();
     }
-  });
+  }, 15_000);
 
   it("lists registered online agents", async () => {
     const registry = createAgentRegistry();
@@ -325,6 +325,102 @@ describe("control api server", () => {
           exitCode: 0,
         },
       });
+    } finally {
+      await closeSocket(socket);
+      await app.close();
+    }
+  });
+
+  it("streams websocket agent progress for HTTP Codex jobs", async () => {
+    const app = createServer({ agentRegistry: createAgentRegistry(), jobTimeoutMs: 1_000 });
+    const port = await listenOnRandomPort(app);
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/agents`);
+
+    try {
+      await once(socket, "open");
+      socket.send(
+        JSON.stringify({
+          type: "agent-hello",
+          computerId: "computer-1",
+          displayName: "macbook-pro-01",
+          capabilities: ["codex-import"],
+        }),
+      );
+      await waitForAgentCount(app, 1);
+
+      const inboundJob = once(socket, "message");
+      const responsePromise = fetch(`http://127.0.0.1:${port}/computers/computer-1/jobs`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/x-ndjson",
+        },
+        body: JSON.stringify({
+          type: "run-codex-prompt",
+          streamProgress: true,
+          payload: {
+            workspaceRoot: "/repo",
+            cwd: "/repo",
+            prompt: "요약해줘",
+            timeoutMs: 3_000,
+            sessionId: "session-1",
+          },
+        }),
+      });
+
+      const [rawJob] = await inboundJob;
+      const job = JSON.parse(rawJob.toString()) as { jobId: string; type: string; payload: unknown };
+      expect(job).toMatchObject({
+        type: "run-codex-prompt",
+        payload: {
+          sessionId: "session-1",
+          prompt: "요약해줘",
+        },
+      });
+
+      socket.send(
+        JSON.stringify({
+          type: "agent-job-progress",
+          jobId: job.jobId,
+          event: {
+            type: "agent-message",
+            text: "중간 출력입니다.",
+          },
+        }),
+      );
+      socket.send(
+        JSON.stringify({
+          type: "agent-job-result",
+          jobId: job.jobId,
+          result: {
+            status: "completed",
+            finalMessage: "최종 답변입니다.",
+            sessionId: "session-1",
+          },
+        }),
+      );
+
+      const response = await responsePromise;
+      expect(response.headers.get("content-type")).toContain("application/x-ndjson");
+      const lines = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as unknown);
+      expect(lines).toEqual([
+        {
+          type: "progress",
+          event: {
+            type: "agent-message",
+            text: "중간 출력입니다.",
+          },
+        },
+        {
+          type: "result",
+          jobId: job.jobId,
+          result: {
+            status: "completed",
+            finalMessage: "최종 답변입니다.",
+            sessionId: "session-1",
+          },
+        },
+      ]);
     } finally {
       await closeSocket(socket);
       await app.close();

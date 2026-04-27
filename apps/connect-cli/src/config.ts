@@ -18,6 +18,7 @@ export interface DirectConnectConfig {
     computerDisplayName: string;
     workspaceId: string;
     workspaceRoot: string;
+    initialCwd?: string;
     workspaceDisplayName: string;
     channelId: string;
     channelMode: "shell-admin" | "session-linked";
@@ -43,6 +44,7 @@ export interface BuildDirectConfigInput {
   channelId: string;
   roleIds: string | string[];
   workspaceRoot: string;
+  initialCwd?: string;
   workspaceDisplayName?: string;
   computerId?: string;
   computerDisplayName?: string;
@@ -65,6 +67,7 @@ export function parseRoleIds(roleIds: string | string[]): string[] {
 
 export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectConfig {
   const workspaceRoot = path.resolve(input.workspaceRoot);
+  const initialCwd = input.initialCwd ? path.resolve(input.initialCwd) : undefined;
   const computerId = input.computerId ?? "local-dev";
 
   return {
@@ -79,6 +82,7 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
       computerDisplayName: input.computerDisplayName ?? "Local Dev",
       workspaceId: `${computerId}:${workspaceRoot}`,
       workspaceRoot,
+      ...(initialCwd ? { initialCwd } : {}),
       workspaceDisplayName: input.workspaceDisplayName ?? path.basename(workspaceRoot),
       channelId: input.channelId,
       channelMode: "shell-admin",

@@ -1,4 +1,4 @@
-import type { ChannelMode } from "@codex-discord/core";
+import type { ChannelMode } from "../../../packages/core/src/index.js";
 
 export interface ManagedDiscordChannelContext {
   channelMode: ChannelMode;

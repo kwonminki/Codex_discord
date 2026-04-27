@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { attachDiscordMessageHandler } from "./discordClient.js";
+import {
+  attachDiscordMessageHandler,
+  attachDiscordInteractionHandler,
+  createDiscordGuildSurface,
+} from "./discordClient.js";
+import { formatCodexProgressUpdate, formatCollapsibleThoughtMessage } from "./responses.js";
 
 describe("attachDiscordMessageHandler", () => {
   it("adapts Discord messageCreate events into the pure message handler", async () => {
@@ -49,6 +54,7 @@ describe("attachDiscordMessageHandler", () => {
       content: "ls",
       roleIds: ["role-operator", "role-extra"],
       guild: expect.any(Object),
+      clearMessages: expect.any(Function),
       reply: expect.any(Function),
     });
 
@@ -76,5 +82,435 @@ describe("attachDiscordMessageHandler", () => {
     expect(guild.channels.create).toHaveBeenCalledTimes(2);
     expect(guild.channels.fetch).toHaveBeenCalledWith("channel-1");
     expect(guild.channels.fetch).toHaveBeenCalledWith("category-1");
+  });
+});
+
+describe("attachDiscordInteractionHandler", () => {
+  it("adapts Discord native slash command interactions into the pure message handler", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isChatInputCommand: () => true,
+      commandName: "compact",
+      options: {
+        getString: (name: string) => (name === "prompt" ? "지금까지 맥락 정리" : null),
+        getInteger: () => null,
+        getBoolean: () => null,
+      },
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      guild: null,
+    });
+
+    expect(client.on).toHaveBeenCalledWith("interactionCreate", expect.any(Function));
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorBot: false,
+        userId: "discord-user-1",
+        channelId: "discord-channel-1",
+        content: "codex 지금까지의 작업 맥락을 압축 요약해줘. 지금까지 맥락 정리",
+        roleIds: ["role-operator"],
+      }),
+    );
+  });
+
+  it("adapts Discord button interactions into the pure message handler", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const guild = {
+      channels: {
+        create: vi.fn(),
+        fetch: vi.fn(),
+      },
+    };
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:sync:25",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      guild,
+    });
+
+    expect(client.on).toHaveBeenCalledWith("interactionCreate", expect.any(Function));
+    expect(handleMessage).toHaveBeenCalledWith({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "sync select 25",
+      roleIds: ["role-operator"],
+      guild: expect.any(Object),
+      reply: expect.any(Function),
+    });
+
+    const adaptedInteraction = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
+    const payload = { embeds: [{ title: "syncing" }] };
+    await adaptedInteraction.reply(payload);
+    expect(reply).toHaveBeenCalledWith(payload);
+  });
+
+  it("adapts Discord select menu interactions into the pure message handler", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => true,
+      customId: "cdc:fs:open",
+      values: ["docs"],
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      guild: null,
+    });
+
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "__cdc_exec __cdc_open docs",
+        channelId: "discord-channel-1",
+      }),
+    );
+  });
+
+  it("shows a Codex prompt modal and dispatches submitted text", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const showModal = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:codex:ask",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      showModal,
+    });
+
+    expect(showModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Codex에게 요청",
+        custom_id: "cdc:codex:submit",
+      }),
+    );
+    expect(handleMessage).not.toHaveBeenCalled();
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => false,
+      isModalSubmit: () => true,
+      customId: "cdc:codex:submit",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      fields: {
+        getTextInputValue: (fieldId: string) => (fieldId === "prompt" ? "README 요약해줘" : ""),
+      },
+    });
+
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "codex README 요약해줘",
+      }),
+    );
+  });
+
+  it("shows a new chat modal from chat buttons and dispatches submitted details", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const showModal = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:chat:new:current",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      showModal,
+    });
+
+    expect(showModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "현재 폴더에서 새 채팅",
+        custom_id: "cdc:chat:submit:current",
+      }),
+    );
+    expect(handleMessage).not.toHaveBeenCalled();
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => false,
+      isModalSubmit: () => true,
+      customId: "cdc:chat:submit:current",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      fields: {
+        getTextInputValue: (fieldId: string) =>
+          fieldId === "name" ? "UI 점검" : fieldId === "prompt" ? "버튼 흐름을 점검해줘" : "",
+      },
+    });
+
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content:
+          "__cdc_new_chat %7B%22name%22%3A%22UI%20%EC%A0%90%EA%B2%80%22%2C%22cwd%22%3A%22.%22%2C%22useCategory%22%3Atrue%2C%22initialPrompt%22%3A%22%EB%B2%84%ED%8A%BC%20%ED%9D%90%EB%A6%84%EC%9D%84%20%EC%A0%90%EA%B2%80%ED%95%B4%EC%A4%98%22%7D",
+      }),
+    );
+  });
+
+  it("toggles Codex progress thoughts by updating the existing Discord message", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const sentMessage = {
+      id: "message-1",
+      edit: vi.fn().mockResolvedValue(undefined),
+    };
+    const handleMessage = vi.fn(async (message) => {
+      const queued = await message.reply(
+        formatCodexProgressUpdate(
+          {
+            computerDisplayName: "Local Dev",
+            workspaceDisplayName: "CodexDiscordConnecter",
+            cwd: "/repo",
+            prompt: "진행 보여줘",
+          },
+          {
+            status: "파일 탐색 중",
+            latestMessage: "이제 두 가지를 바로 바꾸겠습니다.",
+            recentEvents: ["생각중...", "2개의 파일 탐색중..."],
+          },
+        ),
+      );
+
+      await queued?.edit(
+        formatCodexProgressUpdate(
+          {
+            computerDisplayName: "Local Dev",
+            workspaceDisplayName: "CodexDiscordConnecter",
+            cwd: "/repo",
+            prompt: "진행 보여줘",
+          },
+          {
+            status: "파일 탐색 중",
+            latestMessage: "이제 두 가지를 바로 바꾸겠습니다.",
+            recentEvents: ["생각중...", "2개의 파일 탐색중..."],
+          },
+        ),
+      );
+    });
+    const reply = vi.fn().mockResolvedValue(sentMessage);
+    const editReply = vi.fn().mockResolvedValue(sentMessage);
+    const update = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isChatInputCommand: () => true,
+      commandName: "codex",
+      options: { getString: () => "진행 보여줘" },
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply,
+      editReply,
+      fetchReply: vi.fn().mockResolvedValue(sentMessage),
+    });
+
+    await vi.waitFor(() => expect(editReply).toHaveBeenCalled());
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:codex:thoughts:open",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map() } },
+      guild: null,
+      message: sentMessage,
+      update,
+      reply: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("**생각 / 중간 출력**"),
+      }),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("이제 두 가지를 바로 바꾸겠습니다."),
+      }),
+    );
+  });
+
+  it("toggles desktop-synced thought messages sent directly to a channel", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const sentMessage = {
+      id: "synced-thought-1",
+      edit: vi.fn().mockResolvedValue(undefined),
+    };
+    const send = vi.fn().mockResolvedValue(sentMessage);
+    const guild = {
+      channels: {
+        fetch: vi.fn().mockResolvedValue({ send }),
+      },
+    };
+    const update = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, vi.fn());
+
+    const guildSurface = createDiscordGuildSurface(guild as never);
+
+    if (!guildSurface?.sendTextMessage) {
+      throw new Error("Guild surface did not expose sendTextMessage");
+    }
+
+    await guildSurface.sendTextMessage(
+      "channel-1",
+      formatCollapsibleThoughtMessage({
+        collapsedContent: "> 생각중...",
+        expandedContent: "> 파일 탐색 중 · rg --files",
+      }),
+    );
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "> 생각중...",
+      }),
+    );
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:codex:thoughts:open",
+      user: { id: "discord-user-1" },
+      channelId: "channel-1",
+      member: { roles: { cache: new Map() } },
+      guild: null,
+      message: sentMessage,
+      update,
+      reply: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "> 파일 탐색 중 · rg --files",
+      }),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        components: [
+          {
+            type: 1,
+            components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+          },
+        ],
+      }),
+    );
+  });
+
+  it("acknowledges unknown buttons without dispatching a command", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn();
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "unknown",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map() } },
+      reply,
+      guild: null,
+    });
+
+    expect(handleMessage).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith({
+      allowedMentions: { parse: [] },
+      ephemeral: true,
+      content: "이 버튼은 더 이상 사용할 수 없습니다. `help`를 다시 눌러 최신 버튼을 열어주세요.",
+    });
   });
 });

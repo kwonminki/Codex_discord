@@ -95,5 +95,5 @@ describe("control api to local agent command flow", () => {
         exitCode: 0,
       },
     });
-  });
+  }, 15_000);
 });

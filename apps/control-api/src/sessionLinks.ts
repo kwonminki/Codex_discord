@@ -1,4 +1,4 @@
-import type { SessionOrigin } from "@codex-discord/core";
+import type { SessionOrigin } from "../../../packages/core/src/index.js";
 import type { PrismaClient } from "@prisma/client";
 
 export interface LinkCodexSessionInput {

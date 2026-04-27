@@ -17,6 +17,9 @@ importers:
       fastify:
         specifier: ^5.2.1
         version: 5.8.5
+      tsx:
+        specifier: ^4.19.3
+        version: 4.21.0
       ws:
         specifier: ^8.18.1
         version: 8.20.0
@@ -33,9 +36,6 @@ importers:
       prisma:
         specifier: ^6.6.0
         version: 6.19.3(typescript@5.9.3)
-      tsx:
-        specifier: ^4.19.3
-        version: 4.21.0
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -43,14 +43,10 @@ importers:
         specifier: ^3.1.1
         version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(tsx@4.21.0)
 
+  apps/connect-cli: {}
+
   apps/control-api:
     dependencies:
-      '@codex-discord/codex-adapter':
-        specifier: workspace:*
-        version: link:../../packages/codex-adapter
-      '@codex-discord/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@prisma/client':
         specifier: ^6.6.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -63,30 +59,17 @@ importers:
 
   apps/discord-bot:
     dependencies:
-      '@codex-discord/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       discord.js:
         specifier: ^14.18.0
         version: 14.26.3
 
   apps/local-agent:
     dependencies:
-      '@codex-discord/codex-adapter':
-        specifier: workspace:*
-        version: link:../../packages/codex-adapter
-      '@codex-discord/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       ws:
         specifier: ^8.18.1
         version: 8.20.0
 
-  packages/codex-adapter:
-    dependencies:
-      '@codex-discord/core':
-        specifier: workspace:*
-        version: link:../core
+  packages/codex-adapter: {}
 
   packages/core: {}
 

@@ -1,6 +1,9 @@
 import { createEmptyDirectSyncState, type DirectSyncStateStore } from "./directState.js";
+import { mapWithConcurrency } from "./concurrency.js";
 
-export type SyncedDeleteMode = "all" | "channels";
+export type SyncedDeleteMode = "all" | "channels" | "session";
+
+const DISCORD_DELETE_CONCURRENCY = 5;
 
 export interface DiscordGuildDeleteSurface {
   deleteChannel(id: string): Promise<void>;
@@ -9,14 +12,22 @@ export interface DiscordGuildDeleteSurface {
 
 export interface DeletePreviewResult {
   mode: SyncedDeleteMode;
+  sessionId?: string | null;
   channelCount: number;
   categoryCount: number;
   channelNames: string[];
   categoryNames: string[];
+  channelOptions: Array<{
+    sessionId: string;
+    channelName: string;
+    workspaceDisplayName: string;
+    updatedAt: string;
+  }>;
 }
 
 export interface DeleteSyncedDiscordSessionsResult {
   mode: SyncedDeleteMode;
+  sessionId?: string | null;
   deletedChannels: number;
   deletedCategories: number;
   missingChannels: number;
@@ -30,8 +41,13 @@ function uniqueValues(values: string[]): string[] {
 export async function previewSyncedDiscordSessionDelete(input: {
   stateStore: DirectSyncStateStore;
   mode: SyncedDeleteMode;
+  sessionId?: string | null;
 }): Promise<DeletePreviewResult> {
   const state = await input.stateStore.read();
+  const targetChannels =
+    input.mode === "session"
+      ? state.sessionChannels.filter((channel) => channel.codexSessionId === input.sessionId)
+      : state.sessionChannels;
   const categoryNames =
     input.mode === "all"
       ? uniqueValues(state.workspaces.map((workspace) => workspace.workspaceDisplayName))
@@ -39,10 +55,23 @@ export async function previewSyncedDiscordSessionDelete(input: {
 
   return {
     mode: input.mode,
-    channelCount: state.sessionChannels.length,
+    ...(input.mode === "session" ? { sessionId: input.sessionId ?? null } : {}),
+    channelCount: targetChannels.length,
     categoryCount: input.mode === "all" ? state.workspaces.length : 0,
-    channelNames: state.sessionChannels.map((channel) => channel.channelName),
+    channelNames: targetChannels.map((channel) => channel.channelName),
     categoryNames,
+    channelOptions: targetChannels.flatMap((channel) =>
+      channel.codexSessionId
+        ? [
+            {
+              sessionId: channel.codexSessionId,
+              channelName: channel.channelName,
+              workspaceDisplayName: channel.workspaceDisplayName,
+              updatedAt: channel.updatedAt,
+            },
+          ]
+        : [],
+    ).slice(0, 25),
   };
 }
 
@@ -66,19 +95,29 @@ export async function deleteSyncedDiscordSessions(input: {
   guild: DiscordGuildDeleteSurface;
   stateStore: DirectSyncStateStore;
   mode: SyncedDeleteMode;
+  sessionId?: string | null;
 }): Promise<DeleteSyncedDiscordSessionsResult> {
   const state = await input.stateStore.read();
+  const targetChannels =
+    input.mode === "session"
+      ? state.sessionChannels.filter((channel) => channel.codexSessionId === input.sessionId)
+      : state.sessionChannels;
   const result: DeleteSyncedDiscordSessionsResult = {
     mode: input.mode,
+    ...(input.mode === "session" ? { sessionId: input.sessionId ?? null } : {}),
     deletedChannels: 0,
     deletedCategories: 0,
     missingChannels: 0,
     missingCategories: 0,
   };
 
-  for (const channel of state.sessionChannels) {
-    const status = await ignoreMissingDiscordDelete(() => input.guild.deleteChannel(channel.discordChannelId));
+  const channelStatuses = await mapWithConcurrency(
+    targetChannels,
+    DISCORD_DELETE_CONCURRENCY,
+    async (channel) => ignoreMissingDiscordDelete(() => input.guild.deleteChannel(channel.discordChannelId)),
+  );
 
+  for (const status of channelStatuses) {
     if (status === "deleted") {
       result.deletedChannels += 1;
     } else {
@@ -87,9 +126,13 @@ export async function deleteSyncedDiscordSessions(input: {
   }
 
   if (input.mode === "all") {
-    for (const workspace of state.workspaces) {
-      const status = await ignoreMissingDiscordDelete(() => input.guild.deleteCategory(workspace.discordCategoryId));
+    const categoryStatuses = await mapWithConcurrency(
+      state.workspaces,
+      DISCORD_DELETE_CONCURRENCY,
+      async (workspace) => ignoreMissingDiscordDelete(() => input.guild.deleteCategory(workspace.discordCategoryId)),
+    );
 
+    for (const status of categoryStatuses) {
       if (status === "deleted") {
         result.deletedCategories += 1;
       } else {
@@ -100,10 +143,17 @@ export async function deleteSyncedDiscordSessions(input: {
 
   await input.stateStore.write(
     input.mode === "all"
-      ? createEmptyDirectSyncState()
+      ? {
+          ...createEmptyDirectSyncState(),
+          transcriptSyncMode: state.transcriptSyncMode,
+          archivedCodexSessionIds: state.archivedCodexSessionIds,
+        }
       : {
           ...state,
-          sessionChannels: [],
+          sessionChannels:
+            input.mode === "session"
+              ? state.sessionChannels.filter((channel) => channel.codexSessionId !== input.sessionId)
+              : [],
         },
   );
 
