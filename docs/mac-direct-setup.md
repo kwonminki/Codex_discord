@@ -96,6 +96,18 @@ launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.mac-d
 tail -f "$HOME/Library/Logs/codex-discord-connector/mac-direct.out.log"
 ```
 
+## Task completion notifications
+
+The Mac direct bot watches active Codex sessions and posts to the configured admin channel when a Codex transcript records `task_complete`.
+
+The first scan only records a baseline, so old completed work does not flood Discord after a bot restart. Future completions are remembered in `.connect/state.json` and are only posted once.
+
+The polling interval defaults to 1 second and can be changed with:
+
+```bash
+CONNECT_TASK_NOTIFICATION_INTERVAL_MS=2000
+```
+
 ## Development loop
 
 After changing code:

@@ -50,6 +50,14 @@ export interface ScheduledCommandState {
   runCount: number;
 }
 
+export interface CodexTaskCompletionNotificationState {
+  sessionId: string;
+  lastTaskCompleteEventKey: string;
+  threadName?: string | null;
+  updatedAt?: string | null;
+  notifiedAt?: string | null;
+}
+
 export interface DirectSyncState {
   version: 1;
   transcriptSyncMode: TranscriptSyncMode;
@@ -57,11 +65,18 @@ export interface DirectSyncState {
   workspaces: SyncedWorkspaceState[];
   sessionChannels: SyncedSessionChannelState[];
   scheduledCommands: ScheduledCommandState[];
+  taskCompletionNotificationsInitializedAt?: string | null;
+  taskCompletionNotifications: CodexTaskCompletionNotificationState[];
 }
 
-export type DirectSyncStateWriteInput = Omit<DirectSyncState, "transcriptSyncMode" | "scheduledCommands"> & {
+export type DirectSyncStateWriteInput = Omit<
+  DirectSyncState,
+  "transcriptSyncMode" | "scheduledCommands" | "taskCompletionNotificationsInitializedAt" | "taskCompletionNotifications"
+> & {
   transcriptSyncMode?: TranscriptSyncMode;
   scheduledCommands?: ScheduledCommandState[];
+  taskCompletionNotificationsInitializedAt?: string | null;
+  taskCompletionNotifications?: CodexTaskCompletionNotificationState[];
 };
 
 export interface DirectSyncStateStore {
@@ -85,6 +100,8 @@ export function createEmptyDirectSyncState(): DirectSyncState {
     workspaces: [],
     sessionChannels: [],
     scheduledCommands: [],
+    taskCompletionNotificationsInitializedAt: null,
+    taskCompletionNotifications: [],
   };
 }
 
@@ -110,6 +127,19 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
             typeof (schedule as ScheduledCommandState).id === "string" &&
             typeof (schedule as ScheduledCommandState).channelId === "string" &&
             typeof (schedule as ScheduledCommandState).command === "string",
+        )
+      : [],
+    taskCompletionNotificationsInitializedAt:
+      typeof state.taskCompletionNotificationsInitializedAt === "string"
+        ? state.taskCompletionNotificationsInitializedAt
+        : null,
+    taskCompletionNotifications: Array.isArray(state.taskCompletionNotifications)
+      ? state.taskCompletionNotifications.filter(
+          (notification): notification is CodexTaskCompletionNotificationState =>
+            typeof notification === "object" &&
+            notification !== null &&
+            typeof (notification as CodexTaskCompletionNotificationState).sessionId === "string" &&
+            typeof (notification as CodexTaskCompletionNotificationState).lastTaskCompleteEventKey === "string",
         )
       : [],
   };

@@ -15,6 +15,7 @@ import {
   type SyncCodexSessionsProgress,
 } from "./codexSessionSync.js";
 import { syncCodexSessionTranscriptUpdates } from "./codexTranscriptSync.js";
+import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
@@ -32,6 +33,7 @@ import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js"
 
 export const BOT_RELOAD_EXIT_CODE = 42;
 const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 1_000;
+const DEFAULT_TASK_NOTIFICATION_INTERVAL_MS = 1_000;
 const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 30_000;
 
 export function resolveRealtimeIntervalMs(value: string | undefined, fallbackMs: number): number {
@@ -57,6 +59,10 @@ export function shouldRunRealtimeSessionAutosync(input: {
 const TRANSCRIPT_SYNC_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS,
   DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS,
+);
+const TASK_NOTIFICATION_INTERVAL_MS = resolveRealtimeIntervalMs(
+  process.env.CONNECT_TASK_NOTIFICATION_INTERVAL_MS,
+  DEFAULT_TASK_NOTIFICATION_INTERVAL_MS,
 );
 const SCHEDULE_POLL_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_SCHEDULE_POLL_INTERVAL_MS,
@@ -230,6 +236,26 @@ export async function startBot(): Promise<void> {
             discordChannelId: input.discordChannelId,
             postUpdates: input.postUpdates,
             ignoredSessionIds: activelyStreamedSessionIds,
+          });
+        }
+      : undefined;
+  const notifyTaskCompletions =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: { guild: DiscordGuildSurface }) => {
+          const sessions = await listDirectCodexSessions?.({
+            activeOnly: true,
+            includeExecSessions: false,
+          });
+
+          if (!sessions) {
+            throw new Error("Direct Codex session listing is not connected.");
+          }
+
+          return notifyCodexTaskCompletions({
+            guild: input.guild,
+            stateStore: directStateStore,
+            adminChannelId: connectConfig.direct.channelId,
+            sessions,
           });
         }
       : undefined;
@@ -426,6 +452,31 @@ export async function startBot(): Promise<void> {
             running = false;
           });
       }, TRANSCRIPT_SYNC_INTERVAL_MS);
+      timer.unref();
+    }
+
+    if (notifyTaskCompletions) {
+      let running = false;
+      const timer = setInterval(() => {
+        if (running) {
+          return;
+        }
+
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+
+        if (!guild?.sendTextMessage) {
+          return;
+        }
+
+        running = true;
+        void notifyTaskCompletions({ guild })
+          .catch((error) => {
+            console.error("discord-bot failed to notify Codex task completions", error);
+          })
+          .finally(() => {
+            running = false;
+          });
+      }, TASK_NOTIFICATION_INTERVAL_MS);
       timer.unref();
     }
 
