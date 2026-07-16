@@ -98,9 +98,11 @@ tail -f "$HOME/Library/Logs/codex-discord-connector/mac-direct.out.log"
 
 ## Task completion notifications
 
-The Mac direct bot watches active Codex sessions and posts to the configured admin channel when a Codex transcript records `task_complete`.
+The Mac direct bot watches non-archived Codex sessions from the configured `CODEX_HOME` and posts to the configured admin channel when a Codex transcript records `task_complete`.
 
-The first scan only records a baseline, so old completed work does not flood Discord after a bot restart. Future completions are remembered in `.connect/state.json` and are only posted once.
+This includes Codex sessions started from IDE surfaces such as VS Code or Antigravity as long as they write native Codex session data under the same `CODEX_HOME`. CLI/exec sessions are included too; sub-agent and archived sessions are skipped.
+
+The first scan for the current notification scope only records a baseline, so old completed work does not flood Discord after a bot restart or scope change. Future completions are remembered in `.connect/state.json` and are only posted once.
 
 The polling interval defaults to 1 second and can be changed with:
 

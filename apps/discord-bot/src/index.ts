@@ -243,8 +243,8 @@ export async function startBot(): Promise<void> {
     connectConfig?.mode === "direct" && directStateStore
       ? async (input: { guild: DiscordGuildSurface }) => {
           const sessions = await listDirectCodexSessions?.({
-            activeOnly: true,
-            includeExecSessions: false,
+            activeOnly: false,
+            includeExecSessions: true,
           });
 
           if (!sessions) {

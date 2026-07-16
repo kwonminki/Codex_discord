@@ -14,6 +14,7 @@ describe("direct sync state store", () => {
       await expect(store.read()).resolves.toMatchObject({
         transcriptSyncMode: "realtime",
         taskCompletionNotificationsInitializedAt: null,
+        taskCompletionNotificationScope: null,
         taskCompletionNotifications: [],
       });
 

@@ -6,6 +6,7 @@ import type {
 } from "./directState.js";
 
 const MAX_FIELD_CHARS = 180;
+const TASK_COMPLETION_NOTIFICATION_SCOPE = "all-nonarchived";
 
 export interface NotifyCodexTaskCompletionsInput {
   guild: Pick<DiscordGuildSurface, "sendTextMessage">;
@@ -74,7 +75,9 @@ export async function notifyCodexTaskCompletions(
   const notificationsBySession = new Map(
     state.taskCompletionNotifications.map((notification) => [notification.sessionId, notification]),
   );
-  const initialized = Boolean(state.taskCompletionNotificationsInitializedAt);
+  const initialized =
+    Boolean(state.taskCompletionNotificationsInitializedAt) &&
+    state.taskCompletionNotificationScope === TASK_COMPLETION_NOTIFICATION_SCOPE;
   const now = new Date().toISOString();
   let completedSessions = 0;
   let notifiedSessions = 0;
@@ -119,6 +122,7 @@ export async function notifyCodexTaskCompletions(
     await input.stateStore.write({
       ...state,
       taskCompletionNotificationsInitializedAt: state.taskCompletionNotificationsInitializedAt ?? now,
+      taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
       taskCompletionNotifications: [...notificationsBySession.values()],
     });
   }

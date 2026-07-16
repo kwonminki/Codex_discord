@@ -74,6 +74,7 @@ function seededState() {
     ],
     scheduledCommands: [],
     taskCompletionNotificationsInitializedAt: null,
+    taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
   };
 }
@@ -148,6 +149,7 @@ describe("synced Discord session deletion", () => {
         sessionChannels: [],
         scheduledCommands: [],
         taskCompletionNotificationsInitializedAt: null,
+        taskCompletionNotificationScope: null,
         taskCompletionNotifications: [],
       });
     } finally {

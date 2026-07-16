@@ -66,6 +66,7 @@ export interface DirectSyncState {
   sessionChannels: SyncedSessionChannelState[];
   scheduledCommands: ScheduledCommandState[];
   taskCompletionNotificationsInitializedAt?: string | null;
+  taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications: CodexTaskCompletionNotificationState[];
 }
 
@@ -76,6 +77,7 @@ export type DirectSyncStateWriteInput = Omit<
   transcriptSyncMode?: TranscriptSyncMode;
   scheduledCommands?: ScheduledCommandState[];
   taskCompletionNotificationsInitializedAt?: string | null;
+  taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications?: CodexTaskCompletionNotificationState[];
 };
 
@@ -101,6 +103,7 @@ export function createEmptyDirectSyncState(): DirectSyncState {
     sessionChannels: [],
     scheduledCommands: [],
     taskCompletionNotificationsInitializedAt: null,
+    taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
   };
 }
@@ -132,6 +135,10 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
     taskCompletionNotificationsInitializedAt:
       typeof state.taskCompletionNotificationsInitializedAt === "string"
         ? state.taskCompletionNotificationsInitializedAt
+        : null,
+    taskCompletionNotificationScope:
+      typeof state.taskCompletionNotificationScope === "string"
+        ? state.taskCompletionNotificationScope
         : null,
     taskCompletionNotifications: Array.isArray(state.taskCompletionNotifications)
       ? state.taskCompletionNotifications.filter(
