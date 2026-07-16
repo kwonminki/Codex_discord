@@ -201,7 +201,7 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
-  it("creates a missing session thread before sending a migrated completion notification", async () => {
+  it("creates a missing session thread without reposting an already-notified completion", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue(undefined);
@@ -269,6 +269,30 @@ describe("notifyCodexTaskCompletions", () => {
           threadNameSnapshot: "Codex Discord connector 확인",
         }),
       );
+      expect(sendTextMessage).not.toHaveBeenCalled();
+      await expect(stateStore.findSessionChannelByDiscordId("thread-1")).resolves.toMatchObject({
+        codexSessionId: "session-1",
+        threadName: "Codex Discord connector 확인",
+        discordDeliveryMode: "thread",
+        workspaceRoot: "/repo",
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage, createThread },
+        controlApi,
+        stateStore,
+        adminChannelId: "admin-channel",
+        computerId: "local-dev",
+        defaultWorkspaceRoot: "/fallback",
+        sessions: [
+          session({
+            completionKey: "complete-3",
+            threadName: "Codex Discord connector 확인",
+          }),
+        ],
+        mentionRoleIds: ["operator-role"],
+      });
+
       expect(sendTextMessage).toHaveBeenCalledWith(
         "thread-1",
         expect.objectContaining({
@@ -276,11 +300,87 @@ describe("notifyCodexTaskCompletions", () => {
         }),
         { mentionRoleIds: ["operator-role"] },
       );
-      await expect(stateStore.findSessionChannelByDiscordId("thread-1")).resolves.toMatchObject({
-        codexSessionId: "session-1",
-        threadName: "Codex Discord connector 확인",
-        discordDeliveryMode: "thread",
-        workspaceRoot: "/repo",
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records completion state before posting to reduce duplicate notifications", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage: vi.fn().mockResolvedValue(undefined) },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [],
+      });
+
+      const sendTextMessage = vi.fn(async () => {
+        await expect(stateStore.read()).resolves.toMatchObject({
+          taskCompletionNotifications: [
+            {
+              sessionId: "session-1",
+              lastTaskCompleteEventKey: "complete-2",
+              notifiedAt: null,
+            },
+          ],
+        });
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2" })],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      await expect(stateStore.read()).resolves.toMatchObject({
+        taskCompletionNotifications: [
+          {
+            sessionId: "session-1",
+            lastTaskCompleteEventKey: "complete-2",
+            notifiedAt: expect.any(String),
+          },
+        ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("deduplicates duplicate completed session records by normalized session id", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({ id: "SESSION-1", completionKey: "complete-2" }),
+          session({ id: "session-1", completionKey: "complete-2" }),
+        ],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      await expect(stateStore.read()).resolves.toMatchObject({
+        taskCompletionNotifications: [
+          {
+            lastTaskCompleteEventKey: "complete-2",
+          },
+        ],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

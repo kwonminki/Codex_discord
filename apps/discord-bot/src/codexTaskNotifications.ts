@@ -60,6 +60,10 @@ function latestTaskCompleteEvent(session: DiscoveredCodexSession): { key: string
   );
 }
 
+function normalizedSessionId(sessionId: string): string {
+  return sessionId.trim().toLowerCase();
+}
+
 function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
   const contextAnswer = session.contextPreview
     ?.filter((message) => message.role === "assistant" && message.text.trim().length > 0)
@@ -74,6 +78,19 @@ function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
     .at(-1)?.text;
 
   return realtimeAnswer?.trim() || null;
+}
+
+function taskCompletionState(input: {
+  state: DirectSyncState;
+  notificationsBySession: Map<string, CodexTaskCompletionNotificationState>;
+  now: string;
+}): DirectSyncState {
+  return {
+    ...input.state,
+    taskCompletionNotificationsInitializedAt: input.state.taskCompletionNotificationsInitializedAt ?? input.now,
+    taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
+    taskCompletionNotifications: [...input.notificationsBySession.values()],
+  };
 }
 
 function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
@@ -239,9 +256,13 @@ export async function notifyCodexTaskCompletions(
 ): Promise<NotifyCodexTaskCompletionsResult> {
   const state = await input.stateStore.read();
   const notificationsBySession = new Map(
-    state.taskCompletionNotifications.map((notification) => [notification.sessionId, notification]),
+    state.taskCompletionNotifications.map((notification) => [
+      normalizedSessionId(notification.sessionId),
+      notification,
+    ]),
   );
   const discordRequestedSessionIds = new Set(state.discordRequestedCodexSessionIds);
+  const seenCompletionEvents = new Set<string>();
   const initialized =
     Boolean(state.taskCompletionNotificationsInitializedAt) &&
     state.taskCompletionNotificationScope === TASK_COMPLETION_NOTIFICATION_SCOPE;
@@ -259,7 +280,16 @@ export async function notifyCodexTaskCompletions(
 
     completedSessions += 1;
 
-    const previous = notificationsBySession.get(session.id);
+    const sessionKey = normalizedSessionId(session.id);
+    const completionEventKey = `${sessionKey}:${completionEvent.key}`;
+
+    if (seenCompletionEvents.has(completionEventKey)) {
+      continue;
+    }
+
+    seenCompletionEvents.add(completionEventKey);
+
+    const previous = notificationsBySession.get(sessionKey);
     const ensuredThread = initialized
       ? await ensureSessionThread({
           guild: input.guild,
@@ -270,24 +300,40 @@ export async function notifyCodexTaskCompletions(
           defaultWorkspaceRoot: input.defaultWorkspaceRoot,
           session,
         })
-      : { channel: state.sessionChannels.find((channel) => channel.codexSessionId === session.id) ?? null, created: false };
+      : {
+          channel:
+            state.sessionChannels.find(
+              (channel) => normalizedSessionId(channel.codexSessionId ?? "") === sessionKey,
+            ) ?? null,
+          created: false,
+        };
 
     if (ensuredThread.created) {
       changed = true;
     }
 
-    if (
-      previous?.lastTaskCompleteEventKey === completionEvent.key &&
-      !(ensuredThread.created && previous.notifiedAt)
-    ) {
+    if (previous?.lastTaskCompleteEventKey === completionEvent.key) {
       continue;
     }
 
+    notificationsBySession.set(
+      sessionKey,
+      nextNotificationState({
+        session,
+        eventKey: completionEvent.key,
+        notifiedAt: null,
+      }),
+    );
+    changed = true;
+
     if (initialized && input.guild.sendTextMessage) {
+      await input.stateStore.write(taskCompletionState({ state, notificationsBySession, now }));
+      changed = false;
+
       const syncedChannel = ensuredThread.channel;
       const targetChannelId = syncedChannel?.discordChannelId ?? input.adminChannelId;
       const notification = formatTaskCompleteNotification(session, {
-        includeAnswer: !discordRequestedSessionIds.has(session.id.toLowerCase()),
+        includeAnswer: !discordRequestedSessionIds.has(sessionKey),
       });
       const mentionRoleIds =
         syncedChannel?.discordDeliveryMode === "thread"
@@ -300,17 +346,17 @@ export async function notifyCodexTaskCompletions(
         await input.guild.sendTextMessage(targetChannelId, notification);
       }
       notifiedSessions += 1;
-    }
 
-    notificationsBySession.set(
-      session.id,
-      nextNotificationState({
-        session,
-        eventKey: completionEvent.key,
-        notifiedAt: initialized ? now : null,
-      }),
-    );
-    changed = true;
+      notificationsBySession.set(
+        sessionKey,
+        nextNotificationState({
+          session,
+          eventKey: completionEvent.key,
+          notifiedAt: now,
+        }),
+      );
+      changed = true;
+    }
   }
 
   if (!initialized) {
@@ -318,12 +364,7 @@ export async function notifyCodexTaskCompletions(
   }
 
   if (changed) {
-    await input.stateStore.write({
-      ...state,
-      taskCompletionNotificationsInitializedAt: state.taskCompletionNotificationsInitializedAt ?? now,
-      taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
-      taskCompletionNotifications: [...notificationsBySession.values()],
-    });
+    await input.stateStore.write(taskCompletionState({ state, notificationsBySession, now }));
   }
 
   return {
