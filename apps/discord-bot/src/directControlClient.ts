@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
+import { runCodexAppServerPrompt } from "../../local-agent/src/codexAppServerRunner.js";
 import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
 import { assertInsideWorkspace } from "../../local-agent/src/workspace.js";
@@ -11,6 +12,7 @@ export function createDirectControlClient(
   config: DirectConnectConfig,
   options: { stateStore?: DirectSyncStateStore } = {},
 ): ControlApiClient {
+  const codexRunner = process.env.CODEX_DISCORD_CODEX_RUNNER === "app-server" ? "app-server" : "exec";
   let cwd = config.direct.initialCwd
     ? assertInsideWorkspace(config.direct.workspaceRoot, config.direct.initialCwd)
     : config.direct.workspaceRoot;
@@ -163,11 +165,15 @@ export function createDirectControlClient(
         return { jobId: randomUUID(), error: { message: "Computer is offline" } };
       }
 
-      const result = await runCodexPrompt({
+      const runnerInput = {
         ...input.payload,
         codexHome: config.direct.codexHome,
         onProgress: input.onProgress,
-      });
+      };
+      const result =
+        codexRunner === "app-server" && input.payload.mode !== "review"
+          ? await runCodexAppServerPrompt(runnerInput)
+          : await runCodexPrompt(runnerInput);
       return { jobId: randomUUID(), result };
     },
   };

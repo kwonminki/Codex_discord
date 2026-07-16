@@ -106,6 +106,8 @@ The first scan for the current notification scope only records a baseline, so ol
 
 Completion notifications include the latest assistant answer, plus an `이어 작업 요청` button. Long answers are previewed in Discord and attached as `codex-answer.txt`. Press the button to open a Discord modal, write the next instruction, and the bot will try to resume the completed Codex session with that prompt. The follow-up runs through `codex exec resume`; Codex Desktop or IDE sessions that use dynamic tools may not be resumable from exec mode, and those sessions also do not live-update the Desktop app UI from Discord.
 
+For a closer native Codex integration, set `CODEX_DISCORD_CODEX_RUNNER=app-server` before starting the bot. In this mode, Discord prompts are sent through Codex's app-server WebSocket protocol with `thread/start`, `thread/resume`, and `turn/start` instead of `codex exec`. The created or resumed thread is recorded in Codex's native session store and can be opened from Codex surfaces, but a currently visible Desktop, VS Code, or Antigravity panel is not forcibly navigated to that thread by the connector.
+
 The polling interval defaults to 1 second and can be changed with:
 
 ```bash
