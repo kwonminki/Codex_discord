@@ -4,6 +4,7 @@ import type {
   CodexTaskCompletionNotificationState,
   DirectSyncStateStore,
 } from "./directState.js";
+import type { DiscordMessagePayload } from "./responses.js";
 
 const MAX_FIELD_CHARS = 180;
 const TASK_COMPLETION_NOTIFICATION_SCOPE = "all-nonarchived";
@@ -53,7 +54,7 @@ function nextNotificationState(input: {
   };
 }
 
-function formatTaskCompleteNotification(session: DiscoveredCodexSession): string {
+function formatTaskCompleteNotification(session: DiscoveredCodexSession): DiscordMessagePayload {
   const threadName = sanitizeInline(session.threadName) || session.id.slice(0, 8);
   const cwd = sanitizeInline(session.cwdHint);
   const updatedAt = sanitizeInline(session.updatedAt);
@@ -65,7 +66,24 @@ function formatTaskCompleteNotification(session: DiscoveredCodexSession): string
     `세션 ID: \`${session.id}\``,
   ].filter((line): line is string => Boolean(line));
 
-  return lines.join("\n");
+  return {
+    allowedMentions: { parse: [] },
+    content: lines.join("\n"),
+    embeds: [],
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            custom_id: `cdc:codex:continue:${session.id}`,
+            label: "이어 작업 요청",
+            style: 1,
+          },
+        ],
+      },
+    ],
+  };
 }
 
 export async function notifyCodexTaskCompletions(

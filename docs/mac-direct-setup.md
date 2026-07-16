@@ -104,6 +104,8 @@ This includes Codex sessions started from IDE surfaces such as VS Code or Antigr
 
 The first scan for the current notification scope only records a baseline, so old completed work does not flood Discord after a bot restart or scope change. Future completions are remembered in `.connect/state.json` and are only posted once.
 
+Completion notifications include an `이어 작업 요청` button. Press it to open a Discord modal, write the next instruction, and the bot will resume the completed Codex session with that prompt. The follow-up runs through `codex exec resume`, so the same native Codex session continues rather than opening a new one.
+
 The polling interval defaults to 1 second and can be changed with:
 
 ```bash

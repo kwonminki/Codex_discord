@@ -88,9 +88,24 @@ describe("notifyCodexTaskCompletions", () => {
       expect(sendTextMessage).toHaveBeenCalledTimes(1);
       expect(sendTextMessage).toHaveBeenCalledWith(
         "admin-channel",
-        expect.stringContaining("Codex 작업 완료"),
+        expect.objectContaining({
+          content: expect.stringContaining("Codex 작업 완료"),
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  custom_id: "cdc:codex:continue:session-1",
+                  label: "이어 작업 요청",
+                  style: 1,
+                },
+              ],
+            },
+          ],
+        }),
       );
-      expect(sendTextMessage.mock.calls[0]?.[1]).toContain("새 기능 구현");
+      expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).toContain("새 기능 구현");
       await expect(stateStore.read()).resolves.toMatchObject({
         taskCompletionNotifications: [
           {
@@ -127,7 +142,7 @@ describe("notifyCodexTaskCompletions", () => {
 
       expect(sendTextMessage).toHaveBeenCalledTimes(1);
       expect(sendTextMessage.mock.calls[0]?.[0]).toBe("admin-channel");
-      expect(sendTextMessage.mock.calls[0]?.[1]).toContain("session-2");
+      expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).toContain("session-2");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

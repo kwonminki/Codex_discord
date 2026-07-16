@@ -792,6 +792,27 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes encoded continue-session prompts to a specific Codex session", () => {
+    const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
+    const content = `__cdc_codex_continue ${encodeURIComponent(JSON.stringify({
+      sessionId,
+      prompt: "테스트까지 이어서 실행해줘",
+    }))}`;
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content,
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "codex-continue-session",
+      sessionId,
+      content: "테스트까지 이어서 실행해줘",
+    });
+  });
+
   it("routes help requests before shell execution", () => {
     expect(
       routeDiscordMessage({

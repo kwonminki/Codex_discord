@@ -421,6 +421,47 @@ function codexPromptModal() {
   };
 }
 
+function codexContinueModal(sessionId: string) {
+  return {
+    title: "완료된 작업에 답장",
+    custom_id: `cdc:codex:continue:submit:${sessionId}`,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "prompt",
+            label: "이어 할 요청",
+            style: 2,
+            required: true,
+            min_length: 1,
+            max_length: 2_000,
+            placeholder: "예: 방금 수정한 내용 테스트까지 돌려줘",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function parseCodexContinueButton(customId: string): string | null {
+  const match = customId.match(/^cdc:codex:continue:([0-9a-f-]{32,36})$/i);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function parseCodexContinueSubmit(customId: string): string | null {
+  const match = customId.match(/^cdc:codex:continue:submit:([0-9a-f-]{32,36})$/i);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function encodedCodexContinueCommand(input: {
+  sessionId: string;
+  prompt: string;
+}): string {
+  return `__cdc_codex_continue ${encodeURIComponent(JSON.stringify(input))}`;
+}
+
 function encodedNewChatCommand(input: {
   name: string | null;
   cwd: string | null;
@@ -642,6 +683,43 @@ export function attachDiscordInteractionHandler(
       return;
     }
 
+    if (isModalSubmitInteraction(interaction) && interaction.isModalSubmit()) {
+      const continueSessionId = parseCodexContinueSubmit(interaction.customId);
+
+      if (continueSessionId) {
+        const prompt = interaction.fields.getTextInputValue("prompt").trim();
+
+        if (prompt.length === 0) {
+          void Promise.resolve(
+            interaction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: "요청 내용이 비어 있습니다.",
+            }),
+          ).catch((error) => {
+            console.error("discord-bot failed to acknowledge empty Codex continue modal", error);
+          });
+          return;
+        }
+
+        void handleMessage({
+          authorBot: false,
+          userId: interaction.user.id,
+          channelId: interaction.channelId,
+          content: encodedCodexContinueCommand({
+            sessionId: continueSessionId,
+            prompt,
+          }),
+          roleIds: getMemberRoleIds(interaction.member),
+          guild: createDiscordGuildSurface(interaction.guild),
+          reply: interactionReplyAdapter(interaction),
+        }).catch((error) => {
+          console.error("discord-bot failed to handle Codex continue modal submit", error);
+        });
+        return;
+      }
+    }
+
     if (isModalSubmitInteraction(interaction) && interaction.isModalSubmit() && isNewChatSubmit(interaction.customId)) {
       const name = interaction.fields.getTextInputValue("name").trim() || null;
       const initialPrompt = interaction.fields.getTextInputValue("prompt").trim() || null;
@@ -668,6 +746,30 @@ export function attachDiscordInteractionHandler(
 
     if (!isSupportedComponentInteraction(interaction)) {
       return;
+    }
+
+    if (interaction.isButton()) {
+      const continueSessionId = parseCodexContinueButton(interaction.customId);
+
+      if (continueSessionId) {
+        if (typeof interaction.showModal !== "function") {
+          void Promise.resolve(
+            interaction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+            }),
+          ).catch((error) => {
+            console.error("discord-bot failed to acknowledge missing modal support", error);
+          });
+          return;
+        }
+
+        void interaction.showModal(codexContinueModal(continueSessionId)).catch((error) => {
+          console.error("discord-bot failed to show Codex continue modal", error);
+        });
+        return;
+      }
     }
 
     if (interaction.isButton() && isCodexThoughtsToggle(interaction.customId)) {

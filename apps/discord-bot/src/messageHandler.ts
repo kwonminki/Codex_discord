@@ -716,12 +716,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    if (routed.type === "codex-chat") {
+    if (routed.type === "codex-chat" || routed.type === "codex-continue-session") {
+      const prompt = routed.content;
       const codexMessage = {
         computerDisplayName: channelContext.computerDisplayName,
         workspaceDisplayName: channelContext.workspaceDisplayName,
         cwd: channelContext.cwd,
-        prompt: routed.content,
+        prompt,
       };
 
       if (!input.submitCodexPrompt) {
@@ -750,7 +751,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
-        let streamedSessionId = codexSessionIdsByChannel.get(message.channelId) ?? channelContext.codexSessionId ?? null;
+        let streamedSessionId =
+          routed.type === "codex-continue-session"
+            ? routed.sessionId
+            : codexSessionIdsByChannel.get(message.channelId) ?? channelContext.codexSessionId ?? null;
 
         if (streamedSessionId && input.setSessionStreaming) {
           input.setSessionStreaming(streamedSessionId, true);
@@ -762,7 +766,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           payload: {
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
-            prompt: routed.content,
+            prompt,
             timeoutMs: Math.max(channelContext.timeoutMs, 300_000),
             sessionId: streamedSessionId,
             model: codexModelsByChannel.get(message.channelId) ?? null,
@@ -839,9 +843,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             : null;
 
         if (nextSessionId) {
-          codexSessionIdsByChannel.set(message.channelId, nextSessionId);
+          if (routed.type === "codex-chat") {
+            codexSessionIdsByChannel.set(message.channelId, nextSessionId);
+          }
 
           if (
+            routed.type === "codex-chat" &&
             channelContext.channelMode === "session-linked" &&
             !channelContext.codexSessionId &&
             input.linkNewCodexSession
@@ -849,7 +856,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             await input.linkNewCodexSession({
               discordChannelId: message.channelId,
               codexSessionId: nextSessionId,
-              threadName: routed.content.slice(0, 120) || "New Codex chat",
+              threadName: prompt.slice(0, 120) || "New Codex chat",
             });
           }
         }

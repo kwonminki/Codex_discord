@@ -845,6 +845,50 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("continues a completed Codex session from an admin notification reply", async () => {
+    const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "요청한 후속 작업을 완료했습니다.",
+        sessionId,
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const content = `__cdc_codex_continue ${encodeURIComponent(JSON.stringify({
+      sessionId,
+      prompt: "마저 테스트해줘",
+    }))}`;
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "admin-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(submitCodexPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "마저 테스트해줘",
+          sessionId,
+        }),
+      }),
+    );
+  });
+
   it("refreshes a synced channel transcript before resuming chat in on-chat mode", async () => {
     const sessionChannelContext: ManagedDiscordChannelContext = {
       ...channelContext,

@@ -16,6 +16,7 @@ export interface RouteDiscordMessageInput {
 export type RoutedDiscordMessage =
   | { type: "execute-command"; command: string; confirmedDangerous: boolean }
   | { type: "codex-chat"; content: string }
+  | { type: "codex-continue-session"; sessionId: string; content: string }
   | {
       type: "admin-new-chat";
       name: string | null;
@@ -321,6 +322,38 @@ function parseEncodedScheduleCommand(content: string): ScheduleCommandRequest | 
   }
 
   return null;
+}
+
+function parseEncodedCodexContinueCommand(content: string): {
+  sessionId: string;
+  content: string;
+} | null {
+  if (!content.startsWith("__cdc_codex_continue ")) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(content.slice("__cdc_codex_continue ".length).trim())) as {
+      sessionId?: unknown;
+      prompt?: unknown;
+    };
+
+    if (
+      typeof parsed.sessionId !== "string" ||
+      !/^[0-9a-f-]{32,36}$/i.test(parsed.sessionId) ||
+      typeof parsed.prompt !== "string" ||
+      parsed.prompt.trim().length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      sessionId: parsed.sessionId.toLowerCase(),
+      content: parsed.prompt.trim(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseKeyedValue(content: string, key: string): string | null {
@@ -756,6 +789,24 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
       command: componentShellCommand.command,
       confirmedDangerous: componentShellCommand.confirmedDangerous,
     };
+  }
+
+  const codexContinueSession = parseEncodedCodexContinueCommand(trimmedContent);
+
+  if (codexContinueSession) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return { type: "codex-continue-session", ...codexContinueSession };
   }
 
   if (/^(?:where|status|context|target|pwd\?)$/i.test(trimmedContent)) {
