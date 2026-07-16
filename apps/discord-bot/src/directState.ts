@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 export interface SyncedWorkspaceState {
@@ -242,7 +243,7 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
     },
     async write(state) {
       await mkdir(path.dirname(resolvedStatePath), { recursive: true });
-      const tempPath = `${resolvedStatePath}.${process.pid}.${Date.now()}.tmp`;
+      const tempPath = `${resolvedStatePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
 
       try {
         await writeFile(tempPath, `${JSON.stringify(normalizeDirectSyncState(state), null, 2)}\n`, "utf8");

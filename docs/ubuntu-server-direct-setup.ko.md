@@ -187,8 +187,8 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/Codes/Codex_discord
 Environment=NODE_ENV=production
-Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=2000
-Environment=CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=2000
+Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=10000
+Environment=CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=10000
 ExecStart=/usr/bin/env pnpm connect start --direct
 Restart=always
 RestartSec=5
@@ -300,4 +300,3 @@ IDE가 container, root user, 다른 Linux user에서 Codex를 실행하면 `$HOM
 
 - connector를 Codex가 실제로 실행되는 user로 돌리거나
 - `--codex-home`을 실제 Codex home으로 다시 설정하세요.
-

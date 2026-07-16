@@ -16,7 +16,7 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 - 보관 세션, sub-agent, `codex exec`/CLI 일회성 세션, thread state 미확인 세션은 sync에서 제외합니다.
 - 동기화된 세션 채널에는 최근 대화 맥락을 일부 올려서 이어서 대화할 수 있게 합니다.
 - 동기화된 세션 채널은 `채팅 시작 시 동기화` 또는 `실시간 동기화` 모드 중 선택할 수 있습니다.
-- `실시간 동기화` 모드에서는 Codex Desktop에서 먼저 시작된 세션 진행 상황도 약 1초 주기로 Discord에 반영됩니다.
+- `실시간 동기화` 모드에서는 Codex Desktop에서 먼저 시작된 세션 진행 상황도 기본 약 10초 주기로 Discord에 반영됩니다.
 - Codex 작업 완료를 감지하면 세션별 Discord 스레드에 operator role을 멘션해 알립니다.
 - Discord에서 시작한 Codex 작업은 최종 답변 메시지와 완료 알림이 중복되지 않도록 해당 완료 알림 한 번만 답변 본문을 생략합니다.
 - Codex가 명령 실행, 파일 변경, 추가 권한을 요청하면 Discord 버튼으로 이번 턴 허용, 세션 동안 허용, 거절, 취소를 선택할 수 있습니다.
@@ -335,7 +335,7 @@ sync mode realtime
 ```
 
 - `on-chat`: 실시간 폴링은 하지 않고, 동기화된 세션 채널에서 다시 채팅을 시작할 때 Codex 데스크탑의 최신 대화 내용을 먼저 반영합니다.
-- `realtime`: 봇이 기본 약 1초 주기로 동기화된 세션을 확인해 Codex 데스크탑에서 생긴 새 대화 내용을 Discord 채널에 반영합니다.
+- `realtime`: 봇이 기본 약 10초 주기로 동기화된 세션을 확인해 Codex 데스크탑에서 생긴 새 대화 내용을 Discord 채널에 반영합니다.
 - `realtime`은 최근 세션 이벤트를 따라가므로, Desktop에서 먼저 보낸 사용자 메시지, Codex commentary, 도구 실행 상태도 Discord에서 이어서 볼 수 있습니다.
 - `realtime`은 새 Discord 채널을 자동 생성하지 않습니다. 열려 있지 않은 Codex 세션을 Discord로 가져오려면 admin 채널에서 `sync` 또는 `/sync`를 명시적으로 실행합니다.
 - 폴링 간격은 `CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS`로 조정할 수 있습니다.
