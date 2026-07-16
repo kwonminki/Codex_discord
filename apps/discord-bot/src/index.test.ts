@@ -22,12 +22,43 @@ afterEach(() => {
 
 describe("bot entrypoint", () => {
   it("uses fast realtime polling without auto-creating session channels", async () => {
-    const { resolveRealtimeIntervalMs, shouldRunRealtimeSessionAutosync } = await import("./index.js");
+    const {
+      createBackgroundPollState,
+      recordBackgroundPollResult,
+      resolveBackgroundMaxNormalizedLoad,
+      resolveRealtimeIntervalMs,
+      shouldRunBackgroundPoll,
+      shouldRunRealtimeSessionAutosync,
+      shouldSkipBackgroundPolling,
+    } = await import("./index.js");
 
     expect(resolveRealtimeIntervalMs(undefined, 1_000)).toBe(1_000);
     expect(resolveRealtimeIntervalMs("250", 1_000)).toBe(500);
     expect(resolveRealtimeIntervalMs("2000", 1_000)).toBe(2_000);
     expect(resolveRealtimeIntervalMs("bad", 1_000)).toBe(1_000);
+    expect(resolveBackgroundMaxNormalizedLoad(undefined, 0.7)).toBe(0.7);
+    expect(resolveBackgroundMaxNormalizedLoad("0", 0.7)).toBe(0);
+    expect(resolveBackgroundMaxNormalizedLoad("2", 0.7)).toBe(2);
+    expect(shouldSkipBackgroundPolling({ loadAverage: 7, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(true);
+    expect(shouldSkipBackgroundPolling({ loadAverage: 3, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(false);
+
+    const pollState = createBackgroundPollState(1_000, 10_000);
+    expect(shouldRunBackgroundPoll(pollState, 1_000)).toBe(true);
+    recordBackgroundPollResult(pollState, {
+      now: 1_000,
+      baseIntervalMs: 10_000,
+      maxIntervalMs: 60_000,
+      changed: false,
+    });
+    expect(pollState.currentIntervalMs).toBe(20_000);
+    expect(shouldRunBackgroundPoll(pollState, 20_000)).toBe(false);
+    recordBackgroundPollResult(pollState, {
+      now: 30_000,
+      baseIntervalMs: 10_000,
+      maxIntervalMs: 60_000,
+      changed: true,
+    });
+    expect(pollState.currentIntervalMs).toBe(10_000);
     expect(
       shouldRunRealtimeSessionAutosync({
         mode: "realtime",

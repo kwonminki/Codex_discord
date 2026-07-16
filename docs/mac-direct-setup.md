@@ -112,7 +112,12 @@ The polling interval defaults to 10 seconds and can be changed with:
 
 ```bash
 CONNECT_TASK_NOTIFICATION_INTERVAL_MS=10000
+CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=10000
+CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=60000
+CONNECT_BACKGROUND_MAX_LOAD=0.7
 ```
+
+Background polling backs off when there are no new Codex events, and it skips expensive Codex log scans while normalized system load is above `CONNECT_BACKGROUND_MAX_LOAD`. Set `CONNECT_BACKGROUND_MAX_LOAD=0` to disable load-based skipping.
 
 ## Development loop
 

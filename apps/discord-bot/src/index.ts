@@ -1,3 +1,4 @@
+import os from "node:os";
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
@@ -35,6 +36,8 @@ export const BOT_RELOAD_EXIT_CODE = 42;
 const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 10_000;
 const DEFAULT_TASK_NOTIFICATION_INTERVAL_MS = 10_000;
 const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 30_000;
+const DEFAULT_BACKGROUND_POLL_MAX_INTERVAL_MS = 60_000;
+const DEFAULT_BACKGROUND_MAX_NORMALIZED_LOAD = 0.7;
 
 export function resolveRealtimeIntervalMs(value: string | undefined, fallbackMs: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -44,6 +47,68 @@ export function resolveRealtimeIntervalMs(value: string | undefined, fallbackMs:
   }
 
   return Math.min(Math.max(parsed, 500), 60_000);
+}
+
+export function resolveBackgroundMaxNormalizedLoad(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value ?? "");
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  if (parsed <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max(parsed, 0.1), 4);
+}
+
+export function shouldSkipBackgroundPolling(input: {
+  loadAverage: number;
+  cpuCount: number;
+  maxNormalizedLoad: number;
+}): boolean {
+  if (input.maxNormalizedLoad <= 0 || input.cpuCount <= 0 || input.loadAverage <= 0) {
+    return false;
+  }
+
+  return input.loadAverage / input.cpuCount >= input.maxNormalizedLoad;
+}
+
+export interface BackgroundPollState {
+  nextRunAt: number;
+  currentIntervalMs: number;
+}
+
+export function createBackgroundPollState(now: number, baseIntervalMs: number): BackgroundPollState {
+  return {
+    nextRunAt: now,
+    currentIntervalMs: baseIntervalMs,
+  };
+}
+
+export function shouldRunBackgroundPoll(state: BackgroundPollState, now: number): boolean {
+  return now >= state.nextRunAt;
+}
+
+export function recordBackgroundPollResult(
+  state: BackgroundPollState,
+  input: {
+    now: number;
+    baseIntervalMs: number;
+    maxIntervalMs: number;
+    changed: boolean;
+    skippedForLoad?: boolean;
+  },
+): void {
+  const maxIntervalMs = Math.max(input.baseIntervalMs, input.maxIntervalMs);
+  const nextIntervalMs =
+    input.changed && !input.skippedForLoad
+      ? input.baseIntervalMs
+      : Math.min(maxIntervalMs, Math.max(input.baseIntervalMs, state.currentIntervalMs * 2));
+
+  state.currentIntervalMs = nextIntervalMs;
+  state.nextRunAt = input.now + nextIntervalMs;
 }
 
 export function shouldRunRealtimeSessionAutosync(input: {
@@ -68,6 +133,22 @@ const SCHEDULE_POLL_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_SCHEDULE_POLL_INTERVAL_MS,
   DEFAULT_SCHEDULE_POLL_INTERVAL_MS,
 );
+const BACKGROUND_POLL_MAX_INTERVAL_MS = resolveRealtimeIntervalMs(
+  process.env.CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS,
+  DEFAULT_BACKGROUND_POLL_MAX_INTERVAL_MS,
+);
+const BACKGROUND_MAX_NORMALIZED_LOAD = resolveBackgroundMaxNormalizedLoad(
+  process.env.CONNECT_BACKGROUND_MAX_LOAD,
+  DEFAULT_BACKGROUND_MAX_NORMALIZED_LOAD,
+);
+
+function currentBackgroundLoadInput(): { loadAverage: number; cpuCount: number; maxNormalizedLoad: number } {
+  return {
+    loadAverage: os.loadavg()[0] ?? 0,
+    cpuCount: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length,
+    maxNormalizedLoad: BACKGROUND_MAX_NORMALIZED_LOAD,
+  };
+}
 
 function outgoingMessageToText(message: DiscordOutgoingMessage): string {
   if (typeof message === "string") {
@@ -218,12 +299,37 @@ export async function startBot(): Promise<void> {
           postUpdates?: boolean;
         }) => {
           const state = await directStateStore.read();
+
+          if (input.trigger === "realtime" && state.transcriptSyncMode !== "realtime") {
+            return {
+              mode: state.transcriptSyncMode,
+              trigger: input.trigger,
+              checkedChannels: 0,
+              updatedChannels: 0,
+              postedMessages: 0,
+              skippedByMode: true,
+            };
+          }
+
+          const linkedSessionIds = state.sessionChannels
+            .map((channel) => channel.codexSessionId)
+            .filter((sessionId): sessionId is string => Boolean(sessionId));
+
+          if (linkedSessionIds.length === 0) {
+            return {
+              mode: state.transcriptSyncMode,
+              trigger: input.trigger,
+              checkedChannels: 0,
+              updatedChannels: 0,
+              postedMessages: 0,
+              skippedByMode: false,
+            };
+          }
+
           const sessions = await listDirectCodexSessions?.({
             activeOnly: false,
             includeExecSessions: true,
-            includeSessionIds: state.sessionChannels
-              .map((channel) => channel.codexSessionId)
-              .filter((sessionId): sessionId is string => Boolean(sessionId)),
+            includeSessionIds: linkedSessionIds,
           });
 
           if (!sessions) {
@@ -442,8 +548,26 @@ export async function startBot(): Promise<void> {
 
     if (syncTranscriptUpdates) {
       let running = false;
+      const pollState = createBackgroundPollState(Date.now(), TRANSCRIPT_SYNC_INTERVAL_MS);
       const timer = setInterval(() => {
+        const now = Date.now();
+
+        if (!shouldRunBackgroundPoll(pollState, now)) {
+          return;
+        }
+
         if (running) {
+          return;
+        }
+
+        if (shouldSkipBackgroundPolling(currentBackgroundLoadInput())) {
+          recordBackgroundPollResult(pollState, {
+            now,
+            baseIntervalMs: TRANSCRIPT_SYNC_INTERVAL_MS,
+            maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+            changed: false,
+            skippedForLoad: true,
+          });
           return;
         }
 
@@ -455,10 +579,22 @@ export async function startBot(): Promise<void> {
 
         running = true;
         void (async () => {
-          await syncTranscriptUpdates({ guild, trigger: "realtime" });
+          const result = await syncTranscriptUpdates({ guild, trigger: "realtime" });
+          recordBackgroundPollResult(pollState, {
+            now: Date.now(),
+            baseIntervalMs: TRANSCRIPT_SYNC_INTERVAL_MS,
+            maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+            changed: result.updatedChannels > 0 || result.postedMessages > 0,
+          });
         })()
           .catch((error) => {
             console.error("discord-bot failed to sync Codex transcripts", error);
+            recordBackgroundPollResult(pollState, {
+              now: Date.now(),
+              baseIntervalMs: TRANSCRIPT_SYNC_INTERVAL_MS,
+              maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+              changed: false,
+            });
           })
           .finally(() => {
             running = false;
@@ -469,8 +605,26 @@ export async function startBot(): Promise<void> {
 
     if (notifyTaskCompletions) {
       let running = false;
+      const pollState = createBackgroundPollState(Date.now(), TASK_NOTIFICATION_INTERVAL_MS);
       const timer = setInterval(() => {
+        const now = Date.now();
+
+        if (!shouldRunBackgroundPoll(pollState, now)) {
+          return;
+        }
+
         if (running) {
+          return;
+        }
+
+        if (shouldSkipBackgroundPolling(currentBackgroundLoadInput())) {
+          recordBackgroundPollResult(pollState, {
+            now,
+            baseIntervalMs: TASK_NOTIFICATION_INTERVAL_MS,
+            maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+            changed: false,
+            skippedForLoad: true,
+          });
           return;
         }
 
@@ -482,8 +636,22 @@ export async function startBot(): Promise<void> {
 
         running = true;
         void notifyTaskCompletions({ guild })
+          .then((result) => {
+            recordBackgroundPollResult(pollState, {
+              now: Date.now(),
+              baseIntervalMs: TASK_NOTIFICATION_INTERVAL_MS,
+              maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+              changed: result.initialized || result.notifiedSessions > 0,
+            });
+          })
           .catch((error) => {
             console.error("discord-bot failed to notify Codex task completions", error);
+            recordBackgroundPollResult(pollState, {
+              now: Date.now(),
+              baseIntervalMs: TASK_NOTIFICATION_INTERVAL_MS,
+              maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+              changed: false,
+            });
           })
           .finally(() => {
             running = false;

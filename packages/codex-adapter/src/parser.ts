@@ -54,6 +54,28 @@ interface CodexThreadState {
   isSubAgent: boolean;
 }
 
+type SessionDetails = {
+  cwdHint: string | null;
+  contextPreview?: CodexSessionContextMessage[];
+  realtimeEvents?: CodexSessionRealtimeEvent[];
+};
+
+interface CachedSessionDetails {
+  mtimeMs: number;
+  size: number;
+  details: SessionDetails;
+}
+
+interface CachedThreadStates {
+  mtimeMs: number;
+  size: number;
+  states: Map<string, CodexThreadState>;
+}
+
+const MAX_SESSION_DETAILS_CACHE_ENTRIES = 512;
+const sessionDetailsCache = new Map<string, CachedSessionDetails>();
+const threadStatesCache = new Map<string, CachedThreadStates>();
+
 export function parseSessionIndexLine(line: string): CodexSessionIndexEntry {
   const parsed = JSON.parse(line) as { id?: string; thread_name?: string; updated_at?: string };
 
@@ -248,20 +270,30 @@ async function findSessionDetails(
   sessionFilesById: Map<string, string>,
   sessionId: string,
   options: DiscoverCodexSessionsOptions,
-): Promise<{
-  cwdHint: string | null;
-  contextPreview?: CodexSessionContextMessage[];
-  realtimeEvents?: CodexSessionRealtimeEvent[];
-}> {
+): Promise<SessionDetails> {
   const sessionFile = sessionFilesById.get(sessionId);
 
   if (!sessionFile) {
     return { cwdHint: null };
   }
 
+  const stats = await statIfExists(sessionFile);
+
+  if (!stats) {
+    return { cwdHint: null };
+  }
+
+  const cacheKey = sessionDetailsCacheKey(sessionFile, options);
+  const cached = sessionDetailsCache.get(cacheKey);
+
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.details;
+  }
+
   const text = await readTextIfExists(sessionFile);
 
   if (text === null) {
+    sessionDetailsCache.delete(cacheKey);
     return { cwdHint: null };
   }
 
@@ -275,7 +307,7 @@ async function findSessionDetails(
     }
   }
 
-  return {
+  const details: SessionDetails = {
     cwdHint,
     ...(options.includeContextPreview
       ? {
@@ -294,6 +326,37 @@ async function findSessionDetails(
         }
       : {}),
   };
+
+  rememberSessionDetails(cacheKey, {
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
+    details,
+  });
+
+  return details;
+}
+
+function sessionDetailsCacheKey(sessionFile: string, options: DiscoverCodexSessionsOptions): string {
+  return [
+    sessionFile,
+    options.includeContextPreview ? "context" : "no-context",
+    options.includeRealtimeEvents ? "realtime" : "no-realtime",
+    options.contextMessageLimit ?? 6,
+    options.contextMessageMaxChars ?? 1_000,
+    options.realtimeEventLimit ?? 30,
+  ].join("\0");
+}
+
+function rememberSessionDetails(cacheKey: string, value: CachedSessionDetails) {
+  if (!sessionDetailsCache.has(cacheKey) && sessionDetailsCache.size >= MAX_SESSION_DETAILS_CACHE_ENTRIES) {
+    const firstKey = sessionDetailsCache.keys().next().value;
+
+    if (firstKey) {
+      sessionDetailsCache.delete(firstKey);
+    }
+  }
+
+  sessionDetailsCache.set(cacheKey, value);
 }
 
 async function buildSessionFileIndex(root: string): Promise<Map<string, string>> {
@@ -331,6 +394,18 @@ async function readCodexThreadStates(codexHome: string): Promise<Map<string, Cod
     return new Map();
   }
 
+  const stats = await statIfExists(databasePath);
+
+  if (!stats) {
+    return new Map();
+  }
+
+  const cached = threadStatesCache.get(databasePath);
+
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.states;
+  }
+
   try {
     const { stdout } = await execFileAsync(
       "sqlite3",
@@ -344,7 +419,15 @@ async function readCodexThreadStates(codexHome: string): Promise<Map<string, Cod
       { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
     );
 
-    return parseCodexThreadStateRows(stdout);
+    const states = parseCodexThreadStateRows(stdout);
+
+    threadStatesCache.set(databasePath, {
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      states,
+    });
+
+    return states;
   } catch {
     return new Map();
   }
@@ -763,6 +846,19 @@ async function listJsonlFiles(root: string): Promise<string[]> {
 async function readTextIfExists(filePath: string): Promise<string | null> {
   try {
     return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if (isEnoent(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function statIfExists(filePath: string): Promise<{ mtimeMs: number; size: number } | null> {
+  try {
+    const stats = await fs.stat(filePath);
+    return { mtimeMs: stats.mtimeMs, size: stats.size };
   } catch (error) {
     if (isEnoent(error)) {
       return null;
