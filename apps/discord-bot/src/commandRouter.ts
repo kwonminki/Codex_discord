@@ -356,6 +356,17 @@ function parseEncodedCodexContinueCommand(content: string): {
   }
 }
 
+function codexOpenShellCommand(sessionId: string): string {
+  return `open 'codex://threads/${sessionId.toLowerCase()}'`;
+}
+
+function parseCodexOpenSessionCommand(content: string): { sessionId: string } | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^(?:codex\s+open|open\s+codex|open\s+session)\s+([0-9a-f-]{32,36})$/i);
+
+  return match ? { sessionId: match[1].toLowerCase() } : null;
+}
+
 function parseKeyedValue(content: string, key: string): string | null {
   const match = content.match(new RegExp(`(?:^|\\s)${key}:([^\\n]+?)(?=\\s+[a-z]+:|$)`, "i"));
   return match?.[1]?.trim() || null;
@@ -807,6 +818,28 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "codex-continue-session", ...codexContinueSession };
+  }
+
+  const codexOpenSession = parseCodexOpenSessionCommand(trimmedContent);
+
+  if (codexOpenSession) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return {
+      type: "execute-command",
+      command: codexOpenShellCommand(codexOpenSession.sessionId),
+      confirmedDangerous: false,
+    };
   }
 
   if (/^(?:where|status|context|target|pwd\?)$/i.test(trimmedContent)) {

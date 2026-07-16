@@ -529,6 +529,34 @@ describe("responses", () => {
     });
   });
 
+  it("adds an open-in-Codex button when a real session id is present", () => {
+    const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
+    const payload = formatCodexResultUpdate(
+      {
+        computerDisplayName: "Local Dev",
+        workspaceDisplayName: "CodexDiscordConnector",
+        cwd: "/repo",
+        prompt: "README를 요약해줘",
+      },
+      {
+        result: {
+          status: "completed",
+          finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
+          sessionId,
+        },
+      },
+    );
+
+    expect(payload.components).toEqual([
+      {
+        type: 1,
+        components: [
+          { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+        ],
+      },
+    ]);
+  });
+
   it("attaches long Codex final answers instead of truncating them in Discord content", () => {
     const longFinalMessage = Array.from({ length: 160 }, (_, index) => `긴 답변 ${index + 1}: ${"내용 ".repeat(20)}`).join("\n");
     const payload = formatCodexResultUpdate(
@@ -559,6 +587,7 @@ describe("responses", () => {
   });
 
   it("keeps Codex thoughts available after the final answer is rendered", () => {
+    const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
     const payload = formatCodexResultUpdate(
       {
         computerDisplayName: "Local Dev",
@@ -570,7 +599,7 @@ describe("responses", () => {
         result: {
           status: "completed",
           finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
-          sessionId: "session-1",
+          sessionId,
         },
       },
       {
@@ -585,6 +614,12 @@ describe("responses", () => {
           {
             type: 1,
             components: [{ type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 }],
+          },
+          {
+            type: 1,
+            components: [
+              { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+            ],
           },
         ],
       }),
@@ -602,7 +637,7 @@ describe("responses", () => {
         result: {
           status: "completed",
           finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
-          sessionId: "session-1",
+          sessionId,
         },
       },
       {
@@ -612,6 +647,18 @@ describe("responses", () => {
     );
     expect(expanded.content).toContain("**생각 / 중간 출력**");
     expect(expanded.content).toContain("2개의 파일 탐색중...");
+    expect(expanded.components).toEqual([
+      {
+        type: 1,
+        components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+      },
+      {
+        type: 1,
+        components: [
+          { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+        ],
+      },
+    ]);
   });
 
   it("keeps failed Codex answers as diagnostic embeds", () => {

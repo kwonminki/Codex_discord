@@ -813,6 +813,34 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes Codex open commands to the desktop deep link", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "codex open 019db2be-b2b3-7e82-9e61-8c84b28ad287",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "execute-command",
+      command: "open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
+      confirmedDangerous: false,
+    });
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "open codex 019db2be-b2b3-7e82-9e61-8c84b28ad287",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "execute-command",
+      command: "open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
+      confirmedDangerous: false,
+    });
+  });
+
   it("routes help requests before shell execution", () => {
     expect(
       routeDiscordMessage({

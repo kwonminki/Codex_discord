@@ -26,6 +26,7 @@ export const COMPONENT_IDS = {
   codexSubmit: "cdc:codex:submit",
   codexThoughtsOpen: "cdc:codex:thoughts:open",
   codexThoughtsClose: "cdc:codex:thoughts:close",
+  codexOpenSessionPrefix: "cdc:codex:open:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
   gitConflicts: "cdc:git:conflicts",
@@ -39,6 +40,10 @@ export const COMPONENT_IDS = {
 
 function componentShellCommand(command: string): string {
   return `__cdc_exec ${command}`;
+}
+
+function codexOpenShellCommand(sessionId: string): string {
+  return `open 'codex://threads/${sessionId.toLowerCase()}'`;
 }
 
 function encodedNewChatCommand(input: {
@@ -80,6 +85,12 @@ function selectedSessionIds(values: string[]): string[] {
 }
 
 export function routeDiscordComponent(customId: string, values: string[] = []): string | null {
+  const codexOpenSessionMatch = customId.match(/^cdc:codex:open:([0-9a-f-]{32,36})$/i);
+
+  if (codexOpenSessionMatch) {
+    return componentShellCommand(codexOpenShellCommand(codexOpenSessionMatch[1] ?? ""));
+  }
+
   const pageMatch = customId.match(/^cdc:fs:page:(\d+)$/);
 
   if (pageMatch) {

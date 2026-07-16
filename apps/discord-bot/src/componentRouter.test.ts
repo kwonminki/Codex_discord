@@ -20,6 +20,9 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:fs:up")).toBe("__cdc_exec cd ..");
     expect(routeDiscordComponent("cdc:fs:refresh")).toBe("__cdc_exec __cdc_ls 0");
     expect(routeDiscordComponent("cdc:fs:page:2")).toBe("__cdc_exec __cdc_ls 2");
+    expect(routeDiscordComponent("cdc:codex:open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBe(
+      "__cdc_exec open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
+    );
   });
 
   it("maps destructive confirmation buttons explicitly", () => {

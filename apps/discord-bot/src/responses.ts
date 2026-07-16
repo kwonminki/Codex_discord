@@ -67,6 +67,7 @@ export interface CodexProgressState {
 
 export interface CodexProgressRenderOptions {
   expanded?: boolean;
+  actionRows?: DiscordActionRowPayload[];
 }
 
 export interface CodexProgressView {
@@ -79,6 +80,7 @@ export interface CollapsibleThoughtView {
   collapsedContent: string;
   expandedContent: string;
   expanded: boolean;
+  actionRows?: DiscordActionRowPayload[];
 }
 
 export type CodexThoughtView =
@@ -2154,6 +2156,26 @@ function codexProgressActions(expanded: boolean): DiscordActionRowPayload[] {
   ];
 }
 
+function isOpenableCodexSessionId(sessionId: string | null): sessionId is string {
+  return typeof sessionId === "string" && /^[0-9a-f-]{32,36}$/i.test(sessionId);
+}
+
+function codexOpenSessionActions(sessionId: string | null): DiscordActionRowPayload[] {
+  if (!isOpenableCodexSessionId(sessionId)) {
+    return [];
+  }
+
+  return [
+    actionRow([
+      button({
+        customId: `${COMPONENT_IDS.codexOpenSessionPrefix}${sessionId.toLowerCase()}`,
+        label: "Codex 앱에서 열기",
+        style: BUTTON_STYLES.primary,
+      }),
+    ]),
+  ];
+}
+
 function codexProgressText(
   input: CodexProgressMessageInput,
   progress: CodexProgressState,
@@ -2233,10 +2255,11 @@ export function formatCollapsibleThoughtMessage(
 ): DiscordMessagePayload {
   const expanded = options.expanded ?? false;
   const payload = textPayload(expanded ? input.expandedContent : input.collapsedContent);
-  payload.components = codexProgressActions(expanded);
+  payload.components = [...codexProgressActions(expanded), ...(options.actionRows ?? [])];
   collapsibleThoughtViews.set(payload, {
     ...input,
     expanded,
+    actionRows: options.actionRows,
   });
   return payload;
 }
@@ -2260,6 +2283,7 @@ export function formatCodexThoughtView(view: CodexThoughtView, options: CodexPro
 
   return formatCollapsibleThoughtMessage(view.view, {
     expanded: options.expanded ?? view.view.expanded,
+    actionRows: view.view.actionRows,
   });
 }
 
@@ -2538,6 +2562,7 @@ export function formatCodexResultUpdate(
 
   const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(finalMessage);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(finalMessage);
+  const openSessionActions = codexOpenSessionActions(sessionId);
 
   if (!failed) {
     const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
@@ -2577,7 +2602,7 @@ export function formatCodexResultUpdate(
           collapsedContent,
           expandedContent,
         },
-        { expanded },
+        { expanded, actionRows: openSessionActions },
       );
 
       if (finalFiles.length > 0) {
@@ -2590,6 +2615,9 @@ export function formatCodexResultUpdate(
     const payload = textPayload(
       finalTextForDiscord,
     );
+    if (openSessionActions.length > 0) {
+      payload.components = openSessionActions;
+    }
 
     if (finalFiles.length > 0) {
       payload.files = finalFiles;
@@ -2603,7 +2631,7 @@ export function formatCodexResultUpdate(
     color: COLORS.failure,
     description: truncateDescription(sanitizeDiscordMarkdown(finalMessage)),
     fields,
-  });
+  }, openSessionActions);
 
   return payload;
 }
