@@ -43,6 +43,7 @@ export interface DiscordEmbedPayload {
 export interface DiscordMessagePayload {
   allowedMentions: {
     parse: [];
+    roles?: string[];
   };
   content?: string;
   ephemeral?: boolean;
@@ -245,6 +246,50 @@ function messagePayload(embed: DiscordEmbedPayload, components?: DiscordActionRo
   }
 
   return payload;
+}
+
+function uniqueRoleIds(roleIds: Iterable<string>): string[] {
+  return [...new Set([...roleIds].map((roleId) => roleId.trim()).filter(Boolean))];
+}
+
+function roleMentionLine(roleIds: string[]): string {
+  return roleIds.map((roleId) => `<@&${roleId}>`).join(" ");
+}
+
+export function withRoleMentions(
+  message: string | DiscordMessagePayload,
+  roleIds: Iterable<string>,
+): string | DiscordMessagePayload {
+  const uniqueRoles = uniqueRoleIds(roleIds);
+
+  if (uniqueRoles.length === 0) {
+    return message;
+  }
+
+  const mentionLine = roleMentionLine(uniqueRoles);
+
+  if (typeof message === "string") {
+    return {
+      allowedMentions: { parse: [], roles: uniqueRoles },
+      content: message.trim().length > 0 ? `${mentionLine}\n${message}` : mentionLine,
+      embeds: [],
+    };
+  }
+
+  if (message.ephemeral) {
+    return message;
+  }
+
+  message.allowedMentions = {
+    ...message.allowedMentions,
+    roles: uniqueRoles,
+  };
+
+  if (!message.content?.startsWith(mentionLine)) {
+    message.content = message.content ? `${mentionLine}\n${message.content}` : mentionLine;
+  }
+
+  return message;
 }
 
 function isImageReference(value: string): boolean {
@@ -1582,6 +1627,7 @@ export function formatNewChatResult(response: {
     workspaceDisplayName: string;
     pendingSession: boolean;
     initialPrompt: string | null;
+    discordDeliveryMode?: "channel" | "thread";
   };
   error?: { message: string };
 }): DiscordMessagePayload {
@@ -1593,15 +1639,19 @@ export function formatNewChatResult(response: {
     });
   }
 
+  const targetLabel = response.result.discordDeliveryMode === "thread" ? "Thread" : "Channel";
+
   return messagePayload(
     {
       title: "Codex chat channel ready",
       color: COLORS.success,
       description:
-        "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
+        response.result.discordDeliveryMode === "thread"
+          ? "새 Discord thread가 Codex 대기 세션으로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다."
+          : "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
       fields: [
         {
-          name: "Channel",
+          name: targetLabel,
           value: `<#${response.result.discordChannelId}>`,
           inline: true,
         },

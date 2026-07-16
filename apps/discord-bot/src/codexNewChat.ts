@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import type { SessionOrigin } from "../../../packages/core/src/index.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type {
+  DiscordSessionDeliveryMode,
   DirectSyncState,
   DirectSyncStateStore,
   SyncedSessionChannelState,
@@ -25,6 +26,7 @@ export interface CreateNewCodexChatInput {
   cwd?: string | null;
   useCategory: boolean;
   initialPrompt?: string | null;
+  sessionThreadParentChannelId?: string | null;
 }
 
 export interface NewCodexChatResult {
@@ -37,6 +39,7 @@ export interface NewCodexChatResult {
   workspaceDisplayName: string;
   pendingSession: boolean;
   initialPrompt: string | null;
+  discordDeliveryMode: DiscordSessionDeliveryMode;
 }
 
 function sanitizeName(value: string): string {
@@ -228,12 +231,22 @@ export async function createNewCodexChatChannel(
       initialPrompt: prompt,
     }),
   };
+  const threadParentChannelId = input.sessionThreadParentChannelId?.trim() || null;
+  const shouldCreateThread = Boolean(threadParentChannelId && input.guild.createThread);
   let channel: { id: string };
 
   try {
-    channel = await input.guild.createTextChannel(channelInput);
+    channel =
+      shouldCreateThread && input.guild.createThread && threadParentChannelId
+        ? await input.guild.createThread({
+            name: channelName,
+            parentChannelId: threadParentChannelId,
+            autoArchiveDuration: 10_080,
+            reason: channelInput.topic,
+          })
+        : await input.guild.createTextChannel(channelInput);
   } catch (error) {
-    if (!workspace || !isMissingCategoryError(error)) {
+    if (shouldCreateThread || !workspace || !isMissingCategoryError(error)) {
       throw error;
     }
 
@@ -256,6 +269,8 @@ export async function createNewCodexChatChannel(
     workspaceDisplayName: displayName,
     discordCategoryId: workspace?.discordCategoryId ?? null,
     discordChannelId: channel.id,
+    discordParentChannelId: shouldCreateThread ? threadParentChannelId : (workspace?.discordCategoryId ?? null),
+    discordDeliveryMode: shouldCreateThread ? "thread" : "channel",
     channelName,
     computerId: input.computerId,
     workspaceId: workspace?.workspaceId ?? workspaceId(input.computerId, workspaceRoot),
@@ -281,6 +296,7 @@ export async function createNewCodexChatChannel(
     workspaceDisplayName: displayName,
     pendingSession: true,
     initialPrompt: prompt,
+    discordDeliveryMode: nextChannel.discordDeliveryMode ?? "channel",
   };
 }
 

@@ -1,4 +1,5 @@
 import type { ChannelMode } from "../../../packages/core/src/index.js";
+import type { DiscordSessionDeliveryMode } from "./directState.js";
 
 export interface ManagedDiscordChannelContext {
   channelMode: ChannelMode;
@@ -10,4 +11,5 @@ export interface ManagedDiscordChannelContext {
   cwd: string;
   timeoutMs: number;
   codexSessionId?: string | null;
+  discordDeliveryMode?: DiscordSessionDeliveryMode;
 }

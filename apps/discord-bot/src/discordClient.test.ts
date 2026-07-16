@@ -83,6 +83,48 @@ describe("attachDiscordMessageHandler", () => {
     expect(guild.channels.fetch).toHaveBeenCalledWith("channel-1");
     expect(guild.channels.fetch).toHaveBeenCalledWith("category-1");
   });
+
+  it("creates threads and allows explicit role mentions for sent messages", async () => {
+    const threadCreate = vi.fn().mockResolvedValue({ id: "thread-1" });
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const guild = {
+      channels: {
+        fetch: vi.fn((channelId: string) =>
+          Promise.resolve(
+            channelId === "admin-channel"
+              ? { threads: { create: threadCreate } }
+              : { send },
+          ),
+        ),
+      },
+    };
+    const guildSurface = createDiscordGuildSurface(guild as never);
+
+    await expect(
+      guildSurface?.createThread?.({
+        parentChannelId: "admin-channel",
+        name: "session-thread",
+        autoArchiveDuration: 10_080,
+        reason: "Codex session",
+      }),
+    ).resolves.toEqual({ id: "thread-1" });
+    await expect(
+      guildSurface?.sendTextMessage?.("thread-1", "작업 완료", {
+        mentionRoleIds: ["operator-role"],
+      }),
+    ).resolves.toEqual({ id: "message-1" });
+
+    expect(threadCreate).toHaveBeenCalledWith({
+      name: "session-thread",
+      autoArchiveDuration: 10_080,
+      reason: "Codex session",
+    });
+    expect(send).toHaveBeenCalledWith({
+      allowedMentions: { parse: [], roles: ["operator-role"] },
+      content: "<@&operator-role>\n작업 완료",
+      embeds: [],
+    });
+  });
 });
 
 describe("attachDiscordInteractionHandler", () => {

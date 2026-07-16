@@ -117,6 +117,78 @@ describe("syncCodexSessionsToDiscord", () => {
     }
   });
 
+  it("creates session threads under the configured parent channel and mentions operator roles for context", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-sync-"));
+    const store = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const guild = {
+      createCategory: vi.fn().mockResolvedValueOnce({ id: "category-repo" }),
+      createTextChannel: vi.fn(),
+      createThread: vi.fn().mockResolvedValueOnce({ id: "thread-a" }),
+      sendTextMessage: vi.fn().mockResolvedValue({ id: "context-message" }),
+    };
+    const controlApi = {
+      createCategoryMapping: vi.fn().mockResolvedValue({}),
+      createManagedChannel: vi.fn().mockResolvedValue({}),
+      linkCodexSession: vi.fn().mockResolvedValue({}),
+    };
+
+    try {
+      await expect(
+        syncCodexSessionsToDiscord({
+          guild,
+          controlApi,
+          stateStore: store,
+          computerId: "local-dev",
+          computerDisplayName: "Local Dev",
+          defaultWorkspaceRoot: "/fallback",
+          sessions: [
+            {
+              id: "session-a",
+              threadName: "Codex Discord sync design",
+              updatedAt: "2026-04-23T10:00:00.000Z",
+              cwdHint: "/repo",
+              contextPreview: [{ role: "user", text: "이전 질문" }],
+            },
+          ],
+          limit: 25,
+          sessionThreadParentChannelId: "admin-channel",
+          mentionRoleIds: ["operator-role"],
+        }),
+      ).resolves.toMatchObject({
+        createdChannels: 1,
+        existingChannels: 0,
+      });
+
+      expect(guild.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "codex-discord-sync-design",
+          parentChannelId: "admin-channel",
+          autoArchiveDuration: 10_080,
+          reason: expect.stringContaining("session-a"),
+        }),
+      );
+      expect(guild.createTextChannel).not.toHaveBeenCalled();
+      expect(guild.sendTextMessage).toHaveBeenCalledWith(
+        "thread-a",
+        expect.stringContaining("이전 질문"),
+        { mentionRoleIds: ["operator-role"] },
+      );
+      expect(controlApi.createManagedChannel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "thread-a",
+          channelMode: "session-linked",
+        }),
+      );
+      await expect(store.findSessionChannelByDiscordId("thread-a")).resolves.toMatchObject({
+        codexSessionId: "session-a",
+        discordParentChannelId: "admin-channel",
+        discordDeliveryMode: "thread",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips bridge-archived sessions and reports readable progress", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-sync-"));
     const store = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

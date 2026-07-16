@@ -176,6 +176,8 @@ export async function startBot(): Promise<void> {
             defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
             sessions: syncSessions,
             limit: input.limit,
+            sessionThreadParentChannelId: connectConfig.direct.channelId,
+            mentionRoleIds: connectConfig.discord.allowedRoleIds,
             onProgress: input.onProgress,
           });
         }
@@ -236,6 +238,7 @@ export async function startBot(): Promise<void> {
             discordChannelId: input.discordChannelId,
             postUpdates: input.postUpdates,
             ignoredSessionIds: activelyStreamedSessionIds,
+            mentionRoleIds: connectConfig.discord.allowedRoleIds,
           });
         }
       : undefined;
@@ -256,6 +259,7 @@ export async function startBot(): Promise<void> {
             stateStore: directStateStore,
             adminChannelId: connectConfig.direct.channelId,
             sessions,
+            mentionRoleIds: connectConfig.discord.allowedRoleIds,
           });
         }
       : undefined;
@@ -381,6 +385,7 @@ export async function startBot(): Promise<void> {
             cwd: input.cwd,
             useCategory: input.useCategory,
             initialPrompt: input.initialPrompt,
+            sessionThreadParentChannelId: connectConfig.direct.channelId,
           })
       : undefined;
   const linkNewCodexSession =

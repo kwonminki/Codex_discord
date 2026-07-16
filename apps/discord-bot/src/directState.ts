@@ -10,6 +10,7 @@ export interface SyncedWorkspaceState {
 }
 
 export type TranscriptSyncMode = "on-chat" | "realtime";
+export type DiscordSessionDeliveryMode = "channel" | "thread";
 
 export interface SyncedSessionChannelState {
   codexSessionId: string | null;
@@ -20,6 +21,8 @@ export interface SyncedSessionChannelState {
   workspaceDisplayName: string;
   discordCategoryId: string | null;
   discordChannelId: string;
+  discordParentChannelId?: string | null;
+  discordDeliveryMode?: DiscordSessionDeliveryMode;
   channelName: string;
   computerId: string;
   workspaceId: string;

@@ -18,6 +18,7 @@ import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
+import { withRoleMentions } from "./responses.js";
 import {
   formatCodexAck,
   formatCodexModelResult,
@@ -199,6 +200,29 @@ async function updateQueuedReply(
   await fallbackReply(message);
 }
 
+function createReplyWithOptionalRoleMentions(
+  reply: DiscordMessageLike["reply"],
+  roleIds: string[],
+): DiscordMessageLike["reply"] {
+  const mentionRoleIds = roleIds.filter((roleId) => roleId.trim().length > 0);
+
+  if (mentionRoleIds.length === 0) {
+    return reply;
+  }
+
+  return async (replyMessage) => {
+    const queuedReply = await reply(withRoleMentions(replyMessage, mentionRoleIds));
+
+    if (!queuedReply) {
+      return queuedReply;
+    }
+
+    return {
+      edit: (nextMessage) => queuedReply.edit(withRoleMentions(nextMessage, mentionRoleIds)),
+    };
+  };
+}
+
 function appendProgressEvent(events: string[], event: string): string[] {
   return [...events, event].slice(-8);
 }
@@ -283,6 +307,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
+    const reply = createReplyWithOptionalRoleMentions(
+      (replyMessage) => message.reply(replyMessage),
+      channelContext.channelMode === "session-linked" && channelContext.discordDeliveryMode === "thread"
+        ? channelContext.allowedRoleIds
+        : [],
+    );
     const routed = routeDiscordMessage({
       channelMode: channelContext.channelMode,
       content: message.content,
@@ -291,12 +321,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     });
 
     if (routed.type === "bot-help") {
-      await message.reply(formatHelp(channelContext.channelMode));
+      await reply(formatHelp(channelContext.channelMode));
       return;
     }
 
     if (routed.type === "channel-status") {
-      await message.reply(
+      await reply(
         formatChannelStatus({
           ...channelContext,
           codexModel: codexModelsByChannel.get(message.channelId) ?? null,
@@ -306,12 +336,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "maintenance-panel") {
-      await message.reply(formatMaintenancePanel(channelContext.channelMode));
+      await reply(formatMaintenancePanel(channelContext.channelMode));
       return;
     }
 
     if (routed.type === "admin-sync") {
-      const queuedReply = await message.reply(formatSyncAck({ limit: routed.limit }));
+      const queuedReply = await reply(formatSyncAck({ limit: routed.limit }));
 
       try {
         if (!input.syncCodexSessions) {
@@ -328,21 +358,21 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           onProgress: async (progress) => {
             await updateQueuedReply(
               queuedReply,
-              (replyMessage) => message.reply(replyMessage),
+              (replyMessage) => reply(replyMessage),
               formatSyncProgressUpdate(progress),
             );
           },
         });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncResultUpdate({ result }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex session sync failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncResultUpdate({ error: { message: messageText } }),
         );
       }
@@ -350,7 +380,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "admin-new-chat") {
-      const queuedReply = await message.reply(formatNewChatAck(routed));
+      const queuedReply = await reply(formatNewChatAck(routed));
 
       try {
         if (!input.createNewCodexChat) {
@@ -371,14 +401,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatNewChatResult({ result }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "New Codex chat creation failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatNewChatResult({ error: { message: messageText } }),
         );
       }
@@ -391,10 +421,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           throw new Error("Codex sync status is not connected for this bot mode.");
         }
 
-        await message.reply(formatSyncStatus(await input.getSyncStatus()));
+        await reply(formatSyncStatus(await input.getSyncStatus()));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex sync status failed";
-        await message.reply(formatSyncResultUpdate({ error: { message: messageText } }));
+        await reply(formatSyncResultUpdate({ error: { message: messageText } }));
       }
       return;
     }
@@ -406,21 +436,21 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         const result = await input.setTranscriptSyncMode(routed.mode);
-        await message.reply(formatSyncModeResult(result));
+        await reply(formatSyncModeResult(result));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Transcript sync mode update failed";
-        await message.reply(formatSyncResultUpdate({ error: { message: messageText } }));
+        await reply(formatSyncResultUpdate({ error: { message: messageText } }));
       }
       return;
     }
 
     if (routed.type === "bot-reload") {
       if (routed.mode === "restart" && !routed.confirmed) {
-        await message.reply(formatReloadConfirmation());
+        await reply(formatReloadConfirmation());
         return;
       }
 
-      const queuedReply = await message.reply(formatReloadAck({ mode: routed.mode }));
+      const queuedReply = await reply(formatReloadAck({ mode: routed.mode }));
 
       try {
         if (!input.reloadBot) {
@@ -430,14 +460,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         const result = await input.reloadBot({ mode: routed.mode });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatReloadResult({ result }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Bot reload failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatReloadResult({ error: { message: messageText } }),
         );
       }
@@ -446,7 +476,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     if (routed.type === "admin-clear-messages") {
       if (routed.mode === "all" && !routed.confirmed) {
-        await message.reply(formatClearConfirmation());
+        await reply(formatClearConfirmation());
         return;
       }
 
@@ -459,16 +489,16 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           mode: routed.mode,
           ...(routed.mode === "count" ? { count: routed.count } : {}),
         });
-        await message.reply(formatClearResult({ result }));
+        await reply(formatClearResult({ result }));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Discord message deletion failed";
-        await message.reply(formatClearResult({ error: { message: messageText } }));
+        await reply(formatClearResult({ error: { message: messageText } }));
       }
       return;
     }
 
     if (routed.type === "admin-sync-select") {
-      const queuedReply = await message.reply(formatSyncSelectionAck({ limit: routed.limit }));
+      const queuedReply = await reply(formatSyncSelectionAck({ limit: routed.limit }));
 
       try {
         if (!input.previewSelectableCodexSessions) {
@@ -478,14 +508,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         const result = await input.previewSelectableCodexSessions({ limit: routed.limit });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncSelection(result),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex session selection failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncResultUpdate({ error: { message: messageText } }),
         );
       }
@@ -493,7 +523,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "admin-sync-selected") {
-      const queuedReply = await message.reply(formatSyncAck({ limit: routed.sessionIds.length }));
+      const queuedReply = await reply(formatSyncAck({ limit: routed.sessionIds.length }));
 
       try {
         if (!input.syncCodexSessions) {
@@ -511,21 +541,21 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           onProgress: async (progress) => {
             await updateQueuedReply(
               queuedReply,
-              (replyMessage) => message.reply(replyMessage),
+              (replyMessage) => reply(replyMessage),
               formatSyncProgressUpdate(progress),
             );
           },
         });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncResultUpdate({ result }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex session sync failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatSyncResultUpdate({ error: { message: messageText } }),
         );
       }
@@ -539,7 +569,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             throw new Error("Synced channel delete preview is not connected for this bot mode.");
           }
 
-          await message.reply(
+          await reply(
             formatDeletePreview(
               await input.previewSyncedChannelsDelete({
                 mode: routed.mode,
@@ -558,7 +588,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           throw new Error("Discord guild context is required for synced channel deletion.");
         }
 
-        const queuedReply = await message.reply(formatDeleteAck({ mode: routed.mode }));
+        const queuedReply = await reply(formatDeleteAck({ mode: routed.mode }));
         const result = await input.deleteSyncedChannels({
           guild: message.guild,
           mode: routed.mode,
@@ -566,23 +596,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatDeleteResult({ result }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Synced channel deletion failed";
-        await message.reply(formatDeleteResult({ error: { message: messageText } }));
+        await reply(formatDeleteResult({ error: { message: messageText } }));
       }
       return;
     }
 
     if (routed.type === "archive-session") {
       if (!routed.confirmed) {
-        await message.reply(formatArchiveAck({ confirmed: false, sessionId: routed.sessionId }));
+        await reply(formatArchiveAck({ confirmed: false, sessionId: routed.sessionId }));
         return;
       }
 
-      const queuedReply = await message.reply(formatArchiveAck({ confirmed: true, sessionId: routed.sessionId }));
+      const queuedReply = await reply(formatArchiveAck({ confirmed: true, sessionId: routed.sessionId }));
 
       try {
         if (!input.archiveSyncedSession) {
@@ -598,7 +628,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         try {
           await updateQueuedReply(
             queuedReply,
-            (replyMessage) => message.reply(replyMessage),
+            (replyMessage) => reply(replyMessage),
             formatArchiveResult({ result }),
           );
         } catch (error) {
@@ -608,7 +638,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         const messageText = error instanceof Error ? error.message : "Codex session archive failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatArchiveResult({ error: { message: messageText } }),
         );
       }
@@ -627,17 +657,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           userId: message.userId,
           roleIds: message.roleIds,
         });
-        await message.reply(formatScheduleResult(result));
+        await reply(formatScheduleResult(result));
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Schedule command failed";
-        await message.reply(formatScheduleResult({ error: { message: messageText } }));
+        await reply(formatScheduleResult({ error: { message: messageText } }));
       }
       return;
     }
 
     if (routed.type === "codex-model") {
       codexModelsByChannel.set(message.channelId, routed.model);
-      await message.reply(formatCodexModelResult({ model: routed.model }));
+      await reply(formatCodexModelResult({ model: routed.model }));
       return;
     }
 
@@ -648,7 +678,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         codexRunModesByChannel.set(message.channelId, routed.mode);
       }
 
-      await message.reply(
+      await reply(
         formatCodexRunModeResult({
           mode: routed.mode,
           reasoningEffort: reasoningEffortForChannel(message.channelId),
@@ -666,7 +696,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       };
 
       if (!input.submitCodexPrompt) {
-        await message.reply(
+        await reply(
           formatCodexResultUpdate(codexMessage, {
             error: { message: "Codex review is not connected for this mode yet." },
           }),
@@ -674,7 +704,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         return;
       }
 
-      const queuedReply = await message.reply(formatCodexAck(codexMessage));
+      const queuedReply = await reply(formatCodexAck(codexMessage));
       let recentEvents: string[] = [];
 
       try {
@@ -695,7 +725,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
             await updateQueuedReply(
               queuedReply,
-              (replyMessage) => message.reply(replyMessage),
+              (replyMessage) => reply(replyMessage),
               formatCodexProgressUpdate(codexMessage, {
                 status,
                 latestMessage:
@@ -718,14 +748,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex review failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
         );
       }
@@ -742,7 +772,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       };
 
       if (!input.submitCodexPrompt) {
-        await message.reply(
+        await reply(
           formatCodexResultUpdate(codexMessage, {
             error: { message: "Codex chat is not connected for this mode yet." },
           }),
@@ -750,7 +780,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         return;
       }
 
-      const queuedReply = await message.reply(formatCodexAck(codexMessage));
+      const queuedReply = await reply(formatCodexAck(codexMessage));
       const activeStreamingSessionIds = new Set<string>();
       let recentEvents: string[] = [];
 
@@ -798,7 +828,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }
               await updateQueuedReply(
                 queuedReply,
-                (replyMessage) => message.reply(replyMessage),
+                (replyMessage) => reply(replyMessage),
                 formatCodexProgressUpdate(codexMessage, {
                   status: "session opened",
                   sessionId: streamedSessionId,
@@ -812,7 +842,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
               await updateQueuedReply(
                 queuedReply,
-                (replyMessage) => message.reply(replyMessage),
+                (replyMessage) => reply(replyMessage),
                 formatCodexProgressUpdate(codexMessage, {
                   status: "writing answer",
                   sessionId: streamedSessionId,
@@ -827,7 +857,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
               await updateQueuedReply(
                 queuedReply,
-                (replyMessage) => message.reply(replyMessage),
+                (replyMessage) => reply(replyMessage),
                 formatCodexProgressUpdate(codexMessage, {
                   status: event.label,
                   sessionId: streamedSessionId,
@@ -841,7 +871,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
             await updateQueuedReply(
               queuedReply,
-              (replyMessage) => message.reply(replyMessage),
+              (replyMessage) => reply(replyMessage),
               formatCodexProgressUpdate(codexMessage, {
                 status: event.eventType,
                 sessionId: streamedSessionId,
@@ -888,7 +918,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         );
       } catch (error) {
@@ -908,7 +938,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         const messageText = error instanceof Error ? error.message : "Codex prompt failed";
         await updateQueuedReply(
           queuedReply,
-          (replyMessage) => message.reply(replyMessage),
+          (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
         );
       } finally {
@@ -920,12 +950,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "denied") {
-      await message.reply(formatDenied(routed.reason));
+      await reply(formatDenied(routed.reason));
       return;
     }
 
     if (routed.type === "blocked-command") {
-      await message.reply(formatBlockedCommand(routed));
+      await reply(formatBlockedCommand(routed));
       return;
     }
 
@@ -936,7 +966,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       command: routed.command,
       channelMode: channelContext.channelMode,
     };
-    const queuedReply = await message.reply(formatCommandAck(commandMessage));
+    const queuedReply = await reply(formatCommandAck(commandMessage));
 
     try {
       const response = await input.submitCommandJob({
@@ -968,7 +998,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       await updateQueuedReply(
         queuedReply,
-        (replyMessage) => message.reply(replyMessage),
+        (replyMessage) => reply(replyMessage),
         formatCommandResultUpdate(commandMessage, response),
       );
     } catch (error) {
@@ -982,7 +1012,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       });
       await updateQueuedReply(
         queuedReply,
-        (replyMessage) => message.reply(replyMessage),
+        (replyMessage) => reply(replyMessage),
         formatCommandResultUpdate(commandMessage, { error: { message: messageText } }),
       );
     }

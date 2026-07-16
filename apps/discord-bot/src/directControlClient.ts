@@ -58,6 +58,7 @@ export function createDirectControlClient(
           cwd,
           timeoutMs: config.direct.timeoutMs,
           codexSessionId: null,
+          discordDeliveryMode: "channel",
         };
       }
 
@@ -77,6 +78,7 @@ export function createDirectControlClient(
         cwd: syncedChannel.cwd,
         timeoutMs: config.direct.timeoutMs,
         codexSessionId: syncedChannel.codexSessionId,
+        discordDeliveryMode: syncedChannel.discordDeliveryMode ?? "channel",
       };
     },
     async createCategoryMapping(input) {

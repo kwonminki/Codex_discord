@@ -17,6 +17,7 @@ export interface NotifyCodexTaskCompletionsInput {
   stateStore: DirectSyncStateStore;
   adminChannelId: string;
   sessions: DiscoveredCodexSession[];
+  mentionRoleIds?: string[];
 }
 
 export interface NotifyCodexTaskCompletionsResult {
@@ -176,12 +177,21 @@ export async function notifyCodexTaskCompletions(
     }
 
     if (initialized && input.guild.sendTextMessage) {
-      await input.guild.sendTextMessage(
-        input.adminChannelId,
-        formatTaskCompleteNotification(session, {
-          includeAnswer: !discordRequestedSessionIds.has(session.id.toLowerCase()),
-        }),
-      );
+      const syncedChannel = state.sessionChannels.find((channel) => channel.codexSessionId === session.id);
+      const targetChannelId = syncedChannel?.discordChannelId ?? input.adminChannelId;
+      const notification = formatTaskCompleteNotification(session, {
+        includeAnswer: !discordRequestedSessionIds.has(session.id.toLowerCase()),
+      });
+      const mentionRoleIds =
+        syncedChannel?.discordDeliveryMode === "thread"
+          ? input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0)
+          : [];
+
+      if (mentionRoleIds && mentionRoleIds.length > 0) {
+        await input.guild.sendTextMessage(targetChannelId, notification, { mentionRoleIds });
+      } else {
+        await input.guild.sendTextMessage(targetChannelId, notification);
+      }
       notifiedSessions += 1;
     }
 

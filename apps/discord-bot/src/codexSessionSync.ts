@@ -17,7 +17,17 @@ const DISCORD_SYNC_CONCURRENCY = 5;
 export interface DiscordGuildSurface {
   createCategory(input: { name: string }): Promise<{ id: string }>;
   createTextChannel(input: { name: string; parentId?: string | null; topic?: string }): Promise<{ id: string }>;
-  sendTextMessage?(channelId: string, content: string | DiscordMessagePayload): Promise<{ id?: string } | void>;
+  createThread?(input: {
+    name: string;
+    parentChannelId: string;
+    autoArchiveDuration?: number;
+    reason?: string;
+  }): Promise<{ id: string }>;
+  sendTextMessage?(
+    channelId: string,
+    content: string | DiscordMessagePayload,
+    options?: { mentionRoleIds?: string[] },
+  ): Promise<{ id?: string } | void>;
   editTextMessage?(channelId: string, messageId: string, content: string | DiscordMessagePayload): Promise<{ id?: string } | void>;
   deleteChannel?(id: string): Promise<void>;
   deleteCategory?(id: string): Promise<void>;
@@ -32,6 +42,8 @@ export interface SyncCodexSessionsInput {
   defaultWorkspaceRoot: string;
   sessions: DiscoveredCodexSession[];
   limit: number;
+  sessionThreadParentChannelId?: string | null;
+  mentionRoleIds?: string[];
   onProgress?: (progress: SyncCodexSessionsProgress) => Promise<void> | void;
 }
 
@@ -118,6 +130,7 @@ async function postSessionContextIfNeeded(input: {
   guild: DiscordGuildSurface;
   session: DiscoveredCodexSession;
   channel: SyncedSessionChannelState;
+  mentionRoleIds?: string[];
 }): Promise<void> {
   if (input.channel.contextPostedAt) {
     return;
@@ -130,7 +143,16 @@ async function postSessionContextIfNeeded(input: {
   }
 
   try {
-    await input.guild.sendTextMessage(input.channel.discordChannelId, content);
+    const mentionRoleIds =
+      input.channel.discordDeliveryMode === "thread"
+        ? input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0)
+        : [];
+
+    if (mentionRoleIds && mentionRoleIds.length > 0) {
+      await input.guild.sendTextMessage(input.channel.discordChannelId, content, { mentionRoleIds });
+    } else {
+      await input.guild.sendTextMessage(input.channel.discordChannelId, content);
+    }
     input.channel.contextPostedAt = new Date().toISOString();
   } catch (error) {
     console.warn("discord-bot failed to post Codex session context", error);
@@ -209,13 +231,24 @@ async function createSessionChannel(input: {
   computerId: string;
   session: DiscoveredCodexSession;
   workspace: SyncedWorkspaceState;
+  sessionThreadParentChannelId?: string | null;
 }): Promise<SyncedSessionChannelState> {
   const channelName = sessionChannelName(input.session);
-  const channel = await input.guild.createTextChannel({
-    name: channelName,
-    parentId: input.workspace.discordCategoryId,
-    topic: sessionTopic(input.session, input.workspace.workspaceRoot),
-  });
+  const threadParentChannelId = input.sessionThreadParentChannelId?.trim() || null;
+  const shouldCreateThread = Boolean(threadParentChannelId && input.guild.createThread);
+  const channel =
+    shouldCreateThread && input.guild.createThread && threadParentChannelId
+      ? await input.guild.createThread({
+          name: channelName,
+          parentChannelId: threadParentChannelId,
+          autoArchiveDuration: 10_080,
+          reason: sessionTopic(input.session, input.workspace.workspaceRoot),
+        })
+      : await input.guild.createTextChannel({
+          name: channelName,
+          parentId: input.workspace.discordCategoryId,
+          topic: sessionTopic(input.session, input.workspace.workspaceRoot),
+        });
   const nextChannel = {
     codexSessionId: input.session.id,
     threadName: input.session.threadName,
@@ -225,10 +258,12 @@ async function createSessionChannel(input: {
     workspaceDisplayName: input.workspace.workspaceDisplayName,
     discordCategoryId: input.workspace.discordCategoryId,
     discordChannelId: channel.id,
+    discordParentChannelId: shouldCreateThread ? threadParentChannelId : input.workspace.discordCategoryId,
+    discordDeliveryMode: shouldCreateThread ? "thread" : "channel",
     channelName,
     computerId: input.computerId,
     workspaceId: input.workspace.workspaceId,
-  };
+  } satisfies SyncedSessionChannelState;
   const origin: SessionOrigin = "imported_native";
 
   await input.controlApi.createManagedChannel({
@@ -318,12 +353,19 @@ export async function syncCodexSessionsToDiscord(
   }
 
   async function processSessionTask(task: (typeof sessionTasks)[number]): Promise<void> {
-    if (task.existingChannel) {
+    const shouldUseThread =
+      Boolean(input.sessionThreadParentChannelId?.trim()) && Boolean(input.guild.createThread);
+    const existingChannelCanBeReused =
+      task.existingChannel &&
+      (!shouldUseThread || task.existingChannel.discordDeliveryMode === "thread");
+
+    if (existingChannelCanBeReused && task.existingChannel) {
       result.existingChannels += 1;
       await postSessionContextIfNeeded({
         guild: input.guild,
         session: task.session,
         channel: task.existingChannel,
+        mentionRoleIds: input.mentionRoleIds,
       });
       markTranscriptBaseline(task.existingChannel, task.session);
       processedSessions += 1;
@@ -337,6 +379,12 @@ export async function syncCodexSessionsToDiscord(
 
     let syncedChannel: SyncedSessionChannelState;
 
+    if (task.existingChannel && shouldUseThread) {
+      state.sessionChannels = state.sessionChannels.filter(
+        (channel) => channel.discordChannelId !== task.existingChannel?.discordChannelId,
+      );
+    }
+
     try {
       syncedChannel = await createSessionChannel({
         guild: input.guild,
@@ -345,6 +393,7 @@ export async function syncCodexSessionsToDiscord(
         computerId: input.computerId,
         session: task.session,
         workspace: task.workspace,
+        sessionThreadParentChannelId: input.sessionThreadParentChannelId,
       });
     } catch (error) {
       if (task.categoryCreated || !isMissingCategoryError(error)) {
@@ -359,6 +408,7 @@ export async function syncCodexSessionsToDiscord(
         computerId: input.computerId,
         session: task.session,
         workspace: recreatedWorkspace,
+        sessionThreadParentChannelId: input.sessionThreadParentChannelId,
       });
     }
 
@@ -366,6 +416,7 @@ export async function syncCodexSessionsToDiscord(
       guild: input.guild,
       session: task.session,
       channel: syncedChannel,
+      mentionRoleIds: input.mentionRoleIds,
     });
     markTranscriptBaseline(syncedChannel, task.session);
     result.createdChannels += 1;

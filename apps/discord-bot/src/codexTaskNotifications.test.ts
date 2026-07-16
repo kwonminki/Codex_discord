@@ -146,6 +146,61 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
+  it("posts completion notifications into a synced session thread with role mention options", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [],
+      });
+      const state = await stateStore.read();
+      await stateStore.write({
+        ...state,
+        sessionChannels: [
+          {
+            codexSessionId: "session-1",
+            threadName: "Build feature",
+            updatedAt: "2026-04-24T01:00:00.000Z",
+            cwd: "/repo",
+            workspaceRoot: "/repo",
+            workspaceDisplayName: "repo",
+            discordCategoryId: null,
+            discordChannelId: "thread-1",
+            discordParentChannelId: "admin-channel",
+            discordDeliveryMode: "thread",
+            channelName: "build-feature",
+            computerId: "local-dev",
+            workspaceId: "local-dev:/repo",
+          },
+        ],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2" })],
+        mentionRoleIds: ["operator-role"],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage).toHaveBeenCalledWith(
+        "thread-1",
+        expect.objectContaining({
+          content: expect.stringContaining("Codex 작업 완료"),
+        }),
+        { mentionRoleIds: ["operator-role"] },
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("attaches long answers to completion notifications", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

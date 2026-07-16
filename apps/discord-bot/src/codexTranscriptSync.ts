@@ -23,6 +23,7 @@ export interface SyncCodexSessionTranscriptUpdatesInput {
   discordChannelId?: string;
   postUpdates?: boolean;
   ignoredSessionIds?: Iterable<string>;
+  mentionRoleIds?: string[];
 }
 
 export interface SyncCodexSessionTranscriptUpdatesResult {
@@ -164,6 +165,7 @@ async function upsertTranscriptDiscordMessage(input: {
   guild: Pick<DiscordGuildSurface, "sendTextMessage" | "editTextMessage">;
   channel: SyncedSessionChannelState;
   content: string | DiscordMessagePayload;
+  mentionRoleIds?: string[];
 }): Promise<string | null> {
   const existingMessageId = input.channel.lastTranscriptDiscordMessageId ?? null;
 
@@ -180,6 +182,17 @@ async function upsertTranscriptDiscordMessage(input: {
 
   if (!input.guild.sendTextMessage) {
     return existingMessageId;
+  }
+
+  const mentionRoleIds =
+    input.channel.discordDeliveryMode === "thread"
+      ? input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0)
+      : [];
+
+  if (mentionRoleIds && mentionRoleIds.length > 0) {
+    return responseMessageId(
+      await input.guild.sendTextMessage(input.channel.discordChannelId, input.content, { mentionRoleIds }),
+    );
   }
 
   return responseMessageId(await input.guild.sendTextMessage(input.channel.discordChannelId, input.content));
@@ -277,6 +290,7 @@ export async function syncCodexSessionTranscriptUpdates(
         guild: input.guild,
         channel,
         content: formatRollingTranscriptUpdateMessage(transcriptMessages),
+        mentionRoleIds: input.mentionRoleIds,
       });
       channel.lastTranscriptDiscordMessageId = transcriptDiscordMessageId;
       postedMessages += newMessages.length;

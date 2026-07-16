@@ -17,6 +17,7 @@ import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
 import {
   formatCodexThoughtView,
   getCodexThoughtView,
+  withRoleMentions,
   type CodexThoughtView,
   type DiscordMessagePayload,
 } from "./responses.js";
@@ -76,6 +77,16 @@ interface ClearableDiscordChannelLike {
     fetch(input: { limit: number }): Promise<{ size: number }>;
   };
   bulkDelete?(messages: unknown, filterOld?: boolean): Promise<{ size: number }>;
+}
+
+interface ThreadParentDiscordChannelLike {
+  threads?: {
+    create(input: {
+      name: string;
+      autoArchiveDuration?: number;
+      reason?: string;
+    }): Promise<{ id: string }>;
+  };
 }
 
 interface StoredCodexProgressMessage {
@@ -168,6 +179,14 @@ function prepareCodexProgressPayload(messageId: string, message: unknown): unkno
   return formatCodexThoughtView(view, { expanded });
 }
 
+function prepareOutgoingMessage(
+  content: string | DiscordMessagePayload,
+  options?: { mentionRoleIds?: string[] },
+): string | DiscordMessagePayload {
+  const mentionRoleIds = options?.mentionRoleIds?.filter(Boolean) ?? [];
+  return mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
+}
+
 function rememberCodexProgressMessage(message: unknown, payload: unknown): void {
   if (!isEditableDiscordMessage(message) || !isDiscordMessagePayload(payload)) {
     return;
@@ -212,15 +231,31 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
 
       return { id: channel.id };
     },
-    async sendTextMessage(channelId, content) {
+    async createThread(input) {
+      const parentChannel = (await guild.channels.fetch(input.parentChannelId)) as ThreadParentDiscordChannelLike | null;
+
+      if (typeof parentChannel?.threads?.create !== "function") {
+        throw new Error("Discord channel cannot create threads.");
+      }
+
+      const thread = await parentChannel.threads.create({
+        name: input.name,
+        autoArchiveDuration: input.autoArchiveDuration,
+        reason: input.reason?.slice(0, 512),
+      });
+
+      return { id: thread.id };
+    },
+    async sendTextMessage(channelId, content, options) {
       const channel = await guild.channels.fetch(channelId);
       const sender = channel as { send?: (message: string | DiscordMessagePayload) => Promise<unknown> } | null;
       if (typeof sender?.send !== "function") {
         throw new Error("Discord channel cannot receive text messages.");
       }
 
-      const sentMessage = await sender.send(content);
-      rememberCodexProgressMessage(sentMessage, content);
+      const preparedContent = prepareOutgoingMessage(content, options);
+      const sentMessage = await sender.send(preparedContent);
+      rememberCodexProgressMessage(sentMessage, preparedContent);
       return isEditableDiscordMessage(sentMessage) ? { id: sentMessage.id } : undefined;
     },
     async editTextMessage(channelId, messageId, content) {
