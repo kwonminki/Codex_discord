@@ -10,7 +10,7 @@ import type {
   SyncedSessionChannelState,
   SyncedWorkspaceState,
 } from "./directState.js";
-import type { DiscordGuildSurface } from "./codexSessionSync.js";
+import { sanitizeDiscordThreadName, type DiscordGuildSurface } from "./codexSessionSync.js";
 
 export interface CreateNewCodexChatInput {
   guild: DiscordGuildSurface;
@@ -220,6 +220,7 @@ export async function createNewCodexChatChannel(
   const displayName = workspace?.workspaceDisplayName ?? "General Chat";
   const threadName = input.name?.trim() || (categorized ? `New chat: ${displayName}` : "General Codex chat");
   const channelName = sanitizeName(input.name?.trim() || (categorized ? threadName : "general-codex-chat"));
+  const discordThreadName = sanitizeDiscordThreadName(threadName, channelName);
   const prompt = input.initialPrompt?.trim() || null;
   const channelInput = {
     name: channelName,
@@ -239,7 +240,7 @@ export async function createNewCodexChatChannel(
     channel =
       shouldCreateThread && input.guild.createThread && threadParentChannelId
         ? await input.guild.createThread({
-            name: channelName,
+            name: discordThreadName,
             parentChannelId: threadParentChannelId,
             autoArchiveDuration: 10_080,
             reason: channelInput.topic,

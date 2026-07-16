@@ -115,7 +115,7 @@ describe("createNewCodexChatChannel", () => {
       expect(guild.createTextChannel).not.toHaveBeenCalled();
       expect(guild.createThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "discord-thread",
+          name: "Discord thread",
           parentChannelId: "admin-channel",
           autoArchiveDuration: 10_080,
         }),

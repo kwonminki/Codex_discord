@@ -201,6 +201,92 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
+  it("creates a missing session thread before sending a migrated completion notification", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+    const createThread = vi.fn().mockResolvedValue({ id: "thread-1" });
+    const controlApi = {
+      createManagedChannel: vi.fn().mockResolvedValue({}),
+      linkCodexSession: vi.fn().mockResolvedValue({}),
+    };
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            threadName: "Codex Discord connector 확인",
+          }),
+        ],
+      });
+      sendTextMessage.mockClear();
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage, createThread },
+        controlApi,
+        stateStore,
+        adminChannelId: "admin-channel",
+        computerId: "local-dev",
+        defaultWorkspaceRoot: "/fallback",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            threadName: "Codex Discord connector 확인",
+          }),
+        ],
+        mentionRoleIds: ["operator-role"],
+      });
+
+      expect(createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Codex Discord connector 확인",
+          parentChannelId: "admin-channel",
+          autoArchiveDuration: 10_080,
+          reason: expect.stringContaining("session-1"),
+        }),
+      );
+      expect(controlApi.createManagedChannel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "thread-1",
+          channelMode: "session-linked",
+        }),
+      );
+      expect(controlApi.linkCodexSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "thread-1",
+          codexSessionId: "session-1",
+          threadNameSnapshot: "Codex Discord connector 확인",
+        }),
+      );
+      expect(sendTextMessage).toHaveBeenCalledWith(
+        "thread-1",
+        expect.objectContaining({
+          content: expect.stringContaining("Codex Discord connector 확인"),
+        }),
+        { mentionRoleIds: ["operator-role"] },
+      );
+      await expect(stateStore.findSessionChannelByDiscordId("thread-1")).resolves.toMatchObject({
+        codexSessionId: "session-1",
+        threadName: "Codex Discord connector 확인",
+        discordDeliveryMode: "thread",
+        workspaceRoot: "/repo",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("attaches long answers to completion notifications", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

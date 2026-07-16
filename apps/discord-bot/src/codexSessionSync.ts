@@ -13,6 +13,7 @@ import { latestTranscriptMessageKey } from "./codexTranscriptSync.js";
 import type { DiscordMessagePayload } from "./responses.js";
 
 const DISCORD_SYNC_CONCURRENCY = 5;
+const MAX_DISCORD_THREAD_NAME_LENGTH = 100;
 
 export interface DiscordGuildSurface {
   createCategory(input: { name: string }): Promise<{ id: string }>;
@@ -75,11 +76,28 @@ function sanitizeName(value: string): string {
   return sanitized.slice(0, 90) || "codex-session";
 }
 
-function workspaceDisplayName(workspaceRoot: string): string {
+export function sanitizeDiscordThreadName(value: string, fallback = "Codex session"): string {
+  const sanitized = value
+    .trim()
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[`"'’“”]/g, "")
+    .replace(/@/g, "[at]")
+    .replace(/[<>#&]/g, "")
+    .trim();
+
+  return sanitized.slice(0, MAX_DISCORD_THREAD_NAME_LENGTH).trim() || fallback;
+}
+
+export function codexSessionDiscordThreadName(session: Pick<DiscoveredCodexSession, "id" | "threadName">): string {
+  return sanitizeDiscordThreadName(session.threadName, `Codex session ${session.id.slice(0, 8)}`);
+}
+
+export function workspaceDisplayName(workspaceRoot: string): string {
   return path.basename(workspaceRoot) || workspaceRoot;
 }
 
-function workspaceId(computerId: string, workspaceRoot: string): string {
+export function workspaceId(computerId: string, workspaceRoot: string): string {
   return `${computerId}:${workspaceRoot}`;
 }
 
@@ -87,7 +105,7 @@ function sessionChannelName(session: DiscoveredCodexSession): string {
   return sanitizeName(session.threadName);
 }
 
-function sessionTopic(session: DiscoveredCodexSession, workspaceRoot: string): string {
+export function sessionTopic(session: DiscoveredCodexSession, workspaceRoot: string): string {
   return [
     `Codex session: ${session.id}`,
     `Workspace: ${workspaceRoot}`,
@@ -234,12 +252,13 @@ async function createSessionChannel(input: {
   sessionThreadParentChannelId?: string | null;
 }): Promise<SyncedSessionChannelState> {
   const channelName = sessionChannelName(input.session);
+  const threadName = codexSessionDiscordThreadName(input.session);
   const threadParentChannelId = input.sessionThreadParentChannelId?.trim() || null;
   const shouldCreateThread = Boolean(threadParentChannelId && input.guild.createThread);
   const channel =
     shouldCreateThread && input.guild.createThread && threadParentChannelId
       ? await input.guild.createThread({
-          name: channelName,
+          name: threadName,
           parentChannelId: threadParentChannelId,
           autoArchiveDuration: 10_080,
           reason: sessionTopic(input.session, input.workspace.workspaceRoot),

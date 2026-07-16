@@ -256,8 +256,11 @@ export async function startBot(): Promise<void> {
 
           return notifyCodexTaskCompletions({
             guild: input.guild,
+            controlApi: controlApiClient,
             stateStore: directStateStore,
             adminChannelId: connectConfig.direct.channelId,
+            computerId: connectConfig.direct.computerId,
+            defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
             sessions,
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
           });

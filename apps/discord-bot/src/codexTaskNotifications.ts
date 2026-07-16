@@ -1,8 +1,17 @@
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
-import type { DiscordGuildSurface } from "./codexSessionSync.js";
+import type { ControlApiClient } from "./controlApiClient.js";
+import {
+  codexSessionDiscordThreadName,
+  sessionTopic,
+  workspaceDisplayName,
+  workspaceId,
+  type DiscordGuildSurface,
+} from "./codexSessionSync.js";
 import type {
   CodexTaskCompletionNotificationState,
+  DirectSyncState,
   DirectSyncStateStore,
+  SyncedSessionChannelState,
 } from "./directState.js";
 import type { DiscordFilePayload, DiscordMessagePayload } from "./responses.js";
 
@@ -13,9 +22,12 @@ const ANSWER_EMBED_COLOR = 0x2ecc71;
 const TASK_COMPLETION_NOTIFICATION_SCOPE = "all-nonarchived";
 
 export interface NotifyCodexTaskCompletionsInput {
-  guild: Pick<DiscordGuildSurface, "sendTextMessage">;
+  guild: Pick<DiscordGuildSurface, "sendTextMessage" | "createThread">;
+  controlApi?: Pick<ControlApiClient, "createManagedChannel" | "linkCodexSession">;
   stateStore: DirectSyncStateStore;
   adminChannelId: string;
+  computerId?: string;
+  defaultWorkspaceRoot?: string;
   sessions: DiscoveredCodexSession[];
   mentionRoleIds?: string[];
 }
@@ -145,6 +157,83 @@ function formatTaskCompleteNotification(
   };
 }
 
+async function ensureSessionThread(input: {
+  guild: Pick<DiscordGuildSurface, "createThread">;
+  controlApi?: Pick<ControlApiClient, "createManagedChannel" | "linkCodexSession">;
+  state: DirectSyncState;
+  adminChannelId: string;
+  computerId?: string;
+  defaultWorkspaceRoot?: string;
+  session: DiscoveredCodexSession;
+}): Promise<{ channel: SyncedSessionChannelState | null; created: boolean }> {
+  const existingThread = input.state.sessionChannels.find(
+    (channel) => channel.codexSessionId === input.session.id && channel.discordDeliveryMode === "thread",
+  );
+
+  if (existingThread) {
+    return { channel: existingThread, created: false };
+  }
+
+  if (!input.guild.createThread || !input.controlApi || !input.computerId) {
+    return {
+      channel: input.state.sessionChannels.find((channel) => channel.codexSessionId === input.session.id) ?? null,
+      created: false,
+    };
+  }
+
+  const previousChannel = input.state.sessionChannels.find((channel) => channel.codexSessionId === input.session.id);
+  const workspaceRoot =
+    input.session.cwdHint ??
+    previousChannel?.workspaceRoot ??
+    input.defaultWorkspaceRoot ??
+    "";
+  const displayName = previousChannel?.workspaceDisplayName ?? workspaceDisplayName(workspaceRoot);
+  const nextWorkspaceId = previousChannel?.workspaceId ?? workspaceId(input.computerId, workspaceRoot);
+  const thread = await input.guild.createThread({
+    name: codexSessionDiscordThreadName(input.session),
+    parentChannelId: input.adminChannelId,
+    autoArchiveDuration: 10_080,
+    reason: sessionTopic(input.session, workspaceRoot),
+  });
+  const nextChannel: SyncedSessionChannelState = {
+    codexSessionId: input.session.id,
+    threadName: input.session.threadName,
+    updatedAt: input.session.updatedAt,
+    cwd: input.session.cwdHint ?? previousChannel?.cwd ?? workspaceRoot,
+    workspaceRoot,
+    workspaceDisplayName: displayName,
+    discordCategoryId: previousChannel?.discordCategoryId ?? null,
+    discordChannelId: thread.id,
+    discordParentChannelId: input.adminChannelId,
+    discordDeliveryMode: "thread",
+    channelName: codexSessionDiscordThreadName(input.session),
+    computerId: input.computerId,
+    workspaceId: nextWorkspaceId,
+  };
+
+  await input.controlApi.createManagedChannel({
+    id: `channel:${thread.id}`,
+    discordChannelId: thread.id,
+    computerId: input.computerId,
+    workspaceId: nextWorkspaceId,
+    channelMode: "session-linked",
+  });
+  await input.controlApi.linkCodexSession({
+    discordChannelId: thread.id,
+    id: `session-link:${thread.id}:${input.session.id}`,
+    codexSessionId: input.session.id,
+    origin: "imported_native",
+    threadNameSnapshot: input.session.threadName,
+  });
+
+  input.state.sessionChannels = [
+    ...input.state.sessionChannels.filter((channel) => channel.codexSessionId !== input.session.id),
+    nextChannel,
+  ];
+
+  return { channel: nextChannel, created: true };
+}
+
 export async function notifyCodexTaskCompletions(
   input: NotifyCodexTaskCompletionsInput,
 ): Promise<NotifyCodexTaskCompletionsResult> {
@@ -171,13 +260,31 @@ export async function notifyCodexTaskCompletions(
     completedSessions += 1;
 
     const previous = notificationsBySession.get(session.id);
+    const ensuredThread = initialized
+      ? await ensureSessionThread({
+          guild: input.guild,
+          controlApi: input.controlApi,
+          state,
+          adminChannelId: input.adminChannelId,
+          computerId: input.computerId,
+          defaultWorkspaceRoot: input.defaultWorkspaceRoot,
+          session,
+        })
+      : { channel: state.sessionChannels.find((channel) => channel.codexSessionId === session.id) ?? null, created: false };
 
-    if (previous?.lastTaskCompleteEventKey === completionEvent.key) {
+    if (ensuredThread.created) {
+      changed = true;
+    }
+
+    if (
+      previous?.lastTaskCompleteEventKey === completionEvent.key &&
+      !(ensuredThread.created && previous.notifiedAt)
+    ) {
       continue;
     }
 
     if (initialized && input.guild.sendTextMessage) {
-      const syncedChannel = state.sessionChannels.find((channel) => channel.codexSessionId === session.id);
+      const syncedChannel = ensuredThread.channel;
       const targetChannelId = syncedChannel?.discordChannelId ?? input.adminChannelId;
       const notification = formatTaskCompleteNotification(session, {
         includeAnswer: !discordRequestedSessionIds.has(session.id.toLowerCase()),

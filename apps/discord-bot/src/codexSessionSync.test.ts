@@ -161,7 +161,7 @@ describe("syncCodexSessionsToDiscord", () => {
 
       expect(guild.createThread).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "codex-discord-sync-design",
+          name: "Codex Discord sync design",
           parentChannelId: "admin-channel",
           autoArchiveDuration: 10_080,
           reason: expect.stringContaining("session-a"),
