@@ -4,9 +4,12 @@ import type {
   CodexTaskCompletionNotificationState,
   DirectSyncStateStore,
 } from "./directState.js";
-import type { DiscordMessagePayload } from "./responses.js";
+import type { DiscordFilePayload, DiscordMessagePayload } from "./responses.js";
 
 const MAX_FIELD_CHARS = 180;
+const MAX_ANSWER_EMBED_CHARS = 3_800;
+const ANSWER_ATTACHMENT_NAME = "codex-answer.txt";
+const ANSWER_EMBED_COLOR = 0x2ecc71;
 const TASK_COMPLETION_NOTIFICATION_SCOPE = "all-nonarchived";
 
 export interface NotifyCodexTaskCompletionsInput {
@@ -32,12 +35,53 @@ function sanitizeInline(value: string | null | undefined): string {
     .slice(0, MAX_FIELD_CHARS);
 }
 
+function sanitizeDiscordText(value: string): string {
+  return value.replace(/@/g, "[at]").trimEnd();
+}
+
 function latestTaskCompleteEvent(session: DiscoveredCodexSession): { key: string } | null {
   return (
     session.realtimeEvents
       ?.filter((event) => event.kind === "status" && event.text === "작업 완료")
       .at(-1) ?? null
   );
+}
+
+function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
+  const contextAnswer = session.contextPreview
+    ?.filter((message) => message.role === "assistant" && message.text.trim().length > 0)
+    .at(-1)?.text;
+
+  if (contextAnswer?.trim()) {
+    return contextAnswer.trim();
+  }
+
+  const realtimeAnswer = session.realtimeEvents
+    ?.filter((event) => event.kind === "assistant" && event.text.trim().length > 0)
+    .at(-1)?.text;
+
+  return realtimeAnswer?.trim() || null;
+}
+
+function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
+  const sanitizedAnswer = sanitizeDiscordText(answer);
+
+  if (sanitizedAnswer.length <= MAX_ANSWER_EMBED_CHARS) {
+    return { description: sanitizedAnswer, clipped: false };
+  }
+
+  const suffix = `\n\n... (전체 답변은 첨부 파일 \`${ANSWER_ATTACHMENT_NAME}\`에서 확인하세요.)`;
+  return {
+    description: `${sanitizedAnswer.slice(0, MAX_ANSWER_EMBED_CHARS - suffix.length).trimEnd()}${suffix}`,
+    clipped: true,
+  };
+}
+
+function answerAttachment(answer: string): DiscordFilePayload {
+  return {
+    attachment: Buffer.from(answer, "utf8"),
+    name: ANSWER_ATTACHMENT_NAME,
+  };
 }
 
 function nextNotificationState(input: {
@@ -58,6 +102,8 @@ function formatTaskCompleteNotification(session: DiscoveredCodexSession): Discor
   const threadName = sanitizeInline(session.threadName) || session.id.slice(0, 8);
   const cwd = sanitizeInline(session.cwdHint);
   const updatedAt = sanitizeInline(session.updatedAt);
+  const answer = latestAssistantAnswer(session);
+  const answerPreview = answer ? formatAnswerPreview(answer) : null;
   const lines = [
     "**Codex 작업 완료**",
     `세션: \`${threadName}\``,
@@ -69,7 +115,15 @@ function formatTaskCompleteNotification(session: DiscoveredCodexSession): Discor
   return {
     allowedMentions: { parse: [] },
     content: lines.join("\n"),
-    embeds: [],
+    embeds: answerPreview
+      ? [
+          {
+            title: "답변",
+            color: ANSWER_EMBED_COLOR,
+            description: answerPreview.description,
+          },
+        ]
+      : [],
     components: [
       {
         type: 1,
@@ -83,6 +137,7 @@ function formatTaskCompleteNotification(session: DiscoveredCodexSession): Discor
         ],
       },
     ],
+    ...(answer && answerPreview?.clipped ? { files: [answerAttachment(answer)] } : {}),
   };
 }
 

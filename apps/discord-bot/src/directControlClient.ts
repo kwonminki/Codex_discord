@@ -145,6 +145,7 @@ export function createDirectControlClient(
           includeContextPreview: true,
           includeRealtimeEvents: true,
           contextMessageLimit: 25,
+          contextMessageMaxChars: 8_000,
           realtimeEventLimit: 40,
         }),
       };

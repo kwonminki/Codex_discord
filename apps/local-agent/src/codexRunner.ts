@@ -35,6 +35,10 @@ export interface RunCodexPromptResult {
   timedOut?: boolean;
 }
 
+const CODEX_EXEC_SANDBOX_ARGS = ["--sandbox", "workspace-write"] as const;
+const DYNAMIC_TOOLS_UNSUPPORTED_ERROR_CODE = "CODEX_EXEC_DYNAMIC_TOOLS_UNSUPPORTED";
+const DYNAMIC_TOOLS_UNSUPPORTED_PATTERN = /dynamic tool calls are not supported in exec mode/i;
+
 interface RawCodexProgressItem {
   type?: unknown;
   text?: unknown;
@@ -448,9 +452,9 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: st
   if (input.mode === "review") {
     return [
       "exec",
+      ...CODEX_EXEC_SANDBOX_ARGS,
       "review",
       "--json",
-      "--full-auto",
       ...modelArgs(input),
       ...reasoningEffortArgs(input),
       "--output-last-message",
@@ -462,9 +466,9 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: st
   if (input.sessionId) {
     return [
       "exec",
+      ...CODEX_EXEC_SANDBOX_ARGS,
       "resume",
       "--json",
-      "--full-auto",
       ...modelArgs(input),
       ...reasoningEffortArgs(input),
       "--skip-git-repo-check",
@@ -478,7 +482,7 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: st
   return [
     "exec",
     "--json",
-    "--full-auto",
+    ...CODEX_EXEC_SANDBOX_ARGS,
     ...modelArgs(input),
     ...reasoningEffortArgs(input),
     "--skip-git-repo-check",
@@ -525,6 +529,14 @@ function spawnFailure(codexCommand: string, error: NodeJS.ErrnoException): RunCo
     exitCode: null,
     errorCode: error.code ? `CODEX_CLI_SPAWN_${error.code}` : "CODEX_CLI_SPAWN_FAILED",
   };
+}
+
+function codexExecDynamicToolsUnsupportedMessage(sessionId: string): string {
+  return [
+    "Codex CLI가 이 세션을 exec mode로 이어받지 못했습니다.",
+    `세션 ${sessionId}는 Codex Desktop/IDE에서 열린 dynamic tool 세션일 수 있어서, 현재 Discord 봇 방식(codex exec resume)으로는 같은 앱 화면에 이어 쓸 수 없습니다.`,
+    "Desktop/IDE에서 직접 이어가거나, Discord에서 새 Codex 요청으로 이어가세요.",
+  ].join("\n");
 }
 
 function isGeneratedImageFile(fileName: string): boolean {
@@ -663,15 +675,22 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
         });
     const finalMessage = outputMessage.trim().length > 0 ? outputMessage : generatedImagesMessage;
     const completed = result.exitCode === 0 && finalMessage.trim().length > 0 && !result.timedOut;
+    const dynamicToolsUnsupported =
+      !completed &&
+      Boolean(input.sessionId) &&
+      DYNAMIC_TOOLS_UNSUPPORTED_PATTERN.test(stderr);
 
     return {
       status: completed ? "completed" : "failed",
-      finalMessage: finalMessage.trimEnd(),
+      finalMessage: dynamicToolsUnsupported && input.sessionId
+        ? codexExecDynamicToolsUnsupportedMessage(input.sessionId)
+        : finalMessage.trimEnd(),
       sessionId,
       stderr,
       exitCode: result.exitCode,
       signal: result.signal,
       timedOut: result.timedOut,
+      ...(dynamicToolsUnsupported ? { errorCode: DYNAMIC_TOOLS_UNSUPPORTED_ERROR_CODE } : {}),
     };
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

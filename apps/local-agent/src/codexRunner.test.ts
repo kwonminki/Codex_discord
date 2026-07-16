@@ -66,7 +66,9 @@ describe("runCodexPrompt", () => {
         stderr: "",
         exitCode: 0,
       });
-      await expect(readFile(argsFile, "utf8")).resolves.toContain("Explain this");
+      const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
+      expect(args).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "Explain this"]));
+      expect(args).not.toContain("--full-auto");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -174,7 +176,9 @@ describe("runCodexPrompt", () => {
         codexCommand: fakeCodex,
       });
 
-      await expect(readFile(argsFile, "utf8")).resolves.toContain('"exec","review"');
+      const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
+      expect(args).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "review"]));
+      expect(args).not.toContain("--full-auto");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -217,13 +221,53 @@ describe("runCodexPrompt", () => {
       expect(args).toEqual(
         expect.arrayContaining([
           "exec",
+          "--sandbox",
+          "workspace-write",
           "resume",
           "--skip-git-repo-check",
           "019db2be-b2b3-7e82-9e61-8c84b28ad287",
           "이어 작업",
         ]),
       );
+      expect(args.indexOf("--sandbox")).toBeLessThan(args.indexOf("resume"));
+      expect(args).not.toContain("--full-auto");
       await expect(readFile(cwdFile, "utf8")).resolves.toBe(await realpath(projectRoot));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("explains Desktop or IDE sessions that cannot be resumed in exec mode", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+    const fakeCodex = path.join(tempRoot, "codex");
+
+    try {
+      await writeFile(
+        fakeCodex,
+        [
+          "#!/usr/bin/env node",
+          "console.error('2026-07-16 ERROR dynamic tool calls are not supported in exec mode for thread 019db2be-b2b3-7e82-9e61-8c84b28ad287');",
+          "process.exit(1);",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeCodex, 0o755);
+
+      await expect(
+        runCodexPrompt({
+          workspaceRoot: tempRoot,
+          cwd: tempRoot,
+          prompt: "이어 작업",
+          timeoutMs: 5_000,
+          sessionId: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
+          codexCommand: fakeCodex,
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        finalMessage: expect.stringContaining("exec mode로 이어받지 못했습니다"),
+        sessionId: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
+        errorCode: "CODEX_EXEC_DYNAMIC_TOOLS_UNSUPPORTED",
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
 import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
 import { createDirectSyncStateStore } from "./directState.js";
 
@@ -10,15 +11,27 @@ function session(input: {
   threadName?: string;
   completionKey?: string;
   cwdHint?: string | null;
-}) {
+  assistantAnswer?: string;
+  realtimeAssistantAnswer?: string;
+}): DiscoveredCodexSession {
+  const realtimeEvents = [
+    ...(input.realtimeAssistantAnswer
+      ? [{ key: "assistant-1", kind: "assistant" as const, text: input.realtimeAssistantAnswer }]
+      : []),
+    ...(input.completionKey
+      ? [{ key: input.completionKey, kind: "status" as const, text: "작업 완료" }]
+      : []),
+  ];
+
   return {
     id: input.id ?? "session-1",
     threadName: input.threadName ?? "Build feature",
     updatedAt: "2026-04-24T01:00:00.000Z",
     cwdHint: input.cwdHint ?? "/repo",
-    realtimeEvents: input.completionKey
-      ? [{ key: input.completionKey, kind: "status" as const, text: "작업 완료" }]
+    contextPreview: input.assistantAnswer
+      ? [{ role: "assistant" as const, text: input.assistantAnswer }]
       : [],
+    realtimeEvents,
   };
 }
 
@@ -76,7 +89,13 @@ describe("notifyCodexTaskCompletions", () => {
           guild: { sendTextMessage },
           stateStore,
           adminChannelId: "admin-channel",
-          sessions: [session({ completionKey: "complete-2", threadName: "새 기능 구현" })],
+          sessions: [
+            session({
+              completionKey: "complete-2",
+              threadName: "새 기능 구현",
+              assistantAnswer: "구현이 끝났고 테스트도 통과했습니다.",
+            }),
+          ],
         }),
       ).resolves.toMatchObject({
         checkedSessions: 1,
@@ -90,6 +109,13 @@ describe("notifyCodexTaskCompletions", () => {
         "admin-channel",
         expect.objectContaining({
           content: expect.stringContaining("Codex 작업 완료"),
+          embeds: [
+            {
+              title: "답변",
+              color: expect.any(Number),
+              description: expect.stringContaining("구현이 끝났고 테스트도 통과했습니다."),
+            },
+          ],
           components: [
             {
               type: 1,
@@ -115,6 +141,50 @@ describe("notifyCodexTaskCompletions", () => {
           },
         ],
       });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("attaches long answers to completion notifications", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+    const longAnswer = `요약\n${"긴 답변입니다. ".repeat(700)}`;
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: longAnswer })],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      const payload = sendTextMessage.mock.calls[0]?.[1];
+      expect(payload).toMatchObject({
+        embeds: [
+          {
+            title: "답변",
+            description: expect.stringContaining("전체 답변은 첨부 파일"),
+          },
+        ],
+        files: [
+          {
+            name: "codex-answer.txt",
+          },
+        ],
+      });
+      expect(payload.embeds[0].description.length).toBeLessThanOrEqual(3_800);
+      expect(Buffer.isBuffer(payload.files[0].attachment)).toBe(true);
+      expect(payload.files[0].attachment.toString("utf8")).toBe(longAnswer.trim());
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
