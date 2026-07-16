@@ -342,10 +342,11 @@ async function runPromptAgainstAppServer(input: {
     socket.send(JSON.stringify({ method, id, params }));
 
     return new Promise((resolve, reject) => {
+      const requestTimeoutMs = input.input.timeoutMs > 0 ? Math.min(input.input.timeoutMs, 60_000) : 60_000;
       const timer = setTimeout(() => {
         pendingRequests.delete(id);
         reject(new Error(`Timed out waiting for Codex app-server response: ${method}`));
-      }, Math.min(input.input.timeoutMs, 60_000));
+      }, requestTimeoutMs);
 
       pendingRequests.set(id, { resolve, reject, timer });
     });
@@ -475,17 +476,20 @@ async function runPromptAgainstAppServer(input: {
   }
 
   const result = await new Promise<RunCodexPromptResult>((resolve) => {
-    const timeout = setTimeout(() => {
-      resolve(
-        appServerFailure({
-          message: "Codex app-server prompt timed out.",
-          sessionId,
-          stderr: stderr(),
-          timedOut: true,
-        }),
-      );
-      socket.close();
-    }, input.input.timeoutMs);
+    const timeout =
+      input.input.timeoutMs > 0
+        ? setTimeout(() => {
+            resolve(
+              appServerFailure({
+                message: "Codex app-server prompt timed out.",
+                sessionId,
+                stderr: stderr(),
+                timedOut: true,
+              }),
+            );
+            socket.close();
+          }, input.input.timeoutMs)
+        : null;
 
     socket.on("open", () => {
       void (async () => {
@@ -534,7 +538,9 @@ async function runPromptAgainstAppServer(input: {
             effort: reasoningEffort(input.input),
           });
         } catch (error) {
-          clearTimeout(timeout);
+          if (timeout) {
+            clearTimeout(timeout);
+          }
           socket.close();
           resolve(
             appServerFailure({
@@ -583,7 +589,9 @@ async function runPromptAgainstAppServer(input: {
     });
 
     socket.on("error", (error) => {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
       resolve(
         appServerFailure({
           message: error.message,
@@ -594,7 +602,9 @@ async function runPromptAgainstAppServer(input: {
     });
 
     socket.on("close", () => {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
 
       for (const pending of pendingRequests.values()) {
         clearTimeout(pending.timer);

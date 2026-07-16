@@ -133,6 +133,8 @@ Component-generated shell commands are routed internally, so file/Git/Test butto
 
 Codex progress updates are shown as plain Korean text rather than raw JSON event names. Typical statuses are `요청 접수됨`, `세션 연결됨`, `파일 탐색 중`, `이미지 생성 중`, `컨텍스트 압축 중`, `답변 작성 중`, and `응답 정리 중`. If Codex references a local generated image in the final message, the bot attaches that image file to the Discord reply; remote image URLs are included in message content so Discord can preview them.
 
+Codex prompt runs use `CONNECT_CODEX_PROMPT_TIMEOUT_MS`, defaulting to 5 hours. Set it to a millisecond value such as `7200000` for 2 hours, or `0` to disable the overall Codex prompt timeout. Shell commands still use the shorter channel timeout.
+
 When `sync` creates or revisits a Codex session channel, the bot posts a compact `이전 Codex 대화 맥락` message once if native transcript context is available. This preview includes recent user requests and Codex final answers, skips injected environment/instruction blocks, and records `contextPostedAt` in `.connect/state.json` to avoid duplicate posting.
 
 Sync and bulk-delete operations send Discord channel mutations with bounded concurrency, so multiple channel creates/deletes can happen at once while still avoiding an unbounded burst against Discord rate limits. To remove just one synced Discord session channel without archiving the Codex session, run `sync delete session <session-id>` to preview and `sync delete session <session-id> confirm` to delete its Discord channel mapping. Use `sync archive <session-id> confirm` only when the session should also stay excluded from future syncs.

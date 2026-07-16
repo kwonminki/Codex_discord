@@ -55,6 +55,27 @@ import {
 } from "./responses.js";
 import type { SelectableCodexSession } from "./responses.js";
 
+export const DEFAULT_CODEX_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
+
+export function resolveCodexPromptTimeoutMs(
+  channelTimeoutMs: number,
+  configuredValue = process.env.CONNECT_CODEX_PROMPT_TIMEOUT_MS,
+): number {
+  const trimmedValue = configuredValue?.trim();
+
+  if (trimmedValue === "0") {
+    return 0;
+  }
+
+  const configuredTimeoutMs = Number.parseInt(trimmedValue ?? "", 10);
+  const codexTimeoutMs =
+    Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+      ? configuredTimeoutMs
+      : DEFAULT_CODEX_PROMPT_TIMEOUT_MS;
+
+  return Math.max(channelTimeoutMs, codexTimeoutMs);
+}
+
 export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface DiscordMessageLike {
@@ -714,7 +735,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt: routed.prompt,
-            timeoutMs: Math.max(channelContext.timeoutMs, 300_000),
+            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
             sessionId: null,
             mode: "review",
             model: codexModelsByChannel.get(message.channelId) ?? null,
@@ -813,7 +834,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt,
-            timeoutMs: Math.max(channelContext.timeoutMs, 300_000),
+            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
             sessionId: streamedSessionId,
             model: codexModelsByChannel.get(message.channelId) ?? null,
             reasoningEffort: reasoningEffortForChannel(message.channelId),

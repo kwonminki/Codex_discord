@@ -622,10 +622,13 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       spawnError?: NodeJS.ErrnoException;
     }>((resolve) => {
       let timedOut = false;
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-      }, input.timeoutMs);
+      const timeout =
+        input.timeoutMs > 0
+          ? setTimeout(() => {
+              timedOut = true;
+              child.kill("SIGTERM");
+            }, input.timeoutMs)
+          : null;
 
       child.stdout.on("data", (chunk: Buffer) => {
         stdoutChunks.push(chunk);
@@ -640,7 +643,9 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       });
       child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
       child.once("error", (error) => {
-        clearTimeout(timeout);
+        if (timeout) {
+          clearTimeout(timeout);
+        }
         resolve({
           exitCode: null,
           signal: null,
@@ -649,7 +654,9 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
         });
       });
       child.once("close", (exitCode, signal) => {
-        clearTimeout(timeout);
+        if (timeout) {
+          clearTimeout(timeout);
+        }
         if (stdoutLineBuffer.trim().length > 0) {
           queueProgressLine(stdoutLineBuffer);
           stdoutLineBuffer = "";

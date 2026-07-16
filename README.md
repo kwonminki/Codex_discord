@@ -23,6 +23,8 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 - Discord 안에서 slash command 재등록과 봇 재시작을 요청할 수 있습니다.
 - 관리자 채널에서 `/clear count:<숫자>` 또는 `clear <개수>`로 운영 채널 메시지를 정리할 수 있습니다. 전체 정리는 확인 명령이 필요합니다.
 
+Codex 요청 timeout은 기본 5시간입니다. `CONNECT_CODEX_PROMPT_TIMEOUT_MS`에 millisecond 값을 넣어 조절할 수 있고, `0`으로 설정하면 전체 Codex 요청 timeout을 끕니다.
+
 ## 구조
 
 기본 사용 방식은 **Direct mode**입니다. Direct mode는 Discord Bot이 이 컴퓨터에서 바로 실행되며, 별도의 Control API나 Local Agent 서버를 열지 않습니다.
