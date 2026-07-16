@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
+  delete process.env.CONNECT_MODE;
   process.env.CONNECT_CONFIG_PATH = path.join(
     os.tmpdir(),
     `codex-discord-missing-${randomUUID()}.json`,
@@ -13,6 +14,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.DISCORD_TOKEN;
+  delete process.env.CONNECT_MODE;
   delete process.env.CONNECT_CONFIG_PATH;
   vi.resetModules();
   vi.unmock("./discordClient.js");
