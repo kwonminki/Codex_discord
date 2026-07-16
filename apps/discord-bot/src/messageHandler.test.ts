@@ -461,6 +461,87 @@ describe("createDiscordMessageHandler", () => {
     ]);
   });
 
+  it("resolves Codex approval requests from Discord buttons while a prompt is running", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    let approvalDecision: unknown = null;
+    const submitCodexPrompt = vi.fn(async (input) => {
+      approvalDecision = await input.onApprovalRequest?.({
+        kind: "command",
+        title: "명령 실행 권한 요청",
+        message: "Codex가 추가 확인이 필요한 명령을 실행하려고 합니다.",
+        sessionId: "codex-session-1",
+        cwd: "/repo",
+        command: "pnpm test",
+      });
+
+      return {
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: "승인 후 계속 진행했습니다.",
+          sessionId: "codex-session-1",
+        },
+      };
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const reply = async (message: unknown) => {
+      replies.push(message);
+      return {
+        edit: async (nextMessage: unknown) => {
+          edits.push(nextMessage);
+        },
+      };
+    };
+
+    const promptTask = handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "codex 테스트 실행해줘",
+      roleIds: ["role-operator"],
+      reply,
+    });
+
+    await vi.waitFor(() => expect(replies).toHaveLength(2));
+    expect(replies[1]).toEqual(
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "명령 실행 권한 요청" })],
+        components: expect.any(Array),
+      }),
+    );
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "__cdc_codex_approval 1 acceptForSession",
+      roleIds: ["role-operator"],
+      reply,
+    });
+    await promptTask;
+
+    expect(approvalDecision).toEqual({ decision: "acceptForSession" });
+    expect(replies[2]).toEqual(
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "권한 응답 전달됨" })],
+      }),
+    );
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        content: "승인 후 계속 진행했습니다.",
+        embeds: [],
+      }),
+    );
+  });
+
   it("blocks Codex prompts in the admin channel without submitting a Codex job", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn();

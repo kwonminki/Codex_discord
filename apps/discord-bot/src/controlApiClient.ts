@@ -1,4 +1,5 @@
 import type { ChannelMode, CommandTier, SessionOrigin } from "../../../packages/core/src/index.js";
+import type { CodexApprovalDecision, CodexApprovalRequest } from "../../local-agent/src/codexRunner.js";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
@@ -26,6 +27,9 @@ export type CodexPromptProgressEvent =
   | { type: "operation-progress"; label: string; detail?: string; eventType: string }
   | { type: "codex-event"; eventType: string };
 
+export type CodexPromptApprovalRequest = CodexApprovalRequest;
+export type CodexPromptApprovalDecision = CodexApprovalDecision;
+
 export type ControlApiJobResponse =
   | { jobId: string; result: unknown }
   | { jobId: string; error: { message: string } };
@@ -39,6 +43,7 @@ export interface SubmitCodexPromptInput {
   computerId: string;
   payload: RunCodexPromptJobPayload;
   onProgress?: (event: CodexPromptProgressEvent) => Promise<void> | void;
+  onApprovalRequest?: (request: CodexPromptApprovalRequest) => Promise<CodexPromptApprovalDecision> | CodexPromptApprovalDecision;
 }
 
 export interface ListCodexSessionsInput {

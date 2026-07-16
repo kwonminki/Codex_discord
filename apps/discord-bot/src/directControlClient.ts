@@ -171,6 +171,7 @@ export function createDirectControlClient(
         ...input.payload,
         codexHome: config.direct.codexHome,
         onProgress: input.onProgress,
+        onApprovalRequest: input.onApprovalRequest,
       };
       const result =
         codexRunner === "app-server" && input.payload.mode !== "review"

@@ -28,6 +28,7 @@ export const COMPONENT_IDS = {
   codexThoughtsClose: "cdc:codex:thoughts:close",
   codexOpenSessionPrefix: "cdc:codex:open:",
   codexRestartOpenSessionPrefix: "cdc:codex:restart-open:",
+  codexApprovalPrefix: "cdc:codex:approval:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
   gitConflicts: "cdc:git:conflicts",
@@ -96,6 +97,15 @@ function selectedSessionIds(values: string[]): string[] {
 }
 
 export function routeDiscordComponent(customId: string, values: string[] = []): string | null {
+  const codexApprovalMatch = customId.match(
+    /^cdc:codex:approval:([A-Za-z0-9_-]{1,48}):(accept|accept-session|decline|cancel)$/i,
+  );
+
+  if (codexApprovalMatch) {
+    const decision = codexApprovalMatch[2] === "accept-session" ? "acceptForSession" : codexApprovalMatch[2];
+    return `__cdc_codex_approval ${codexApprovalMatch[1]} ${decision}`;
+  }
+
   const codexOpenSessionMatch = customId.match(/^cdc:codex:open:([0-9a-f-]{32,36})$/i);
 
   if (codexOpenSessionMatch) {

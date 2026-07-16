@@ -16,6 +16,26 @@ export interface RunCodexPromptInput {
   mode?: "prompt" | "review";
   model?: string | null;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
+  onApprovalRequest?: (request: CodexApprovalRequest) => Promise<CodexApprovalDecision> | CodexApprovalDecision;
+}
+
+export type CodexApprovalKind = "command" | "file-change" | "permissions" | "legacy-command" | "legacy-patch";
+export type CodexApprovalChoice = "accept" | "acceptForSession" | "decline" | "cancel";
+
+export interface CodexApprovalRequest {
+  kind: CodexApprovalKind;
+  title: string;
+  message: string;
+  sessionId: string | null;
+  cwd?: string | null;
+  command?: string | null;
+  reason?: string | null;
+  details?: Array<{ name: string; value: string }>;
+  rawParams?: unknown;
+}
+
+export interface CodexApprovalDecision {
+  decision: CodexApprovalChoice;
 }
 
 export type CodexRunnerProgressEvent =

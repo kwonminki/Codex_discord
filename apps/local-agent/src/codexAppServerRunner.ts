@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
 import type {
+  CodexApprovalChoice,
+  CodexApprovalDecision,
+  CodexApprovalRequest,
   CodexRunnerProgressEvent,
   RunCodexPromptInput,
   RunCodexPromptResult,
@@ -55,6 +58,8 @@ interface ItemNotificationParams {
 const APP_SERVER_ERROR_CODE = "CODEX_APP_SERVER_FAILED";
 const APP_SERVER_UNSUPPORTED_REVIEW_CODE = "CODEX_APP_SERVER_REVIEW_UNSUPPORTED";
 const APP_SERVER_CLIENT_NAME = "codex-discord-connector";
+const APP_SERVER_APPROVAL_POLICY = "on-request";
+const APP_SERVER_APPROVALS_REVIEWER = "user";
 
 function isAscii(value: string): boolean {
   return /^[\x00-\x7F]*$/.test(value);
@@ -253,6 +258,184 @@ function turnSandboxPolicy(cwd: string) {
   };
 }
 
+function approvalPolicy(): "untrusted" | "on-request" | "never" {
+  const configured = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY?.trim();
+
+  return configured === "untrusted" || configured === "never" || configured === "on-request"
+    ? configured
+    : APP_SERVER_APPROVAL_POLICY;
+}
+
+function objectParam(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function stringParam(params: Record<string, unknown>, key: string): string | null {
+  const value = params[key];
+
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    return value.join(" ");
+  }
+
+  return null;
+}
+
+function jsonDetail(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+function optionalDetail(name: string, value: unknown): { name: string; value: string } | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  return { name, value: typeof value === "string" ? value : jsonDetail(value) };
+}
+
+function approvalRequestFromServerRequest(
+  method: string,
+  params: Record<string, unknown>,
+  sessionId: string | null,
+): CodexApprovalRequest | null {
+  if (method === "item/commandExecution/requestApproval") {
+    return {
+      kind: "command",
+      title: "명령 실행 권한 요청",
+      message: "Codex가 추가 확인이 필요한 명령을 실행하려고 합니다.",
+      sessionId,
+      cwd: stringParam(params, "cwd"),
+      command: stringParam(params, "command"),
+      reason: stringParam(params, "reason"),
+      details: [
+        optionalDetail("Network", params.networkApprovalContext),
+        optionalDetail("Proposed exec policy", params.proposedExecpolicyAmendment),
+        optionalDetail("Proposed network policy", params.proposedNetworkPolicyAmendments),
+      ].filter((detail): detail is { name: string; value: string } => Boolean(detail)),
+      rawParams: params,
+    };
+  }
+
+  if (method === "item/fileChange/requestApproval") {
+    return {
+      kind: "file-change",
+      title: "파일 변경 권한 요청",
+      message: "Codex가 현재 권한으로는 바로 쓸 수 없는 위치의 파일 변경을 요청했습니다.",
+      sessionId,
+      cwd: stringParam(params, "grantRoot"),
+      reason: stringParam(params, "reason"),
+      details: [optionalDetail("Grant root", params.grantRoot)].filter(
+        (detail): detail is { name: string; value: string } => Boolean(detail),
+      ),
+      rawParams: params,
+    };
+  }
+
+  if (method === "item/permissions/requestApproval") {
+    return {
+      kind: "permissions",
+      title: "추가 권한 요청",
+      message: "Codex가 이 작업을 계속하기 위해 추가 권한을 요청했습니다.",
+      sessionId,
+      cwd: stringParam(params, "cwd"),
+      reason: stringParam(params, "reason"),
+      details: [optionalDetail("Requested permissions", params.permissions)].filter(
+        (detail): detail is { name: string; value: string } => Boolean(detail),
+      ),
+      rawParams: params,
+    };
+  }
+
+  if (method === "execCommandApproval") {
+    return {
+      kind: "legacy-command",
+      title: "명령 실행 권한 요청",
+      message: "Codex가 추가 확인이 필요한 명령을 실행하려고 합니다.",
+      sessionId,
+      cwd: stringParam(params, "cwd"),
+      command: stringParam(params, "command"),
+      reason: stringParam(params, "reason"),
+      details: [optionalDetail("Parsed command", params.parsedCmd)].filter(
+        (detail): detail is { name: string; value: string } => Boolean(detail),
+      ),
+      rawParams: params,
+    };
+  }
+
+  if (method === "applyPatchApproval") {
+    return {
+      kind: "legacy-patch",
+      title: "패치 적용 권한 요청",
+      message: "Codex가 파일 패치를 적용하기 전에 확인을 요청했습니다.",
+      sessionId,
+      cwd: null,
+      details: [optionalDetail("File changes", params.fileChanges)].filter(
+        (detail): detail is { name: string; value: string } => Boolean(detail),
+      ),
+      rawParams: params,
+    };
+  }
+
+  return null;
+}
+
+function legacyApprovalDecision(choice: CodexApprovalChoice) {
+  switch (choice) {
+    case "accept":
+      return "approved";
+    case "acceptForSession":
+      return "approved_for_session";
+    case "cancel":
+      return "abort";
+    case "decline":
+    default:
+      return "denied";
+  }
+}
+
+function permissionGrantResponse(params: Record<string, unknown>, decision: CodexApprovalDecision) {
+  const requested = objectParam(params.permissions);
+  const accepted = decision.decision === "accept" || decision.decision === "acceptForSession";
+
+  if (!accepted) {
+    return {
+      permissions: {},
+      scope: "turn",
+    };
+  }
+
+  return {
+    permissions: {
+      ...(requested.network === null || requested.network === undefined ? {} : { network: requested.network }),
+      ...(requested.fileSystem === null || requested.fileSystem === undefined ? {} : { fileSystem: requested.fileSystem }),
+    },
+    scope: decision.decision === "acceptForSession" ? "session" : "turn",
+  };
+}
+
+function approvalResponseForServerRequest(
+  method: string,
+  params: Record<string, unknown>,
+  decision: CodexApprovalDecision,
+) {
+  if (method === "execCommandApproval" || method === "applyPatchApproval") {
+    return { decision: legacyApprovalDecision(decision.decision) };
+  }
+
+  if (method === "item/permissions/requestApproval") {
+    return permissionGrantResponse(params, decision);
+  }
+
+  return { decision: decision.decision };
+}
+
 export async function runCodexAppServerPrompt(
   input: RunCodexAppServerPromptInput,
 ): Promise<RunCodexPromptResult> {
@@ -286,7 +469,7 @@ export async function runCodexAppServerPrompt(
 
   try {
     if (!input.appServerSocketPath) {
-      await waitForSocket(socketPath, Math.min(input.timeoutMs, 10_000));
+      await waitForSocket(socketPath, input.timeoutMs > 0 ? Math.min(input.timeoutMs, 10_000) : 10_000);
     }
 
     return await runPromptAgainstAppServer({
@@ -459,8 +642,25 @@ async function runPromptAgainstAppServer(input: {
     }
   }
 
-  function respondUnsupportedServerRequest(message: JsonRpcNotification): void {
+  async function respondServerRequest(message: JsonRpcNotification): Promise<void> {
     if (typeof message.id !== "number" && typeof message.id !== "string") {
+      return;
+    }
+
+    const method = typeof message.method === "string" ? message.method : "";
+    const params = objectParam(message.params);
+    const approvalRequest = approvalRequestFromServerRequest(method, params, sessionId);
+
+    if (approvalRequest) {
+      const decision =
+        (await Promise.resolve(input.input.onApprovalRequest?.(approvalRequest))) ?? { decision: "decline" };
+
+      socket.send(
+        JSON.stringify({
+          id: message.id,
+          result: approvalResponseForServerRequest(method, params, decision),
+        }),
+      );
       return;
     }
 
@@ -504,19 +704,22 @@ async function runPromptAgainstAppServer(input: {
           });
           notification("initialized");
 
+          const currentApprovalPolicy = approvalPolicy();
           const threadResult = input.input.sessionId
             ? await request("thread/resume", {
                 threadId: input.input.sessionId,
                 cwd: input.cwd,
                 runtimeWorkspaceRoots: [input.cwd],
-                approvalPolicy: "never",
+                approvalPolicy: currentApprovalPolicy,
+                approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
                 sandbox: "workspace-write",
                 model: model(input.input),
               })
             : await request("thread/start", {
                 cwd: input.cwd,
                 runtimeWorkspaceRoots: [input.cwd],
-                approvalPolicy: "never",
+                approvalPolicy: currentApprovalPolicy,
+                approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
                 sandbox: "workspace-write",
                 threadSource: "codex-discord",
                 model: model(input.input),
@@ -532,7 +735,8 @@ async function runPromptAgainstAppServer(input: {
             input: [{ type: "text", text: input.input.prompt, text_elements: [] }],
             cwd: input.cwd,
             runtimeWorkspaceRoots: [input.cwd],
-            approvalPolicy: "never",
+            approvalPolicy: currentApprovalPolicy,
+            approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
             sandboxPolicy: turnSandboxPolicy(input.cwd),
             model: model(input.input),
             effort: reasoningEffort(input.input),
@@ -581,7 +785,9 @@ async function runPromptAgainstAppServer(input: {
       }
 
       if (typeof message.id !== "undefined") {
-        respondUnsupportedServerRequest(message);
+        void respondServerRequest(message).catch((error) => {
+          console.error("failed to handle Codex app-server request", error);
+        });
         return;
       }
 

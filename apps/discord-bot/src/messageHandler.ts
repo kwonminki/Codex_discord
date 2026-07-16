@@ -13,7 +13,7 @@ import type {
   SyncCodexSessionsResult,
 } from "./codexSessionSync.js";
 import type { SyncCodexSessionTranscriptUpdatesResult } from "./codexTranscriptSync.js";
-import type { ControlApiClient } from "./controlApiClient.js";
+import type { CodexPromptApprovalDecision, CodexPromptApprovalRequest, ControlApiClient } from "./controlApiClient.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
@@ -21,6 +21,8 @@ import type { DiscordMessagePayload } from "./responses.js";
 import { withRoleMentions } from "./responses.js";
 import {
   formatCodexAck,
+  formatCodexApprovalDecision,
+  formatCodexApprovalRequest,
   formatCodexModelResult,
   formatCodexProgressUpdate,
   formatCodexResultUpdate,
@@ -53,7 +55,7 @@ import {
   formatScheduleResult,
   formatCodexRunModeResult,
 } from "./responses.js";
-import type { SelectableCodexSession } from "./responses.js";
+import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
 export const DEFAULT_CODEX_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
 
@@ -297,11 +299,55 @@ function readableProgressEvent(event: {
   return event.detail ? `${event.label ?? "작업 중"} · ${event.detail}` : (event.label ?? "작업 중");
 }
 
+function parseCodexApprovalResponse(content: string): {
+  token: string;
+  decision: CodexPromptApprovalDecision["decision"];
+} | null {
+  const match = content.trim().match(/^__cdc_codex_approval\s+([A-Za-z0-9_-]{1,48})\s+(accept|acceptForSession|decline|cancel)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    token: match[1] ?? "",
+    decision: (match[2] ?? "decline") as CodexPromptApprovalDecision["decision"],
+  };
+}
+
+function hasAllowedRole(userRoleIds: string[], allowedRoleIds: string[]): boolean {
+  if (allowedRoleIds.length === 0) {
+    return true;
+  }
+
+  const userRoles = new Set(userRoleIds);
+  return allowedRoleIds.some((roleId) => userRoles.has(roleId));
+}
+
+function codexPermissionSettings(): CodexPermissionSettings {
+  const approvalPolicy = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY?.trim() || "on-request";
+
+  return {
+    approvalPolicy,
+    approvalsReviewer: "user",
+    sandbox: "workspace-write",
+    networkAccess: "enabled",
+  };
+}
+
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
   const channelQueues = new Map<string, Promise<void>>();
   const codexSessionIdsByChannel = new Map<string, string>();
   const codexModelsByChannel = new Map<string, string>();
   const codexRunModesByChannel = new Map<string, "fast" | "task">();
+  const pendingCodexApprovals = new Map<
+    string,
+    {
+      channelId: string;
+      resolve: (decision: CodexPromptApprovalDecision) => void;
+    }
+  >();
+  let nextCodexApprovalToken = 1;
 
   function reasoningEffortForChannel(channelId: string): "low" | "xhigh" | null {
     const mode = codexRunModesByChannel.get(channelId);
@@ -315,6 +361,22 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     return null;
+  }
+
+  async function requestCodexApproval(
+    reply: DiscordMessageLike["reply"],
+    channelId: string,
+    request: CodexPromptApprovalRequest,
+  ): Promise<CodexPromptApprovalDecision> {
+    const token = String(nextCodexApprovalToken++);
+
+    const decisionPromise = new Promise<CodexPromptApprovalDecision>((resolve) => {
+      pendingCodexApprovals.set(token, { channelId, resolve });
+    });
+
+    await reply(formatCodexApprovalRequest({ token, request }));
+
+    return decisionPromise;
   }
 
   async function processDiscordMessage(message: DiscordMessageLike): Promise<void> {
@@ -334,6 +396,36 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         ? channelContext.allowedRoleIds
         : [],
     );
+
+    const approvalResponse = parseCodexApprovalResponse(message.content);
+
+    if (approvalResponse) {
+      if (!hasAllowedRole(message.roleIds, channelContext.allowedRoleIds)) {
+        await reply(formatDenied("User does not have an allowed role"));
+        return;
+      }
+
+      const pending = pendingCodexApprovals.get(approvalResponse.token);
+
+      if (!pending || pending.channelId !== message.channelId) {
+        await reply(formatCodexApprovalDecision({
+          decision: approvalResponse.decision,
+          accepted: false,
+          found: false,
+        }));
+        return;
+      }
+
+      pendingCodexApprovals.delete(approvalResponse.token);
+      pending.resolve({ decision: approvalResponse.decision });
+      await reply(formatCodexApprovalDecision({
+        decision: approvalResponse.decision,
+        accepted: approvalResponse.decision === "accept" || approvalResponse.decision === "acceptForSession",
+        found: true,
+      }));
+      return;
+    }
+
     const routed = routeDiscordMessage({
       channelMode: channelContext.channelMode,
       content: message.content,
@@ -714,6 +806,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         workspaceDisplayName: channelContext.workspaceDisplayName,
         cwd: channelContext.cwd,
         prompt: routed.prompt,
+        permissionSettings: codexPermissionSettings(),
       };
 
       if (!input.submitCodexPrompt) {
@@ -759,6 +852,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }),
             );
           },
+          onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
         });
 
         const reviewSessionId = extractCodexResponseSessionId(response);
@@ -790,6 +884,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         workspaceDisplayName: channelContext.workspaceDisplayName,
         cwd: channelContext.cwd,
         prompt,
+        permissionSettings: codexPermissionSettings(),
       };
 
       if (!input.submitCodexPrompt) {
@@ -900,6 +995,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }),
             );
           },
+          onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
         });
         const nextSessionId = extractCodexResponseSessionId(response);
 
@@ -1040,6 +1136,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   }
 
   return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
+    if (parseCodexApprovalResponse(message.content)) {
+      await processDiscordMessage(message);
+      return;
+    }
+
     const previousChannelTask = channelQueues.get(message.channelId) ?? Promise.resolve();
     const nextChannelTask = previousChannelTask
       .catch(() => undefined)

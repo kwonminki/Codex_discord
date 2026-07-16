@@ -57,6 +57,25 @@ export interface CodexProgressMessageInput {
   workspaceDisplayName: string;
   cwd: string;
   prompt: string;
+  permissionSettings?: CodexPermissionSettings;
+}
+
+export interface CodexPermissionSettings {
+  approvalPolicy: string;
+  approvalsReviewer: string;
+  sandbox: string;
+  networkAccess: string;
+}
+
+export interface CodexApprovalRequestMessage {
+  title: string;
+  message: string;
+  kind: string;
+  sessionId: string | null;
+  cwd?: string | null;
+  command?: string | null;
+  reason?: string | null;
+  details?: Array<{ name: string; value: string }>;
 }
 
 export interface CodexProgressState {
@@ -1033,6 +1052,123 @@ export function formatBlockedCommand(input: { reason: string; guidance: string }
         inline: false,
       },
     ],
+  });
+}
+
+function codexApprovalCustomId(token: string, decision: "accept" | "accept-session" | "decline" | "cancel"): string {
+  return `${COMPONENT_IDS.codexApprovalPrefix}${token}:${decision}`;
+}
+
+export function formatCodexApprovalRequest(input: {
+  token: string;
+  request: CodexApprovalRequestMessage;
+}): DiscordMessagePayload {
+  const fields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Type",
+      value: wrapDiscordText(input.request.kind),
+      inline: true,
+    },
+  ];
+
+  if (input.request.sessionId) {
+    fields.push({
+      name: "Session",
+      value: wrapDiscordText(input.request.sessionId),
+      inline: true,
+    });
+  }
+
+  if (input.request.cwd) {
+    fields.push({
+      name: "Working directory",
+      value: wrapDiscordText(input.request.cwd),
+      inline: false,
+    });
+  }
+
+  if (input.request.command) {
+    fields.push({
+      name: "Command",
+      value: codeBlock(input.request.command, "bash"),
+      inline: false,
+    });
+  }
+
+  if (input.request.reason) {
+    fields.push({
+      name: "Reason",
+      value: truncateFieldValue(sanitizeDiscordMarkdown(input.request.reason)),
+      inline: false,
+    });
+  }
+
+  for (const detail of input.request.details?.slice(0, 5) ?? []) {
+    fields.push({
+      name: detail.name,
+      value: truncateFieldValue(codeBlock(detail.value, "json")),
+      inline: false,
+    });
+  }
+
+  return messagePayload(
+    {
+      title: input.request.title,
+      color: COLORS.queued,
+      description: truncateDescription(sanitizeDiscordMarkdown(input.request.message)),
+      fields,
+    },
+    [
+      actionRow([
+        button({
+          customId: codexApprovalCustomId(input.token, "accept"),
+          label: "이번만 허용",
+          style: BUTTON_STYLES.success,
+        }),
+        button({
+          customId: codexApprovalCustomId(input.token, "accept-session"),
+          label: "세션 동안 허용",
+          style: BUTTON_STYLES.primary,
+        }),
+        button({
+          customId: codexApprovalCustomId(input.token, "decline"),
+          label: "거부",
+          style: BUTTON_STYLES.danger,
+        }),
+        button({
+          customId: codexApprovalCustomId(input.token, "cancel"),
+          label: "취소",
+          style: BUTTON_STYLES.secondary,
+        }),
+      ]),
+    ],
+  );
+}
+
+export function formatCodexApprovalDecision(input: {
+  decision: "accept" | "acceptForSession" | "decline" | "cancel";
+  accepted: boolean;
+  found: boolean;
+}): DiscordMessagePayload {
+  if (!input.found) {
+    return messagePayload({
+      title: "권한 요청을 찾을 수 없습니다",
+      color: COLORS.neutral,
+      description: "이미 처리되었거나 봇이 재시작된 요청입니다.",
+    });
+  }
+
+  const labels = {
+    accept: "이번만 허용",
+    acceptForSession: "세션 동안 허용",
+    decline: "거부",
+    cancel: "취소",
+  } as const;
+
+  return messagePayload({
+    title: input.accepted ? "권한 응답 전달됨" : "권한 요청 거부됨",
+    color: input.accepted ? COLORS.success : COLORS.failure,
+    description: `Codex에 \`${labels[input.decision]}\` 결정을 전달했습니다.`,
   });
 }
 
@@ -2245,6 +2381,14 @@ function codexProgressText(
     lines.push("", "**요청**", `>>> ${prompt}`);
   }
 
+  if (input.permissionSettings) {
+    lines.push(
+      "",
+      "**권한 설정**",
+      `approval=${input.permissionSettings.approvalPolicy}, reviewer=${input.permissionSettings.approvalsReviewer}, sandbox=${input.permissionSettings.sandbox}, network=${input.permissionSettings.networkAccess}`,
+    );
+  }
+
   const recentEvents =
     progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
 
@@ -2546,12 +2690,7 @@ export function formatCommandResult(response: {
 }
 
 export function formatCodexResultUpdate(
-  input: {
-    computerDisplayName: string;
-    workspaceDisplayName: string;
-    cwd: string;
-    prompt: string;
-  },
+  input: CodexProgressMessageInput,
   response: {
     result?: unknown;
     error?: { message: string };
@@ -2612,6 +2751,16 @@ export function formatCodexResultUpdate(
       name: "Error code",
       value: wrapDiscordText(errorCode),
       inline: true,
+    });
+  }
+
+  if (input.permissionSettings) {
+    fields.push({
+      name: "Permission settings",
+      value: wrapDiscordText(
+        `approval=${input.permissionSettings.approvalPolicy}, reviewer=${input.permissionSettings.approvalsReviewer}, sandbox=${input.permissionSettings.sandbox}, network=${input.permissionSettings.networkAccess}`,
+      ),
+      inline: false,
     });
   }
 
