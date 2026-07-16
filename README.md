@@ -595,3 +595,5 @@ reload restart confirm
 ## 참고 문서
 
 - [Operator Guide](docs/operator-guide.md)
+- [Mac Direct Mode Setup](docs/mac-direct-setup.md)
+- [Ubuntu Server Direct Mode Setup](docs/ubuntu-server-direct-setup.ko.md)
