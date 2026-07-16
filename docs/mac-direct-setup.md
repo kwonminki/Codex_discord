@@ -67,6 +67,35 @@ chat new current name:mac-test
 sync
 ```
 
+## Auto-start on Mac login
+
+This Mac uses a user LaunchAgent:
+
+```text
+~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.mac-direct.plist
+```
+
+The LaunchAgent calls a wrapper outside `Documents` so macOS privacy checks do not block the script:
+
+```text
+~/Library/Application Support/CodexDiscordConnector/start-mac-direct.sh
+```
+
+Logs:
+
+```text
+~/Library/Logs/codex-discord-connector/mac-direct.out.log
+~/Library/Logs/codex-discord-connector/mac-direct.err.log
+```
+
+Useful commands:
+
+```bash
+launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.mac-direct"
+launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.mac-direct"
+tail -f "$HOME/Library/Logs/codex-discord-connector/mac-direct.out.log"
+```
+
 ## Development loop
 
 After changing code:
