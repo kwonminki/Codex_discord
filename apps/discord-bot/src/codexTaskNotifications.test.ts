@@ -466,6 +466,144 @@ describe("notifyCodexTaskCompletions", () => {
         }),
       );
       expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).not.toContain("이미 Discord 요청 결과");
+      await expect(stateStore.read()).resolves.toMatchObject({
+        discordRequestedCodexSessionIds: [],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("only omits the answer once for a Discord-requested session", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+      await stateStore.markDiscordRequestedCodexSession("session-1");
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            assistantAnswer: "Discord 요청 결과로 이미 보낸 답변입니다.",
+          }),
+        ],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-3",
+            assistantAnswer: "Mac에서 이어서 끝난 작업 답변입니다.",
+          }),
+        ],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({ embeds: [] });
+      expect(sendTextMessage.mock.calls[1]?.[1]).toMatchObject({
+        embeds: [
+          expect.objectContaining({
+            description: expect.stringContaining("Mac에서 이어서 끝난 작업 답변입니다."),
+          }),
+        ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("clears stale Discord-requested session ids for already-notified completions", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: "이미 알림 보낸 답변입니다." })],
+      });
+      sendTextMessage.mockClear();
+      await stateStore.markDiscordRequestedCodexSession("session-1");
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: "이미 알림 보낸 답변입니다." })],
+      });
+
+      expect(sendTextMessage).not.toHaveBeenCalled();
+      await expect(stateStore.read()).resolves.toMatchObject({
+        discordRequestedCodexSessionIds: [],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips actively streamed Discord sessions until their final result is sent", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [],
+      });
+      await stateStore.markDiscordRequestedCodexSession("session-1");
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: "Discord 요청 답변입니다." })],
+        ignoredSessionIds: ["SESSION-1"],
+      });
+
+      expect(sendTextMessage).not.toHaveBeenCalled();
+      await expect(stateStore.read()).resolves.toMatchObject({
+        discordRequestedCodexSessionIds: ["session-1"],
+        taskCompletionNotifications: [],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: "Discord 요청 답변입니다." })],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({ embeds: [] });
+      await expect(stateStore.read()).resolves.toMatchObject({
+        discordRequestedCodexSessionIds: [],
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

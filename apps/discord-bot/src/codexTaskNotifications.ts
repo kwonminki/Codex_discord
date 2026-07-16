@@ -30,6 +30,7 @@ export interface NotifyCodexTaskCompletionsInput {
   defaultWorkspaceRoot?: string;
   sessions: DiscoveredCodexSession[];
   mentionRoleIds?: string[];
+  ignoredSessionIds?: Iterable<string>;
 }
 
 export interface NotifyCodexTaskCompletionsResult {
@@ -83,6 +84,7 @@ function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
 function taskCompletionState(input: {
   state: DirectSyncState;
   notificationsBySession: Map<string, CodexTaskCompletionNotificationState>;
+  discordRequestedSessionIds?: Set<string>;
   now: string;
 }): DirectSyncState {
   return {
@@ -90,6 +92,9 @@ function taskCompletionState(input: {
     taskCompletionNotificationsInitializedAt: input.state.taskCompletionNotificationsInitializedAt ?? input.now,
     taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
     taskCompletionNotifications: [...input.notificationsBySession.values()],
+    discordRequestedCodexSessionIds: [
+      ...(input.discordRequestedSessionIds ?? new Set(input.state.discordRequestedCodexSessionIds)),
+    ],
   };
 }
 
@@ -262,6 +267,11 @@ export async function notifyCodexTaskCompletions(
     ]),
   );
   const discordRequestedSessionIds = new Set(state.discordRequestedCodexSessionIds);
+  const ignoredSessionIds = new Set(
+    [...(input.ignoredSessionIds ?? [])]
+      .map((sessionId) => normalizedSessionId(sessionId))
+      .filter((sessionId) => sessionId.length > 0),
+  );
   const seenCompletionEvents = new Set<string>();
   const initialized =
     Boolean(state.taskCompletionNotificationsInitializedAt) &&
@@ -272,6 +282,12 @@ export async function notifyCodexTaskCompletions(
   let changed = false;
 
   for (const session of input.sessions) {
+    const sessionKey = normalizedSessionId(session.id);
+
+    if (ignoredSessionIds.has(sessionKey)) {
+      continue;
+    }
+
     const completionEvent = latestTaskCompleteEvent(session);
 
     if (!completionEvent) {
@@ -280,7 +296,6 @@ export async function notifyCodexTaskCompletions(
 
     completedSessions += 1;
 
-    const sessionKey = normalizedSessionId(session.id);
     const completionEventKey = `${sessionKey}:${completionEvent.key}`;
 
     if (seenCompletionEvents.has(completionEventKey)) {
@@ -313,8 +328,13 @@ export async function notifyCodexTaskCompletions(
     }
 
     if (previous?.lastTaskCompleteEventKey === completionEvent.key) {
+      if (discordRequestedSessionIds.delete(sessionKey)) {
+        changed = true;
+      }
       continue;
     }
+
+    const omitAnswerForDiscordRequest = discordRequestedSessionIds.has(sessionKey);
 
     notificationsBySession.set(
       sessionKey,
@@ -327,13 +347,18 @@ export async function notifyCodexTaskCompletions(
     changed = true;
 
     if (initialized && input.guild.sendTextMessage) {
-      await input.stateStore.write(taskCompletionState({ state, notificationsBySession, now }));
+      await input.stateStore.write(taskCompletionState({
+        state,
+        notificationsBySession,
+        discordRequestedSessionIds,
+        now,
+      }));
       changed = false;
 
       const syncedChannel = ensuredThread.channel;
       const targetChannelId = syncedChannel?.discordChannelId ?? input.adminChannelId;
       const notification = formatTaskCompleteNotification(session, {
-        includeAnswer: !discordRequestedSessionIds.has(sessionKey),
+        includeAnswer: !omitAnswerForDiscordRequest,
       });
       const mentionRoleIds =
         syncedChannel?.discordDeliveryMode === "thread"
@@ -357,6 +382,11 @@ export async function notifyCodexTaskCompletions(
       );
       changed = true;
     }
+
+    if (omitAnswerForDiscordRequest) {
+      discordRequestedSessionIds.delete(sessionKey);
+      changed = true;
+    }
   }
 
   if (!initialized) {
@@ -364,7 +394,12 @@ export async function notifyCodexTaskCompletions(
   }
 
   if (changed) {
-    await input.stateStore.write(taskCompletionState({ state, notificationsBySession, now }));
+    await input.stateStore.write(taskCompletionState({
+      state,
+      notificationsBySession,
+      discordRequestedSessionIds,
+      now,
+    }));
   }
 
   return {

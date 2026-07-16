@@ -263,6 +263,7 @@ export async function startBot(): Promise<void> {
             defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
             sessions,
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
+            ignoredSessionIds: activelyStreamedSessionIds,
           });
         }
       : undefined;
