@@ -413,6 +413,9 @@ export async function startBot(): Promise<void> {
 
       activelyStreamedSessionIds.delete(sessionId);
     },
+    markDiscordRequestedCodexSession: directStateStore
+      ? (sessionId) => directStateStore.markDiscordRequestedCodexSession(sessionId)
+      : undefined,
     reloadBot,
     previewSyncedChannelsDelete,
     deleteSyncedChannels,

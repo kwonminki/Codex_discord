@@ -16,6 +16,7 @@ describe("direct sync state store", () => {
         taskCompletionNotificationsInitializedAt: null,
         taskCompletionNotificationScope: null,
         taskCompletionNotifications: [],
+        discordRequestedCodexSessionIds: [],
       });
 
       await store.write({
@@ -189,6 +190,24 @@ describe("direct sync state store", () => {
             nextRunAt: "2026-04-24T01:00:00.000Z",
           },
         ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("persists Discord-requested Codex session ids without duplicates", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
+
+    try {
+      const store = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+
+      await store.markDiscordRequestedCodexSession("SESSION-1");
+      await store.markDiscordRequestedCodexSession("session-1");
+      await store.markDiscordRequestedCodexSession("session-2");
+
+      await expect(store.read()).resolves.toMatchObject({
+        discordRequestedCodexSessionIds: ["session-1", "session-2"],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

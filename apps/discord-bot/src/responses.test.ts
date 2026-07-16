@@ -552,6 +552,7 @@ describe("responses", () => {
         type: 1,
         components: [
           { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+          { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
         ],
       },
     ]);
@@ -619,6 +620,7 @@ describe("responses", () => {
             type: 1,
             components: [
               { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+              { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
             ],
           },
         ],
@@ -656,6 +658,7 @@ describe("responses", () => {
         type: 1,
         components: [
           { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
+          { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
         ],
       },
     ]);

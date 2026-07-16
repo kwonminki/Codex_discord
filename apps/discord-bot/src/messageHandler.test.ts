@@ -393,11 +393,13 @@ describe("createDiscordMessageHandler", () => {
         sessionId: "codex-session-1",
       },
     });
+    const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => sessionChannelContext,
       submitCommandJob,
       submitCodexPrompt,
       syncCodexSessions: vi.fn(),
+      markDiscordRequestedCodexSession,
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -432,6 +434,7 @@ describe("createDiscordMessageHandler", () => {
         onProgress: expect.any(Function),
       }),
     );
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-session-1");
     expect(replies).toEqual([
       expect.objectContaining({
         content: expect.stringContaining("**Codex 작업 시작**"),
@@ -599,11 +602,13 @@ describe("createDiscordMessageHandler", () => {
         sessionId: "review-session-1",
       },
     });
+    const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => sessionChannelContext,
       submitCommandJob: vi.fn(),
       submitCodexPrompt,
       syncCodexSessions: vi.fn(),
+      markDiscordRequestedCodexSession,
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -627,6 +632,7 @@ describe("createDiscordMessageHandler", () => {
         }),
       }),
     );
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("review-session-1");
   });
 
   it("creates a new pending Codex chat channel from the admin channel", async () => {

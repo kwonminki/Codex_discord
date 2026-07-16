@@ -98,11 +98,14 @@ function nextNotificationState(input: {
   };
 }
 
-function formatTaskCompleteNotification(session: DiscoveredCodexSession): DiscordMessagePayload {
+function formatTaskCompleteNotification(
+  session: DiscoveredCodexSession,
+  options: { includeAnswer: boolean } = { includeAnswer: true },
+): DiscordMessagePayload {
   const threadName = sanitizeInline(session.threadName) || session.id.slice(0, 8);
   const cwd = sanitizeInline(session.cwdHint);
   const updatedAt = sanitizeInline(session.updatedAt);
-  const answer = latestAssistantAnswer(session);
+  const answer = options.includeAnswer ? latestAssistantAnswer(session) : null;
   const answerPreview = answer ? formatAnswerPreview(answer) : null;
   const lines = [
     "**Codex 작업 완료**",
@@ -148,6 +151,7 @@ export async function notifyCodexTaskCompletions(
   const notificationsBySession = new Map(
     state.taskCompletionNotifications.map((notification) => [notification.sessionId, notification]),
   );
+  const discordRequestedSessionIds = new Set(state.discordRequestedCodexSessionIds);
   const initialized =
     Boolean(state.taskCompletionNotificationsInitializedAt) &&
     state.taskCompletionNotificationScope === TASK_COMPLETION_NOTIFICATION_SCOPE;
@@ -172,7 +176,12 @@ export async function notifyCodexTaskCompletions(
     }
 
     if (initialized && input.guild.sendTextMessage) {
-      await input.guild.sendTextMessage(input.adminChannelId, formatTaskCompleteNotification(session));
+      await input.guild.sendTextMessage(
+        input.adminChannelId,
+        formatTaskCompleteNotification(session, {
+          includeAnswer: !discordRequestedSessionIds.has(session.id.toLowerCase()),
+        }),
+      );
       notifiedSessions += 1;
     }
 

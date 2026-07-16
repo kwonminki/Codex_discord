@@ -190,6 +190,46 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
+  it("omits answer embeds for sessions requested from Discord", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+      await stateStore.markDiscordRequestedCodexSession("session-1");
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            assistantAnswer: "이 답변은 이미 Discord 요청 결과 메시지로 전송되었습니다.",
+          }),
+        ],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage).toHaveBeenCalledWith(
+        "admin-channel",
+        expect.objectContaining({
+          content: expect.stringContaining("Codex 작업 완료"),
+          embeds: [],
+        }),
+      );
+      expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).not.toContain("이미 Discord 요청 결과");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("posts the first completion for a new session after the baseline is initialized", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

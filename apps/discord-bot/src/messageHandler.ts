@@ -117,6 +117,7 @@ export interface CreateDiscordMessageHandlerInput {
     postUpdates?: boolean;
   }) => Promise<SyncCodexSessionTranscriptUpdatesResult>;
   setSessionStreaming?: (sessionId: string, active: boolean) => void;
+  markDiscordRequestedCodexSession?: (sessionId: string) => Promise<void> | void;
   reloadBot?: (input: { mode: "commands" | "restart" }) => Promise<{
     mode: "commands" | "restart";
     commandCount: number;
@@ -200,6 +201,15 @@ async function updateQueuedReply(
 
 function appendProgressEvent(events: string[], event: string): string[] {
   return [...events, event].slice(-8);
+}
+
+function extractCodexResponseSessionId(response: { result?: unknown; error?: unknown }): string | null {
+  return "result" in response &&
+    typeof response.result === "object" &&
+    response.result !== null &&
+    typeof (response.result as { sessionId?: unknown }).sessionId === "string"
+    ? (response.result as { sessionId: string }).sessionId
+    : null;
 }
 
 function readableProgressEvent(event: {
@@ -700,6 +710,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           },
         });
 
+        const reviewSessionId = extractCodexResponseSessionId(response);
+
+        if (reviewSessionId) {
+          await input.markDiscordRequestedCodexSession?.(reviewSessionId);
+        }
+
         await updateQueuedReply(
           queuedReply,
           (replyMessage) => message.reply(replyMessage),
@@ -834,15 +850,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             );
           },
         });
-        const nextSessionId =
-          "result" in response &&
-          typeof response.result === "object" &&
-          response.result !== null &&
-          typeof (response.result as { sessionId?: unknown }).sessionId === "string"
-            ? (response.result as { sessionId: string }).sessionId
-            : null;
+        const nextSessionId = extractCodexResponseSessionId(response);
 
         if (nextSessionId) {
+          await input.markDiscordRequestedCodexSession?.(nextSessionId);
+
           if (routed.type === "codex-chat") {
             codexSessionIdsByChannel.set(message.channelId, nextSessionId);
           }

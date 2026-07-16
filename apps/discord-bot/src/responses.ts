@@ -2172,6 +2172,11 @@ function codexOpenSessionActions(sessionId: string | null): DiscordActionRowPayl
         label: "Codex 앱에서 열기",
         style: BUTTON_STYLES.primary,
       }),
+      button({
+        customId: `${COMPONENT_IDS.codexRestartOpenSessionPrefix}${sessionId.toLowerCase()}`,
+        label: "앱 재시작 후 열기",
+        style: BUTTON_STYLES.danger,
+      }),
     ]),
   ];
 }

@@ -27,6 +27,7 @@ export const COMPONENT_IDS = {
   codexThoughtsOpen: "cdc:codex:thoughts:open",
   codexThoughtsClose: "cdc:codex:thoughts:close",
   codexOpenSessionPrefix: "cdc:codex:open:",
+  codexRestartOpenSessionPrefix: "cdc:codex:restart-open:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
   gitConflicts: "cdc:git:conflicts",
@@ -44,6 +45,16 @@ function componentShellCommand(command: string): string {
 
 function codexOpenShellCommand(sessionId: string): string {
   return `open 'codex://threads/${sessionId.toLowerCase()}'`;
+}
+
+function codexRestartOpenShellCommand(sessionId: string): string {
+  return [
+    "pkill -f '/Applications/Codex.app/Contents/MacOS/ChatGPT' || true",
+    "sleep 2",
+    codexOpenShellCommand(sessionId),
+    "sleep 5",
+    codexOpenShellCommand(sessionId),
+  ].join("; ");
 }
 
 function encodedNewChatCommand(input: {
@@ -89,6 +100,12 @@ export function routeDiscordComponent(customId: string, values: string[] = []): 
 
   if (codexOpenSessionMatch) {
     return componentShellCommand(codexOpenShellCommand(codexOpenSessionMatch[1] ?? ""));
+  }
+
+  const codexRestartOpenSessionMatch = customId.match(/^cdc:codex:restart-open:([0-9a-f-]{32,36})$/i);
+
+  if (codexRestartOpenSessionMatch) {
+    return componentShellCommand(`confirm ${codexRestartOpenShellCommand(codexRestartOpenSessionMatch[1] ?? "")}`);
   }
 
   const pageMatch = customId.match(/^cdc:fs:page:(\d+)$/);

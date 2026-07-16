@@ -360,11 +360,23 @@ function codexOpenShellCommand(sessionId: string): string {
   return `open 'codex://threads/${sessionId.toLowerCase()}'`;
 }
 
-function parseCodexOpenSessionCommand(content: string): { sessionId: string } | null {
-  const normalized = content.replace(/\s+/g, " ").trim();
-  const match = normalized.match(/^(?:codex\s+open|open\s+codex|open\s+session)\s+([0-9a-f-]{32,36})$/i);
+function codexRestartOpenShellCommand(sessionId: string): string {
+  return [
+    "pkill -f '/Applications/Codex.app/Contents/MacOS/ChatGPT' || true",
+    "sleep 2",
+    codexOpenShellCommand(sessionId),
+    "sleep 5",
+    codexOpenShellCommand(sessionId),
+  ].join("; ");
+}
 
-  return match ? { sessionId: match[1].toLowerCase() } : null;
+function parseCodexOpenSessionCommand(content: string): { sessionId: string; restart: boolean } | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  const match = normalized.match(
+    /^(?:(codex\s+reopen|codex\s+restart-open|reopen\s+codex|restart\s+codex)|(?:codex\s+open|open\s+codex|open\s+session))\s+([0-9a-f-]{32,36})$/i,
+  );
+
+  return match ? { sessionId: (match[2] ?? "").toLowerCase(), restart: Boolean(match[1]) } : null;
 }
 
 function parseKeyedValue(content: string, key: string): string | null {
@@ -837,8 +849,10 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
 
     return {
       type: "execute-command",
-      command: codexOpenShellCommand(codexOpenSession.sessionId),
-      confirmedDangerous: false,
+      command: codexOpenSession.restart
+        ? codexRestartOpenShellCommand(codexOpenSession.sessionId)
+        : codexOpenShellCommand(codexOpenSession.sessionId),
+      confirmedDangerous: codexOpenSession.restart,
     };
   }
 

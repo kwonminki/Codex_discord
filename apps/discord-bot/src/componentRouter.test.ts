@@ -23,6 +23,9 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:codex:open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBe(
       "__cdc_exec open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
     );
+    expect(routeDiscordComponent("cdc:codex:restart-open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBe(
+      "__cdc_exec confirm pkill -f '/Applications/Codex.app/Contents/MacOS/ChatGPT' || true; sleep 2; open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'; sleep 5; open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
+    );
   });
 
   it("maps destructive confirmation buttons explicitly", () => {

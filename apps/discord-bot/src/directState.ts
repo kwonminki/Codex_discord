@@ -68,17 +68,23 @@ export interface DirectSyncState {
   taskCompletionNotificationsInitializedAt?: string | null;
   taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications: CodexTaskCompletionNotificationState[];
+  discordRequestedCodexSessionIds: string[];
 }
 
 export type DirectSyncStateWriteInput = Omit<
   DirectSyncState,
-  "transcriptSyncMode" | "scheduledCommands" | "taskCompletionNotificationsInitializedAt" | "taskCompletionNotifications"
+  | "transcriptSyncMode"
+  | "scheduledCommands"
+  | "taskCompletionNotificationsInitializedAt"
+  | "taskCompletionNotifications"
+  | "discordRequestedCodexSessionIds"
 > & {
   transcriptSyncMode?: TranscriptSyncMode;
   scheduledCommands?: ScheduledCommandState[];
   taskCompletionNotificationsInitializedAt?: string | null;
   taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications?: CodexTaskCompletionNotificationState[];
+  discordRequestedCodexSessionIds?: string[];
 };
 
 export interface DirectSyncStateStore {
@@ -92,6 +98,7 @@ export interface DirectSyncStateStore {
     threadName?: string,
   ): Promise<void>;
   updateTranscriptSyncMode(mode: TranscriptSyncMode): Promise<void>;
+  markDiscordRequestedCodexSession(sessionId: string): Promise<void>;
 }
 
 export function createEmptyDirectSyncState(): DirectSyncState {
@@ -105,6 +112,7 @@ export function createEmptyDirectSyncState(): DirectSyncState {
     taskCompletionNotificationsInitializedAt: null,
     taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
+    discordRequestedCodexSessionIds: [],
   };
 }
 
@@ -148,6 +156,15 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
             typeof (notification as CodexTaskCompletionNotificationState).sessionId === "string" &&
             typeof (notification as CodexTaskCompletionNotificationState).lastTaskCompleteEventKey === "string",
         )
+      : [],
+    discordRequestedCodexSessionIds: Array.isArray(state.discordRequestedCodexSessionIds)
+      ? [
+          ...new Set(
+            state.discordRequestedCodexSessionIds
+              .filter((sessionId): sessionId is string => typeof sessionId === "string" && sessionId.length > 0)
+              .map((sessionId) => sessionId.toLowerCase()),
+          ),
+        ]
       : [],
   };
 }
@@ -213,6 +230,24 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
       await this.write({
         ...state,
         transcriptSyncMode: mode,
+      });
+    },
+    async markDiscordRequestedCodexSession(sessionId) {
+      const normalizedSessionId = sessionId.trim().toLowerCase();
+
+      if (!normalizedSessionId) {
+        return;
+      }
+
+      const state = await this.read();
+
+      if (state.discordRequestedCodexSessionIds.includes(normalizedSessionId)) {
+        return;
+      }
+
+      await this.write({
+        ...state,
+        discordRequestedCodexSessionIds: [...state.discordRequestedCodexSessionIds, normalizedSessionId],
       });
     },
   };
