@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -53,6 +53,39 @@ describe("direct sync state store", () => {
             lastTranscriptDiscordMessageId: "discord-message-1",
           },
         ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("retries transient partial JSON reads", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
+
+    try {
+      const statePath = path.join(tempRoot, "state.json");
+      const store = createDirectSyncStateStore(statePath);
+      await writeFile(statePath, "{", "utf8");
+
+      setTimeout(() => {
+        void writeFile(
+          statePath,
+          JSON.stringify({
+            version: 1,
+            transcriptSyncMode: "on-chat",
+            archivedCodexSessionIds: [],
+            workspaces: [],
+            sessionChannels: [],
+            scheduledCommands: [],
+            taskCompletionNotifications: [],
+            discordRequestedCodexSessionIds: [],
+          }),
+          "utf8",
+        );
+      }, 5);
+
+      await expect(store.read()).resolves.toMatchObject({
+        transcriptSyncMode: "on-chat",
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

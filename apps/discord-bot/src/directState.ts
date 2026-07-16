@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export interface SyncedWorkspaceState {
@@ -176,24 +176,51 @@ export function defaultDirectSyncStatePath(): string {
   return path.resolve(process.env.CONNECT_STATE_PATH ?? ".connect/state.json");
 }
 
+function isJsonParseError(error: unknown): boolean {
+  return error instanceof SyntaxError;
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePath()): DirectSyncStateStore {
   const resolvedStatePath = path.resolve(statePath);
 
   return {
     async read() {
-      try {
-        return normalizeDirectSyncState(JSON.parse(await readFile(resolvedStatePath, "utf8")) as Partial<DirectSyncState>);
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          return createEmptyDirectSyncState();
-        }
+      let lastParseError: unknown = null;
 
-        throw error;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return normalizeDirectSyncState(JSON.parse(await readFile(resolvedStatePath, "utf8")) as Partial<DirectSyncState>);
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+            return createEmptyDirectSyncState();
+          }
+
+          if (!isJsonParseError(error)) {
+            throw error;
+          }
+
+          lastParseError = error;
+          await wait(25);
+        }
       }
+
+      throw lastParseError;
     },
     async write(state) {
       await mkdir(path.dirname(resolvedStatePath), { recursive: true });
-      await writeFile(resolvedStatePath, `${JSON.stringify(normalizeDirectSyncState(state), null, 2)}\n`, "utf8");
+      const tempPath = `${resolvedStatePath}.${process.pid}.${Date.now()}.tmp`;
+
+      try {
+        await writeFile(tempPath, `${JSON.stringify(normalizeDirectSyncState(state), null, 2)}\n`, "utf8");
+        await rename(tempPath, resolvedStatePath);
+      } catch (error) {
+        await rm(tempPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
     },
     async findSessionChannelByDiscordId(discordChannelId) {
       const state = await this.read();
