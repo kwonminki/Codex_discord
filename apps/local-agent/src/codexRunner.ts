@@ -444,7 +444,7 @@ function reasoningEffortArgs(input: RunCodexPromptInput): string[] {
   return effort ? ["-c", `model_reasoning_effort="${effort}"`] : [];
 }
 
-function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspaceRoot: string): string[] {
+function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: string): string[] {
   if (input.mode === "review") {
     return [
       "exec",
@@ -467,6 +467,7 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspa
       "--full-auto",
       ...modelArgs(input),
       ...reasoningEffortArgs(input),
+      "--skip-git-repo-check",
       "--output-last-message",
       outputPath,
       input.sessionId,
@@ -482,7 +483,7 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, workspa
     ...reasoningEffortArgs(input),
     "--skip-git-repo-check",
     "--cd",
-    workspaceRoot,
+    cwd,
     "--output-last-message",
     outputPath,
     input.prompt,
@@ -565,7 +566,13 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-discord-run-"));
   const outputPath = path.join(tempRoot, `${randomBytes(8).toString("hex")}.txt`);
   const workspaceRoot = await ensureAsciiWorkspaceRoot(input.workspaceRoot);
-  const args = createCodexArgs(input, outputPath, workspaceRoot);
+  const originalWorkspaceRoot = path.resolve(input.workspaceRoot);
+  const requestedCwd = path.resolve(input.cwd);
+  const cwd =
+    workspaceRoot === originalWorkspaceRoot
+      ? requestedCwd
+      : path.join(workspaceRoot, path.relative(originalWorkspaceRoot, requestedCwd));
+  const args = createCodexArgs(input, outputPath, cwd);
   const codexCommand = input.codexCommand ?? "codex";
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
@@ -588,7 +595,7 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
 
   try {
     const child = spawn(codexCommand, args, {
-      cwd: workspaceRoot,
+      cwd,
       env: {
         ...process.env,
         ...(input.codexHome ? { CODEX_HOME: input.codexHome } : {}),

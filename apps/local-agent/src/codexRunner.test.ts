@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -175,6 +175,55 @@ describe("runCodexPrompt", () => {
       });
 
       await expect(readFile(argsFile, "utf8")).resolves.toContain('"exec","review"');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes Codex sessions from the requested cwd and skips the git repo check", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+    const projectRoot = path.join(tempRoot, "project");
+    const fakeCodex = path.join(tempRoot, "codex");
+    const argsFile = path.join(tempRoot, "args.json");
+    const cwdFile = path.join(tempRoot, "cwd.txt");
+
+    try {
+      await mkdir(projectRoot);
+      await writeFile(
+        fakeCodex,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          `fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));`,
+          `fs.writeFileSync(${JSON.stringify(cwdFile)}, process.cwd());`,
+          "const outputIndex = args.indexOf('--output-last-message');",
+          "fs.writeFileSync(args[outputIndex + 1], 'Resumed answer');",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeCodex, 0o755);
+
+      await runCodexPrompt({
+        workspaceRoot: tempRoot,
+        cwd: projectRoot,
+        prompt: "이어 작업",
+        timeoutMs: 5_000,
+        sessionId: "019db2be-b2b3-7e82-9e61-8c84b28ad287",
+        codexCommand: fakeCodex,
+      });
+
+      const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "exec",
+          "resume",
+          "--skip-git-repo-check",
+          "019db2be-b2b3-7e82-9e61-8c84b28ad287",
+          "이어 작업",
+        ]),
+      );
+      await expect(readFile(cwdFile, "utf8")).resolves.toBe(await realpath(projectRoot));
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
