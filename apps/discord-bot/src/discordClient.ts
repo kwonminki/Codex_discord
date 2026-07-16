@@ -72,6 +72,16 @@ interface EditableDiscordMessageLike {
   edit?(message: unknown): Promise<unknown>;
 }
 
+interface InteractionReplySource {
+  reply(message: unknown): Promise<unknown>;
+  editReply?(message: unknown): Promise<unknown>;
+  fetchReply?(): Promise<unknown>;
+  followUp?(message: unknown): Promise<unknown>;
+  channel?: {
+    send?(message: unknown): Promise<unknown>;
+  } | null;
+}
+
 interface ClearableDiscordChannelLike {
   messages?: {
     fetch(input: { limit: number }): Promise<{ size: number }>;
@@ -341,6 +351,8 @@ function isButtonInteraction(interaction: unknown): interaction is {
   reply(message: unknown): Promise<unknown>;
   editReply?(message: unknown): Promise<unknown>;
   fetchReply?(): Promise<unknown>;
+  followUp?(message: unknown): Promise<unknown>;
+  channel?: { send?(message: unknown): Promise<unknown> } | null;
   update?(message: unknown): Promise<unknown>;
   showModal?(modal: unknown): Promise<unknown>;
 } {
@@ -367,6 +379,8 @@ function isSupportedComponentInteraction(interaction: unknown): interaction is {
   reply(message: unknown): Promise<unknown>;
   editReply?(message: unknown): Promise<unknown>;
   fetchReply?(): Promise<unknown>;
+  followUp?(message: unknown): Promise<unknown>;
+  channel?: { send?(message: unknown): Promise<unknown> } | null;
   update?(message: unknown): Promise<unknown>;
   showModal?(modal: unknown): Promise<unknown>;
 } {
@@ -391,6 +405,8 @@ function isModalSubmitInteraction(interaction: unknown): interaction is {
     reply(message: unknown): Promise<unknown>;
     editReply?(message: unknown): Promise<unknown>;
     fetchReply?(): Promise<unknown>;
+    followUp?(message: unknown): Promise<unknown>;
+    channel?: { send?(message: unknown): Promise<unknown> } | null;
     fields: { getTextInputValue(fieldId: string): string };
 } {
   return (
@@ -413,6 +429,8 @@ function isChatInputCommandInteraction(interaction: unknown): interaction is {
     reply(message: unknown): Promise<unknown>;
     editReply?(message: unknown): Promise<unknown>;
     fetchReply?(): Promise<unknown>;
+    followUp?(message: unknown): Promise<unknown>;
+    channel?: { send?(message: unknown): Promise<unknown> } | null;
     options: {
       getString(name: string, required?: boolean): string | null;
       getInteger?(name: string, required?: boolean): number | null;
@@ -570,25 +588,48 @@ async function fetchInteractionReply(interaction: { fetchReply?(): Promise<unkno
   }
 }
 
-function interactionReplyAdapter(interaction: {
-  reply(message: unknown): Promise<unknown>;
-  editReply?(message: unknown): Promise<unknown>;
-  fetchReply?(): Promise<unknown>;
-}) {
-  return async (replyMessage: unknown) => {
-    await interaction.reply(replyMessage);
-    const sentMessage = await fetchInteractionReply(interaction);
-    rememberCodexProgressMessage(sentMessage, replyMessage);
+function interactionReplyAdapter(interaction: InteractionReplySource) {
+  let hasInitialReply = false;
 
-    if (!isEditableDiscordMessage(sentMessage) || typeof interaction.editReply !== "function") {
+  return async (replyMessage: unknown) => {
+    if (hasInitialReply) {
+      const sentMessage =
+        typeof interaction.channel?.send === "function"
+          ? await interaction.channel.send(replyMessage)
+          : typeof interaction.followUp === "function"
+            ? await interaction.followUp(replyMessage)
+            : null;
+
+      rememberCodexProgressMessage(sentMessage, replyMessage);
+
+      if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
+        return undefined;
+      }
+
+      return {
+        edit: async (nextMessage: unknown) => {
+          const preparedMessage = prepareCodexProgressPayload(sentMessage.id, nextMessage);
+          const editedMessage = await sentMessage.edit?.(preparedMessage);
+          rememberCodexProgressMessage(editedMessage ?? sentMessage, preparedMessage);
+          return editedMessage;
+        },
+      };
+    }
+
+    await interaction.reply(replyMessage);
+    hasInitialReply = true;
+    const initialMessage = await fetchInteractionReply(interaction);
+    rememberCodexProgressMessage(initialMessage, replyMessage);
+
+    if (!isEditableDiscordMessage(initialMessage) || typeof interaction.editReply !== "function") {
       return undefined;
     }
 
     return {
       edit: async (nextMessage: unknown) => {
-        const preparedMessage = prepareCodexProgressPayload(sentMessage.id, nextMessage);
+        const preparedMessage = prepareCodexProgressPayload(initialMessage.id, nextMessage);
         const editedMessage = await interaction.editReply?.(preparedMessage);
-        rememberCodexProgressMessage(editedMessage ?? sentMessage, preparedMessage);
+        rememberCodexProgressMessage(editedMessage ?? initialMessage, preparedMessage);
         return editedMessage;
       },
     };

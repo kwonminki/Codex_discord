@@ -220,6 +220,45 @@ describe("attachDiscordInteractionHandler", () => {
     expect(reply).toHaveBeenCalledWith(payload);
   });
 
+  it("sends additional interaction replies through the channel", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const send = vi.fn().mockResolvedValue({ id: "followup-message-1" });
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:sync:25",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      channel: { send },
+      guild: null,
+    });
+
+    const adaptedInteraction = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
+    const firstPayload = { embeds: [{ title: "queued" }] };
+    const secondPayload = { embeds: [{ title: "approval required" }] };
+
+    await adaptedInteraction.reply(firstPayload);
+    await adaptedInteraction.reply(secondPayload);
+
+    expect(reply).toHaveBeenCalledWith(firstPayload);
+    expect(send).toHaveBeenCalledWith(secondPayload);
+  });
+
   it("adapts Discord select menu interactions into the pure message handler", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {
