@@ -11,6 +11,7 @@ import type {
   CodexTaskCompletionNotificationState,
   DirectSyncState,
   DirectSyncStateStore,
+  DiscordRequestedCodexSessionState,
   SyncedSessionChannelState,
 } from "./directState.js";
 import type { DiscordFilePayload, DiscordMessagePayload } from "./responses.js";
@@ -84,17 +85,20 @@ function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
 function taskCompletionState(input: {
   state: DirectSyncState;
   notificationsBySession: Map<string, CodexTaskCompletionNotificationState>;
-  discordRequestedSessionIds?: Set<string>;
+  discordRequestedSessions?: Map<string, DiscordRequestedCodexSessionState>;
   now: string;
 }): DirectSyncState {
+  const discordRequestedSessions =
+    input.discordRequestedSessions ??
+    new Map(input.state.discordRequestedCodexSessionRequests.map((request) => [request.sessionId, request]));
+
   return {
     ...input.state,
     taskCompletionNotificationsInitializedAt: input.state.taskCompletionNotificationsInitializedAt ?? input.now,
     taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
     taskCompletionNotifications: [...input.notificationsBySession.values()],
-    discordRequestedCodexSessionIds: [
-      ...(input.discordRequestedSessionIds ?? new Set(input.state.discordRequestedCodexSessionIds)),
-    ],
+    discordRequestedCodexSessionIds: [],
+    discordRequestedCodexSessionRequests: [...discordRequestedSessions.values()],
   };
 }
 
@@ -266,7 +270,9 @@ export async function notifyCodexTaskCompletions(
       notification,
     ]),
   );
-  const discordRequestedSessionIds = new Set(state.discordRequestedCodexSessionIds);
+  const discordRequestedSessions = new Map(
+    state.discordRequestedCodexSessionRequests.map((request) => [normalizedSessionId(request.sessionId), request]),
+  );
   const ignoredSessionIds = new Set(
     [...(input.ignoredSessionIds ?? [])]
       .map((sessionId) => normalizedSessionId(sessionId))
@@ -328,13 +334,13 @@ export async function notifyCodexTaskCompletions(
     }
 
     if (previous?.lastTaskCompleteEventKey === completionEvent.key) {
-      if (discordRequestedSessionIds.delete(sessionKey)) {
+      if (discordRequestedSessions.delete(sessionKey)) {
         changed = true;
       }
       continue;
     }
 
-    const omitAnswerForDiscordRequest = discordRequestedSessionIds.has(sessionKey);
+    const omitAnswerForDiscordRequest = discordRequestedSessions.has(sessionKey);
 
     notificationsBySession.set(
       sessionKey,
@@ -350,7 +356,7 @@ export async function notifyCodexTaskCompletions(
       await input.stateStore.write(taskCompletionState({
         state,
         notificationsBySession,
-        discordRequestedSessionIds,
+        discordRequestedSessions,
         now,
       }));
       changed = false;
@@ -384,7 +390,7 @@ export async function notifyCodexTaskCompletions(
     }
 
     if (omitAnswerForDiscordRequest) {
-      discordRequestedSessionIds.delete(sessionKey);
+      discordRequestedSessions.delete(sessionKey);
       changed = true;
     }
   }
@@ -397,7 +403,7 @@ export async function notifyCodexTaskCompletions(
     await input.stateStore.write(taskCompletionState({
       state,
       notificationsBySession,
-      discordRequestedSessionIds,
+      discordRequestedSessions,
       now,
     }));
   }

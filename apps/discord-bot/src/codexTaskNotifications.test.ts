@@ -467,7 +467,7 @@ describe("notifyCodexTaskCompletions", () => {
       );
       expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).not.toContain("이미 Discord 요청 결과");
       await expect(stateStore.read()).resolves.toMatchObject({
-        discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests: [],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -557,7 +557,7 @@ describe("notifyCodexTaskCompletions", () => {
 
       expect(sendTextMessage).not.toHaveBeenCalled();
       await expect(stateStore.read()).resolves.toMatchObject({
-        discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests: [],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -588,7 +588,12 @@ describe("notifyCodexTaskCompletions", () => {
 
       expect(sendTextMessage).not.toHaveBeenCalled();
       await expect(stateStore.read()).resolves.toMatchObject({
-        discordRequestedCodexSessionIds: ["session-1"],
+        discordRequestedCodexSessionRequests: [
+          {
+            sessionId: "session-1",
+            requestedAt: expect.any(String),
+          },
+        ],
         taskCompletionNotifications: [],
       });
 
@@ -602,7 +607,7 @@ describe("notifyCodexTaskCompletions", () => {
       expect(sendTextMessage).toHaveBeenCalledTimes(1);
       expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({ embeds: [] });
       await expect(stateStore.read()).resolves.toMatchObject({
-        discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests: [],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

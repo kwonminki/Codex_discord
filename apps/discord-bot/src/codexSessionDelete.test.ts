@@ -77,6 +77,7 @@ function seededState() {
     taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
     discordRequestedCodexSessionIds: [],
+    discordRequestedCodexSessionRequests: [],
   };
 }
 
@@ -153,6 +154,7 @@ describe("synced Discord session deletion", () => {
         taskCompletionNotificationScope: null,
         taskCompletionNotifications: [],
         discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests: [],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

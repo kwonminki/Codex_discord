@@ -229,7 +229,7 @@ describe("direct sync state store", () => {
     }
   });
 
-  it("persists Discord-requested Codex session ids without duplicates", async () => {
+  it("persists pending Discord-requested Codex sessions without duplicates", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
 
     try {
@@ -240,7 +240,17 @@ describe("direct sync state store", () => {
       await store.markDiscordRequestedCodexSession("session-2");
 
       await expect(store.read()).resolves.toMatchObject({
-        discordRequestedCodexSessionIds: ["session-1", "session-2"],
+        discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests: [
+          {
+            sessionId: "session-1",
+            requestedAt: expect.any(String),
+          },
+          {
+            sessionId: "session-2",
+            requestedAt: expect.any(String),
+          },
+        ],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
