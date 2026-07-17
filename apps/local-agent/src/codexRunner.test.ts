@@ -67,7 +67,16 @@ describe("runCodexPrompt", () => {
         exitCode: 0,
       });
       const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
-      expect(args).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "Explain this"]));
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "exec",
+          "--sandbox",
+          "danger-full-access",
+          "--ask-for-approval",
+          "never",
+          "Explain this",
+        ]),
+      );
       expect(args).not.toContain("--full-auto");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -233,7 +242,16 @@ describe("runCodexPrompt", () => {
       });
 
       const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
-      expect(args).toEqual(expect.arrayContaining(["exec", "--sandbox", "workspace-write", "review"]));
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "exec",
+          "--sandbox",
+          "danger-full-access",
+          "--ask-for-approval",
+          "never",
+          "review",
+        ]),
+      );
       expect(args).not.toContain("--full-auto");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
@@ -278,7 +296,9 @@ describe("runCodexPrompt", () => {
         expect.arrayContaining([
           "exec",
           "--sandbox",
-          "workspace-write",
+          "danger-full-access",
+          "--ask-for-approval",
+          "never",
           "resume",
           "--skip-git-repo-check",
           "019db2be-b2b3-7e82-9e61-8c84b28ad287",

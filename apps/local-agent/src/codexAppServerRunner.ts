@@ -58,7 +58,7 @@ interface ItemNotificationParams {
 const APP_SERVER_ERROR_CODE = "CODEX_APP_SERVER_FAILED";
 const APP_SERVER_UNSUPPORTED_REVIEW_CODE = "CODEX_APP_SERVER_REVIEW_UNSUPPORTED";
 const APP_SERVER_CLIENT_NAME = "codex-discord-connector";
-const APP_SERVER_APPROVAL_POLICY = "on-request";
+const APP_SERVER_APPROVAL_POLICY = "never";
 const APP_SERVER_APPROVALS_REVIEWER = "user";
 type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
@@ -254,7 +254,7 @@ function sandboxMode(): CodexSandboxMode {
 
   return configured === "read-only" || configured === "workspace-write" || configured === "danger-full-access"
     ? configured
-    : "workspace-write";
+    : "danger-full-access";
 }
 
 function turnSandboxPolicy(cwd: string) {

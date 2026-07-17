@@ -474,7 +474,7 @@ function codexSandboxMode(): CodexSandboxMode {
 
   return configured === "read-only" || configured === "workspace-write" || configured === "danger-full-access"
     ? configured
-    : "workspace-write";
+    : "danger-full-access";
 }
 
 function codexApprovalPolicy(): CodexApprovalPolicy {
@@ -482,7 +482,7 @@ function codexApprovalPolicy(): CodexApprovalPolicy {
 
   return configured === "untrusted" || configured === "never" || configured === "on-request"
     ? configured
-    : "on-request";
+    : "never";
 }
 
 function codexExecPermissionArgs(): string[] {

@@ -20,12 +20,8 @@ describe("runCodexAppServerPrompt", () => {
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     const received: Array<{ method: string; params: unknown }> = [];
-    const previousSandbox = process.env.CODEX_DISCORD_CODEX_SANDBOX;
-    const previousApproval = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY;
 
     try {
-      process.env.CODEX_DISCORD_CODEX_SANDBOX = "danger-full-access";
-      process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY = "never";
       await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
 
       wsServer.on("connection", (socket) => {
@@ -178,16 +174,6 @@ describe("runCodexAppServerPrompt", () => {
         ]),
       );
     } finally {
-      if (previousSandbox === undefined) {
-        delete process.env.CODEX_DISCORD_CODEX_SANDBOX;
-      } else {
-        process.env.CODEX_DISCORD_CODEX_SANDBOX = previousSandbox;
-      }
-      if (previousApproval === undefined) {
-        delete process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY;
-      } else {
-        process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY = previousApproval;
-      }
       wsServer.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       await rm(workspaceRoot, { recursive: true, force: true });
