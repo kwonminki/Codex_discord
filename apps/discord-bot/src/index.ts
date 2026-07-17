@@ -33,10 +33,10 @@ import type { DiscordOutgoingMessage } from "./messageHandler.js";
 import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js";
 
 export const BOT_RELOAD_EXIT_CODE = 42;
-const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 10_000;
-const DEFAULT_TASK_NOTIFICATION_INTERVAL_MS = 10_000;
+const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 5_000;
+const DEFAULT_TASK_NOTIFICATION_INTERVAL_MS = 3_000;
 const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 30_000;
-const DEFAULT_BACKGROUND_POLL_MAX_INTERVAL_MS = 60_000;
+const DEFAULT_BACKGROUND_POLL_MAX_INTERVAL_MS = 20_000;
 const DEFAULT_BACKGROUND_MAX_NORMALIZED_LOAD = 0.7;
 
 export function resolveRealtimeIntervalMs(value: string | undefined, fallbackMs: number): number {

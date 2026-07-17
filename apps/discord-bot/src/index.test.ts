@@ -42,23 +42,23 @@ describe("bot entrypoint", () => {
     expect(shouldSkipBackgroundPolling({ loadAverage: 7, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(true);
     expect(shouldSkipBackgroundPolling({ loadAverage: 3, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(false);
 
-    const pollState = createBackgroundPollState(1_000, 10_000);
+    const pollState = createBackgroundPollState(1_000, 5_000);
     expect(shouldRunBackgroundPoll(pollState, 1_000)).toBe(true);
     recordBackgroundPollResult(pollState, {
       now: 1_000,
-      baseIntervalMs: 10_000,
-      maxIntervalMs: 60_000,
+      baseIntervalMs: 5_000,
+      maxIntervalMs: 20_000,
       changed: false,
     });
-    expect(pollState.currentIntervalMs).toBe(20_000);
-    expect(shouldRunBackgroundPoll(pollState, 20_000)).toBe(false);
+    expect(pollState.currentIntervalMs).toBe(10_000);
+    expect(shouldRunBackgroundPoll(pollState, 10_000)).toBe(false);
     recordBackgroundPollResult(pollState, {
-      now: 30_000,
-      baseIntervalMs: 10_000,
-      maxIntervalMs: 60_000,
+      now: 12_000,
+      baseIntervalMs: 5_000,
+      maxIntervalMs: 20_000,
       changed: true,
     });
-    expect(pollState.currentIntervalMs).toBe(10_000);
+    expect(pollState.currentIntervalMs).toBe(5_000);
     expect(
       shouldRunRealtimeSessionAutosync({
         mode: "realtime",

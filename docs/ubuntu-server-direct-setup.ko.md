@@ -187,9 +187,9 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/Codes/Codex_discord
 Environment=NODE_ENV=production
-Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=10000
-Environment=CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=10000
-Environment=CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=60000
+Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=3000
+Environment=CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=5000
+Environment=CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=20000
 Environment=CONNECT_BACKGROUND_MAX_LOAD=0.7
 ExecStart=/usr/bin/env pnpm connect start --direct
 Restart=always
