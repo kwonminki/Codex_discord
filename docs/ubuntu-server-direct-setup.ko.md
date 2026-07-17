@@ -214,6 +214,25 @@ sudo systemctl status codex-discord-connector --no-pager
 journalctl -u codex-discord-connector -f
 ```
 
+## GPU와 sandbox
+
+GPU 작업을 서버에서 실행하려면 먼저 Codex 밖에서 GPU가 보여야 합니다.
+
+```bash
+nvidia-smi
+ls -l /dev/nvidia* /dev/dri/renderD* 2>/dev/null
+groups "$USER"
+```
+
+Codex sandbox까지 풀어야 하는 서버라면 service 환경에 아래를 추가할 수 있습니다. 신뢰하는 서버와 private Discord에서만 사용하세요.
+
+```ini
+Environment=CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
+Environment=CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
+```
+
+connector를 Docker 안에서 돌린다면 host에서 GPU가 보여도 container에 자동으로 전달되지 않습니다. NVIDIA Container Toolkit을 설치하고 `docker run --gpus all ...` 또는 compose의 GPU device 설정으로 `/dev/nvidia*`를 container 안에 노출해야 합니다.
+
 재시작:
 
 ```bash

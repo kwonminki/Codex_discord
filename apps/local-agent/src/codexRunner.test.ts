@@ -147,6 +147,62 @@ describe("runCodexPrompt", () => {
     }
   });
 
+  it("passes configured Codex sandbox and approval policy to exec runs", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+    const fakeCodex = path.join(tempRoot, "codex");
+    const argsFile = path.join(tempRoot, "args.json");
+    const previousSandbox = process.env.CODEX_DISCORD_CODEX_SANDBOX;
+    const previousApproval = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY;
+
+    try {
+      process.env.CODEX_DISCORD_CODEX_SANDBOX = "danger-full-access";
+      process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY = "never";
+      await writeFile(
+        fakeCodex,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          `fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));`,
+          "const outputIndex = args.indexOf('--output-last-message');",
+          "fs.writeFileSync(args[outputIndex + 1], 'Configured permissions answer');",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeCodex, 0o755);
+
+      await runCodexPrompt({
+        workspaceRoot: tempRoot,
+        cwd: tempRoot,
+        prompt: "Explain this",
+        timeoutMs: 5_000,
+        codexCommand: fakeCodex,
+      });
+
+      const args = JSON.parse(await readFile(argsFile, "utf8")) as string[];
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "--sandbox",
+          "danger-full-access",
+          "--ask-for-approval",
+          "never",
+        ]),
+      );
+    } finally {
+      if (previousSandbox === undefined) {
+        delete process.env.CODEX_DISCORD_CODEX_SANDBOX;
+      } else {
+        process.env.CODEX_DISCORD_CODEX_SANDBOX = previousSandbox;
+      }
+      if (previousApproval === undefined) {
+        delete process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY;
+      } else {
+        process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY = previousApproval;
+      }
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("uses codex exec review for review mode", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
     const fakeCodex = path.join(tempRoot, "codex");

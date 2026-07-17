@@ -119,6 +119,15 @@ CONNECT_BACKGROUND_MAX_LOAD=0.7
 
 Background polling backs off when there are no new Codex events, and it skips expensive Codex log scans while normalized system load is above `CONNECT_BACKGROUND_MAX_LOAD`. Set `CONNECT_BACKGROUND_MAX_LOAD=0` to disable load-based skipping.
 
+To run Codex turns with the widest local permissions, add:
+
+```bash
+CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
+CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
+```
+
+Use this only on trusted machines and private Discord servers. For GPU work, the machine running the connector must already see the GPU outside Codex first. Check `nvidia-smi`, `/dev/nvidia*`, and any container runtime GPU settings before changing Codex sandbox settings.
+
 ## Development loop
 
 After changing code:

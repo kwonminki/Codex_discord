@@ -55,9 +55,10 @@ export interface RunCodexPromptResult {
   timedOut?: boolean;
 }
 
-const CODEX_EXEC_SANDBOX_ARGS = ["--sandbox", "workspace-write"] as const;
 const DYNAMIC_TOOLS_UNSUPPORTED_ERROR_CODE = "CODEX_EXEC_DYNAMIC_TOOLS_UNSUPPORTED";
 const DYNAMIC_TOOLS_UNSUPPORTED_PATTERN = /dynamic tool calls are not supported in exec mode/i;
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+type CodexApprovalPolicy = "untrusted" | "on-request" | "never";
 
 interface RawCodexProgressItem {
   type?: unknown;
@@ -468,11 +469,35 @@ function reasoningEffortArgs(input: RunCodexPromptInput): string[] {
   return effort ? ["-c", `model_reasoning_effort="${effort}"`] : [];
 }
 
+function codexSandboxMode(): CodexSandboxMode {
+  const configured = process.env.CODEX_DISCORD_CODEX_SANDBOX?.trim();
+
+  return configured === "read-only" || configured === "workspace-write" || configured === "danger-full-access"
+    ? configured
+    : "workspace-write";
+}
+
+function codexApprovalPolicy(): CodexApprovalPolicy {
+  const configured = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY?.trim();
+
+  return configured === "untrusted" || configured === "never" || configured === "on-request"
+    ? configured
+    : "on-request";
+}
+
+function codexExecPermissionArgs(): string[] {
+  if (process.env.CODEX_DISCORD_CODEX_BYPASS_APPROVALS_AND_SANDBOX === "1") {
+    return ["--dangerously-bypass-approvals-and-sandbox"];
+  }
+
+  return ["--sandbox", codexSandboxMode(), "--ask-for-approval", codexApprovalPolicy()];
+}
+
 function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: string): string[] {
   if (input.mode === "review") {
     return [
       "exec",
-      ...CODEX_EXEC_SANDBOX_ARGS,
+      ...codexExecPermissionArgs(),
       "review",
       "--json",
       ...modelArgs(input),
@@ -486,7 +511,7 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: st
   if (input.sessionId) {
     return [
       "exec",
-      ...CODEX_EXEC_SANDBOX_ARGS,
+      ...codexExecPermissionArgs(),
       "resume",
       "--json",
       ...modelArgs(input),
@@ -502,7 +527,7 @@ function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: st
   return [
     "exec",
     "--json",
-    ...CODEX_EXEC_SANDBOX_ARGS,
+    ...codexExecPermissionArgs(),
     ...modelArgs(input),
     ...reasoningEffortArgs(input),
     "--skip-git-repo-check",

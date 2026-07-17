@@ -60,6 +60,7 @@ const APP_SERVER_UNSUPPORTED_REVIEW_CODE = "CODEX_APP_SERVER_REVIEW_UNSUPPORTED"
 const APP_SERVER_CLIENT_NAME = "codex-discord-connector";
 const APP_SERVER_APPROVAL_POLICY = "on-request";
 const APP_SERVER_APPROVALS_REVIEWER = "user";
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 function isAscii(value: string): boolean {
   return /^[\x00-\x7F]*$/.test(value);
@@ -248,7 +249,28 @@ function model(input: RunCodexAppServerPromptInput): string | null {
   return input.model?.trim() || null;
 }
 
+function sandboxMode(): CodexSandboxMode {
+  const configured = process.env.CODEX_DISCORD_CODEX_SANDBOX?.trim();
+
+  return configured === "read-only" || configured === "workspace-write" || configured === "danger-full-access"
+    ? configured
+    : "workspace-write";
+}
+
 function turnSandboxPolicy(cwd: string) {
+  const mode = sandboxMode();
+
+  if (mode === "danger-full-access") {
+    return { type: "dangerFullAccess" };
+  }
+
+  if (mode === "read-only") {
+    return {
+      type: "readOnly",
+      networkAccess: true,
+    };
+  }
+
   return {
     type: "workspaceWrite",
     writableRoots: [cwd],
@@ -705,6 +727,7 @@ async function runPromptAgainstAppServer(input: {
           notification("initialized");
 
           const currentApprovalPolicy = approvalPolicy();
+          const currentSandboxMode = sandboxMode();
           const threadResult = input.input.sessionId
             ? await request("thread/resume", {
                 threadId: input.input.sessionId,
@@ -712,7 +735,7 @@ async function runPromptAgainstAppServer(input: {
                 runtimeWorkspaceRoots: [input.cwd],
                 approvalPolicy: currentApprovalPolicy,
                 approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
-                sandbox: "workspace-write",
+                sandbox: currentSandboxMode,
                 model: model(input.input),
               })
             : await request("thread/start", {
@@ -720,7 +743,7 @@ async function runPromptAgainstAppServer(input: {
                 runtimeWorkspaceRoots: [input.cwd],
                 approvalPolicy: currentApprovalPolicy,
                 approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
-                sandbox: "workspace-write",
+                sandbox: currentSandboxMode,
                 threadSource: "codex-discord",
                 model: model(input.input),
               });

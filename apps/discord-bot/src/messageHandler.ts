@@ -326,11 +326,18 @@ function hasAllowedRole(userRoleIds: string[], allowedRoleIds: string[]): boolea
 
 function codexPermissionSettings(): CodexPermissionSettings {
   const approvalPolicy = process.env.CODEX_DISCORD_CODEX_APPROVAL_POLICY?.trim() || "on-request";
+  const configuredSandbox = process.env.CODEX_DISCORD_CODEX_SANDBOX?.trim();
+  const sandbox =
+    configuredSandbox === "read-only" ||
+    configuredSandbox === "workspace-write" ||
+    configuredSandbox === "danger-full-access"
+      ? configuredSandbox
+      : "workspace-write";
 
   return {
     approvalPolicy,
     approvalsReviewer: "user",
-    sandbox: "workspace-write",
+    sandbox,
     networkAccess: "enabled",
   };
 }
