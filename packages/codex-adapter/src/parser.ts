@@ -72,9 +72,32 @@ interface CachedThreadStates {
   states: Map<string, CodexThreadState>;
 }
 
+interface CachedSessionIndex {
+  mtimeMs: number;
+  size: number;
+  entries: CodexSessionIndexEntry[];
+}
+
+interface DirectoryEntrySnapshot {
+  name: string;
+  isDirectory: boolean;
+  isFile: boolean;
+}
+
+interface CachedDirectoryEntries {
+  mtimeMs: number;
+  size: number;
+  entries: DirectoryEntrySnapshot[];
+}
+
 const MAX_SESSION_DETAILS_CACHE_ENTRIES = 512;
+const SESSION_DETAIL_HEAD_BYTES = 64 * 1024;
+const SESSION_DETAIL_TAIL_BYTES = 2 * 1024 * 1024;
 const sessionDetailsCache = new Map<string, CachedSessionDetails>();
+const sessionFilePathCache = new Map<string, string>();
+const sessionIndexCache = new Map<string, CachedSessionIndex>();
 const threadStatesCache = new Map<string, CachedThreadStates>();
+const directoryEntriesCache = new Map<string, CachedDirectoryEntries>();
 
 export function parseSessionIndexLine(line: string): CodexSessionIndexEntry {
   const parsed = JSON.parse(line) as { id?: string; thread_name?: string; updated_at?: string };
@@ -115,25 +138,30 @@ export function parseSessionMetaLine(line: string): CodexSessionMeta | null {
   };
 }
 
-export async function discoverCodexSessions(
-  codexHome: string,
-  options: DiscoverCodexSessionsOptions = {},
-): Promise<DiscoveredCodexSession[]> {
-  const indexPath = path.join(codexHome, "session_index.jsonl");
-  const indexText = await readTextIfExists(indexPath);
+async function readSessionIndexEntries(indexPath: string): Promise<CodexSessionIndexEntry[] | null> {
+  const stats = await statIfExists(indexPath);
 
-  if (indexText === null && (!options.includeSessionIds || options.includeSessionIds.length === 0)) {
-    return [];
+  if (!stats) {
+    sessionIndexCache.delete(indexPath);
+    return null;
   }
 
-  const [sessionFilesById, archivedSessionIds, threadStates] = await Promise.all([
-    buildSessionFileIndex(path.join(codexHome, "sessions")),
-    buildArchivedSessionIds(path.join(codexHome, "archived_sessions")),
-    readCodexThreadStates(codexHome),
-  ]);
+  const cached = sessionIndexCache.get(indexPath);
+
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.entries;
+  }
+
+  const indexText = await readTextIfExists(indexPath);
+
+  if (indexText === null) {
+    sessionIndexCache.delete(indexPath);
+    return null;
+  }
+
   const entries: CodexSessionIndexEntry[] = [];
 
-  for (const line of (indexText ?? "").split("\n").filter(Boolean)) {
+  for (const line of indexText.split("\n").filter(Boolean)) {
     try {
       entries.push(parseSessionIndexLine(line));
     } catch {
@@ -142,6 +170,32 @@ export async function discoverCodexSessions(
   }
 
   entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  sessionIndexCache.set(indexPath, {
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
+    entries,
+  });
+
+  return entries;
+}
+
+export async function discoverCodexSessions(
+  codexHome: string,
+  options: DiscoverCodexSessionsOptions = {},
+): Promise<DiscoveredCodexSession[]> {
+  const indexPath = path.join(codexHome, "session_index.jsonl");
+  const indexEntries = await readSessionIndexEntries(indexPath);
+
+  if (indexEntries === null && (!options.includeSessionIds || options.includeSessionIds.length === 0)) {
+    return [];
+  }
+
+  const sessionsRoot = path.join(codexHome, "sessions");
+  const [archivedSessionIds, threadStates] = await Promise.all([
+    buildArchivedSessionIds(path.join(codexHome, "archived_sessions")),
+    readCodexThreadStates(codexHome),
+  ]);
+  const entries = indexEntries ?? [];
 
   const visibleEntries = entries.filter((entry) =>
     shouldIncludeSession(entry.id, {
@@ -152,6 +206,7 @@ export async function discoverCodexSessions(
     }),
   );
   const visibleIds = new Set(visibleEntries.map((entry) => entry.id));
+  const sessionFilesById = await findSessionFilesByIds(sessionsRoot, visibleEntries.map((entry) => entry.id));
   const explicitEntries: CodexSessionIndexEntry[] = [];
 
   for (const sessionId of options.includeSessionIds ?? []) {
@@ -159,12 +214,13 @@ export async function discoverCodexSessions(
       continue;
     }
 
-    const sessionFile = sessionFilesById.get(sessionId);
+    const sessionFile = sessionFilesById.get(sessionId) ?? await findSessionFileById(sessionsRoot, sessionId);
 
     if (!sessionFile) {
       continue;
     }
 
+    sessionFilesById.set(sessionId, sessionFile);
     explicitEntries.push(await fallbackSessionIndexEntry(sessionFile, sessionId));
     visibleIds.add(sessionId);
   }
@@ -290,42 +346,32 @@ async function findSessionDetails(
     return cached.details;
   }
 
-  const text = await readTextIfExists(sessionFile);
+  if (cached && stats.size > cached.size) {
+    const appendedText = await readTextSliceIfExists(sessionFile, cached.size, stats.size - cached.size);
 
-  if (text === null) {
-    sessionDetailsCache.delete(cacheKey);
-    return { cwdHint: null };
-  }
+    if (appendedText !== null) {
+      const details = mergeSessionDetails(
+        cached.details,
+        parseSessionDetailsText(sessionId, appendedText, options),
+        options,
+      );
 
-  let cwdHint: string | null = null;
+      rememberSessionDetails(cacheKey, {
+        mtimeMs: stats.mtimeMs,
+        size: stats.size,
+        details,
+      });
 
-  for (const line of text.split("\n").filter(Boolean)) {
-    const meta = parseSessionMetaLine(line);
-    if (meta?.id === sessionId) {
-      cwdHint = meta.cwd;
-      break;
+      return details;
     }
   }
 
-  const details: SessionDetails = {
-    cwdHint,
-    ...(options.includeContextPreview
-      ? {
-          contextPreview: parseSessionContextPreview(text, {
-            messageLimit: options.contextMessageLimit ?? 6,
-            messageMaxChars: options.contextMessageMaxChars ?? 1_000,
-          }),
-        }
-      : {}),
-    ...(options.includeRealtimeEvents
-      ? {
-          realtimeEvents: parseSessionRealtimeEvents(text, {
-            eventLimit: options.realtimeEventLimit ?? 30,
-            messageMaxChars: options.contextMessageMaxChars ?? 1_000,
-          }),
-        }
-      : {}),
-  };
+  const details = await readSessionDetailsFromFile(sessionFile, sessionId, stats.size, options);
+
+  if (details === null) {
+    sessionDetailsCache.delete(cacheKey);
+    return { cwdHint: null };
+  }
 
   rememberSessionDetails(cacheKey, {
     mtimeMs: stats.mtimeMs,
@@ -334,6 +380,117 @@ async function findSessionDetails(
   });
 
   return details;
+}
+
+async function readSessionDetailsFromFile(
+  sessionFile: string,
+  sessionId: string,
+  size: number,
+  options: DiscoverCodexSessionsOptions,
+): Promise<SessionDetails | null> {
+  if (size <= SESSION_DETAIL_HEAD_BYTES + SESSION_DETAIL_TAIL_BYTES) {
+    const text = await readTextIfExists(sessionFile);
+    return text === null ? null : parseSessionDetailsText(sessionId, text, options);
+  }
+
+  const tailStart = Math.max(0, size - SESSION_DETAIL_TAIL_BYTES);
+  const [headText, rawTailText] = await Promise.all([
+    readTextSliceIfExists(sessionFile, 0, Math.min(size, SESSION_DETAIL_HEAD_BYTES)),
+    readTextSliceIfExists(sessionFile, tailStart, size - tailStart),
+  ]);
+
+  if (headText === null || rawTailText === null) {
+    return null;
+  }
+
+  const tailText = tailStart > 0 ? dropLeadingPartialLine(rawTailText) : rawTailText;
+  const tailDetails = parseSessionDetailsText(sessionId, tailText, options);
+
+  return {
+    ...tailDetails,
+    cwdHint: tailDetails.cwdHint ?? parseSessionCwdHint(sessionId, headText),
+  };
+}
+
+function parseSessionDetailsText(
+  sessionId: string,
+  text: string,
+  options: DiscoverCodexSessionsOptions,
+): SessionDetails {
+  return {
+    cwdHint: parseSessionCwdHint(sessionId, text),
+    ...(options.includeContextPreview
+      ? {
+          contextPreview: parseSessionContextPreview(text, {
+            messageLimit: contextMessageLimit(options),
+            messageMaxChars: contextMessageMaxChars(options),
+          }),
+        }
+      : {}),
+    ...(options.includeRealtimeEvents
+      ? {
+          realtimeEvents: parseSessionRealtimeEvents(text, {
+            eventLimit: realtimeEventLimit(options),
+            messageMaxChars: contextMessageMaxChars(options),
+          }),
+        }
+      : {}),
+  };
+}
+
+function parseSessionCwdHint(sessionId: string, text: string): string | null {
+  for (const line of text.split("\n").filter(Boolean)) {
+    const meta = parseSessionMetaLine(line);
+    if (meta?.id === sessionId) {
+      return meta.cwd;
+    }
+  }
+
+  return null;
+}
+
+function dropLeadingPartialLine(text: string): string {
+  const firstNewlineIndex = text.indexOf("\n");
+
+  return firstNewlineIndex >= 0 ? text.slice(firstNewlineIndex + 1) : "";
+}
+
+function mergeSessionDetails(
+  previous: SessionDetails,
+  appended: SessionDetails,
+  options: DiscoverCodexSessionsOptions,
+): SessionDetails {
+  return {
+    cwdHint: appended.cwdHint ?? previous.cwdHint,
+    ...(options.includeContextPreview
+      ? {
+          contextPreview: [
+            ...(previous.contextPreview ?? []),
+            ...(appended.contextPreview ?? []),
+          ].slice(-contextMessageLimit(options)),
+        }
+      : {}),
+    ...(options.includeRealtimeEvents
+      ? {
+          realtimeEvents: [
+            ...(previous.realtimeEvents ?? []),
+            ...(appended.realtimeEvents ?? []),
+          ].slice(-realtimeEventLimit(options)),
+        }
+      : {}),
+  };
+}
+
+function contextMessageLimit(options: DiscoverCodexSessionsOptions): number {
+  return Math.max(1, options.contextMessageLimit ?? 6);
+}
+
+function contextMessageMaxChars(options: DiscoverCodexSessionsOptions): number {
+  return options.contextMessageMaxChars ?? 1_000;
+}
+
+function realtimeEventLimit(options: DiscoverCodexSessionsOptions): number {
+  return Math.max(1, options.realtimeEventLimit ?? 30);
 }
 
 function sessionDetailsCacheKey(sessionFile: string, options: DiscoverCodexSessionsOptions): string {
@@ -359,6 +516,116 @@ function rememberSessionDetails(cacheKey: string, value: CachedSessionDetails) {
   sessionDetailsCache.set(cacheKey, value);
 }
 
+async function findSessionFilesByIds(root: string, sessionIds: string[]): Promise<Map<string, string>> {
+  const filesById = new Map<string, string>();
+  const uniqueSessionIds = [...new Set(sessionIds)];
+
+  await Promise.all(
+    uniqueSessionIds.map(async (sessionId) => {
+      const sessionFile = await findSessionFileById(root, sessionId);
+
+      if (sessionFile) {
+        filesById.set(sessionId, sessionFile);
+      }
+    }),
+  );
+
+  return filesById;
+}
+
+async function findSessionFileById(root: string, sessionId: string): Promise<string | null> {
+  const cacheKey = sessionFilePathCacheKey(root, sessionId);
+  const cachedPath = sessionFilePathCache.get(cacheKey);
+
+  if (cachedPath) {
+    const cachedStats = await statIfExists(cachedPath);
+
+    if (cachedStats?.isFile) {
+      return cachedPath;
+    }
+
+    sessionFilePathCache.delete(cacheKey);
+  }
+
+  for (const directory of candidateSessionDirectories(root, sessionId)) {
+    const sessionFile = await findSessionFileInDirectory(directory, sessionId);
+
+    if (sessionFile) {
+      sessionFilePathCache.set(cacheKey, sessionFile);
+      return sessionFile;
+    }
+  }
+
+  const sessionFilesById = await buildSessionFileIndex(root);
+  const sessionFile = sessionFilesById.get(sessionId) ?? null;
+
+  if (sessionFile) {
+    sessionFilePathCache.set(cacheKey, sessionFile);
+  }
+
+  return sessionFile;
+}
+
+function sessionFilePathCacheKey(root: string, sessionId: string): string {
+  return `${root}\0${sessionId}`;
+}
+
+async function findSessionFileInDirectory(directory: string, sessionId: string): Promise<string | null> {
+  const entries = await listDirectoryEntries(directory);
+  const sessionFileName = entries
+    .filter((entry) => entry.isFile && entry.name.endsWith(".jsonl"))
+    .map((entry) => entry.name)
+    .find((name) => name.endsWith(`-${sessionId}.jsonl`));
+
+  return sessionFileName ? path.join(directory, sessionFileName) : null;
+}
+
+function candidateSessionDirectories(root: string, sessionId: string): string[] {
+  const timestampMs = uuidV7TimestampMs(sessionId);
+
+  if (timestampMs === null) {
+    return [];
+  }
+
+  const oneDayMs = 24 * 60 * 60 * 1_000;
+  const dateParts: string[] = [];
+
+  for (const dayOffset of [-1, 0, 1]) {
+    const date = new Date(timestampMs + dayOffset * oneDayMs);
+    dateParts.push(formatLocalDatePath(date), formatUtcDatePath(date));
+  }
+
+  return [...new Set(dateParts)].map((datePath) => path.join(root, datePath));
+}
+
+function uuidV7TimestampMs(sessionId: string): number | null {
+  const normalized = sessionId.replace(/-/g, "").toLowerCase();
+
+  if (!/^[0-9a-f]{32}$/.test(normalized)) {
+    return null;
+  }
+
+  const timestampMs = Number.parseInt(normalized.slice(0, 12), 16);
+
+  return Number.isSafeInteger(timestampMs) ? timestampMs : null;
+}
+
+function formatLocalDatePath(date: Date): string {
+  return [
+    date.getFullYear().toString().padStart(4, "0"),
+    (date.getMonth() + 1).toString().padStart(2, "0"),
+    date.getDate().toString().padStart(2, "0"),
+  ].join(path.sep);
+}
+
+function formatUtcDatePath(date: Date): string {
+  return [
+    date.getUTCFullYear().toString().padStart(4, "0"),
+    (date.getUTCMonth() + 1).toString().padStart(2, "0"),
+    date.getUTCDate().toString().padStart(2, "0"),
+  ].join(path.sep);
+}
+
 async function buildSessionFileIndex(root: string): Promise<Map<string, string>> {
   const index = new Map<string, string>();
   const files = await listJsonlFiles(root);
@@ -367,6 +634,7 @@ async function buildSessionFileIndex(root: string): Promise<Map<string, string>>
     const match = path.basename(file).match(/^.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
     if (match) {
       index.set(match[1], file);
+      sessionFilePathCache.set(sessionFilePathCacheKey(root, match[1]), file);
     }
   }
 
@@ -817,30 +1085,62 @@ async function findCodexStateDatabase(codexHome: string): Promise<string | null>
 }
 
 async function listJsonlFiles(root: string): Promise<string[]> {
+  const entries = await listDirectoryEntries(root);
+
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const fullPath = path.join(root, entry.name);
+      if (entry.isDirectory) {
+        return listJsonlFiles(fullPath);
+      }
+
+      return entry.isFile && entry.name.endsWith(".jsonl") ? [fullPath] : [];
+    }),
+  );
+
+  return nested.flat();
+}
+
+async function listDirectoryEntries(root: string): Promise<DirectoryEntrySnapshot[]> {
+  const stats = await statIfExists(root);
+
+  if (!stats?.isDirectory) {
+    directoryEntriesCache.delete(root);
+    return [];
+  }
+
+  const cached = directoryEntriesCache.get(root);
+
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.entries;
+  }
+
   let entries: import("node:fs").Dirent[];
 
   try {
     entries = await fs.readdir(root, { withFileTypes: true });
   } catch (error) {
     if (isEnoent(error)) {
+      directoryEntriesCache.delete(root);
       return [];
     }
 
     throw error;
   }
 
-  const nested = await Promise.all(
-    entries.map(async (entry) => {
-      const fullPath = path.join(root, entry.name);
-      if (entry.isDirectory()) {
-        return listJsonlFiles(fullPath);
-      }
+  const snapshots = entries.map((entry) => ({
+    name: entry.name,
+    isDirectory: entry.isDirectory(),
+    isFile: entry.isFile(),
+  }));
 
-      return entry.isFile() && entry.name.endsWith(".jsonl") ? [fullPath] : [];
-    }),
-  );
+  directoryEntriesCache.set(root, {
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
+    entries: snapshots,
+  });
 
-  return nested.flat();
+  return snapshots;
 }
 
 async function readTextIfExists(filePath: string): Promise<string | null> {
@@ -855,10 +1155,39 @@ async function readTextIfExists(filePath: string): Promise<string | null> {
   }
 }
 
-async function statIfExists(filePath: string): Promise<{ mtimeMs: number; size: number } | null> {
+async function readTextSliceIfExists(filePath: string, start: number, length: number): Promise<string | null> {
+  let handle: fs.FileHandle | null = null;
+
+  try {
+    handle = await fs.open(filePath, "r");
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, start);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } catch (error) {
+    if (isEnoent(error)) {
+      return null;
+    }
+
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+async function statIfExists(filePath: string): Promise<{
+  mtimeMs: number;
+  size: number;
+  isDirectory: boolean;
+  isFile: boolean;
+} | null> {
   try {
     const stats = await fs.stat(filePath);
-    return { mtimeMs: stats.mtimeMs, size: stats.size };
+    return {
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      isDirectory: stats.isDirectory(),
+      isFile: stats.isFile(),
+    };
   } catch (error) {
     if (isEnoent(error)) {
       return null;

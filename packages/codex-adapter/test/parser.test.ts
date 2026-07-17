@@ -281,6 +281,110 @@ describe("codex parser", () => {
     await fs.rm(codexHome, { recursive: true, force: true });
   });
 
+  it("keeps cached session details current when a transcript file grows", async () => {
+    const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-adapter-"));
+    const sessionId = "019dbcc5-5d37-7662-9b8e-d9f1eb824fc2";
+    const sessionFile = path.join(codexHome, "sessions", "2026", "04", "24", `rollout-${sessionId}.jsonl`);
+
+    await fs.writeFile(
+      path.join(codexHome, "session_index.jsonl"),
+      `{"id":"${sessionId}","thread_name":"Incremental session","updated_at":"2026-04-24T01:15:24.714Z"}\n`,
+      "utf8",
+    );
+    await fs.mkdir(path.dirname(sessionFile), { recursive: true });
+    await fs.writeFile(
+      sessionFile,
+      [
+        `{"timestamp":"2026-04-24T01:15:24.714Z","type":"session_meta","payload":{"id":"${sessionId}","cwd":"/Users/me/project"}}`,
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "task_started" },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    await expect(
+      discoverCodexSessions(codexHome, {
+        activeOnly: false,
+        includeExecSessions: true,
+        includeRealtimeEvents: true,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        cwdHint: "/Users/me/project",
+        realtimeEvents: [expect.objectContaining({ text: "작업 시작" })],
+      }),
+    ]);
+
+    await fs.appendFile(
+      sessionFile,
+      JSON.stringify({
+        type: "event_msg",
+        payload: { type: "task_complete" },
+      }) + "\n",
+      "utf8",
+    );
+
+    await expect(
+      discoverCodexSessions(codexHome, {
+        activeOnly: false,
+        includeExecSessions: true,
+        includeRealtimeEvents: true,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        cwdHint: "/Users/me/project",
+        realtimeEvents: [
+          expect.objectContaining({ text: "작업 시작" }),
+          expect.objectContaining({ text: "작업 완료" }),
+        ],
+      }),
+    ]);
+
+    await fs.rm(codexHome, { recursive: true, force: true });
+  });
+
+  it("reads large session transcripts from the head and tail for recent events", async () => {
+    const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-adapter-"));
+    const sessionId = "019dbcc5-5d37-7662-9b8e-d9f1eb824fc2";
+    const sessionFile = path.join(codexHome, "sessions", "2026", "04", "24", `rollout-${sessionId}.jsonl`);
+
+    await fs.writeFile(
+      path.join(codexHome, "session_index.jsonl"),
+      `{"id":"${sessionId}","thread_name":"Large session","updated_at":"2026-04-24T01:15:24.714Z"}\n`,
+      "utf8",
+    );
+    await fs.mkdir(path.dirname(sessionFile), { recursive: true });
+    await fs.writeFile(
+      sessionFile,
+      [
+        `{"timestamp":"2026-04-24T01:15:24.714Z","type":"session_meta","payload":{"id":"${sessionId}","cwd":"/Users/me/project"}}`,
+        "x".repeat(2_200_000),
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "task_complete" },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    await expect(
+      discoverCodexSessions(codexHome, {
+        activeOnly: false,
+        includeExecSessions: true,
+        includeRealtimeEvents: true,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        cwdHint: "/Users/me/project",
+        realtimeEvents: [expect.objectContaining({ text: "작업 완료" })],
+      }),
+    ]);
+
+    await fs.rm(codexHome, { recursive: true, force: true });
+  });
+
   it("can discover an explicitly linked session even when it is absent from the session index", async () => {
     const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-adapter-"));
     const sessionId = "019dbcc5-5d37-7662-9b8e-d9f1eb824fc2";
