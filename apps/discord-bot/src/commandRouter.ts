@@ -3,6 +3,7 @@ import {
   parseDiscordMessageCommand,
   type ChannelMode,
 } from "../../../packages/core/src/index.js";
+import { CODEX_DISCORD_HOW_TO_USE_PROMPT } from "./codexUsagePrompt.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest } from "./scheduler.js";
 
@@ -116,6 +117,12 @@ function parseCodexShortcut(content: string): { content: string } | null {
   if (skill) {
     return {
       content: `${skill[1]} skill을 적용해서 다음 요청을 처리해줘: ${skill[2].trim()}`,
+    };
+  }
+
+  if (/^(?:howtouse|how-to-use|사용법)$/i.test(normalized)) {
+    return {
+      content: CODEX_DISCORD_HOW_TO_USE_PROMPT,
     };
   }
 

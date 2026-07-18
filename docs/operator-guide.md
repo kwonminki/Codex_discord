@@ -131,7 +131,7 @@ Session channels do not manage global bridge state. `/sync`, `/sync-all`, `/sync
 
 Component-generated shell commands are routed internally, so file/Git/Test buttons work in session-linked channels even though manually typed shell commands still use the `!` prefix. New-chat buttons open a modal for channel name and initial prompt; `현재 폴더 채팅` and `여기서 새 채팅` use the channel's current cwd.
 
-Codex progress updates are shown as plain Korean text rather than raw JSON event names. Typical statuses are `요청 접수됨`, `세션 연결됨`, `파일 탐색 중`, `이미지 생성 중`, `컨텍스트 압축 중`, `답변 작성 중`, and `응답 정리 중`. If Codex references a local generated image in the final message, the bot attaches that image file to the Discord reply; remote image URLs are included in message content so Discord can preview them.
+Codex progress updates are shown as plain Korean text rather than raw JSON event names. Typical statuses are `요청 접수됨`, `세션 연결됨`, `파일 탐색 중`, `이미지 생성 중`, `컨텍스트 압축 중`, `답변 작성 중`, and `응답 정리 중`. If Codex references a local generated image in the final message, the bot attaches that image file to the Discord reply; remote image URLs are included in message content so Discord can preview them. For explicit file or video uploads, Codex can include a `codex-discord-send` fenced JSON block with `message` and `files`; the bot hides the block and uploads existing local files. Run `/howtouse` in a session channel to inject this format into that Codex session.
 
 Codex prompt runs use `CONNECT_CODEX_PROMPT_TIMEOUT_MS`, defaulting to 5 hours. Set it to a millisecond value such as `7200000` for 2 hours, or `0` to disable the overall Codex prompt timeout. Shell commands still use the shorter channel timeout.
 

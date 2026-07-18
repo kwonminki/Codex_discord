@@ -9,7 +9,7 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 - Discord 관리자 채널에서 로컬 컴퓨터의 파일 구조를 탐색하고 shell 명령을 실행합니다.
 - Discord에서 Codex에게 자연어로 요청하고 진행 상황과 최종 답변을 받습니다.
 - Codex의 작업 과정을 `파일 탐색 중`, `이미지 생성 중`, `컨텍스트 압축 중`처럼 한국어 진행 상태로 표시합니다.
-- Codex가 최종 답변에 로컬 이미지 파일을 포함하면 Discord 메시지에 이미지 파일로 첨부합니다.
+- Codex가 최종 답변에 로컬 이미지 또는 `codex-discord-send` 첨부 블록을 포함하면 Discord 메시지에 파일로 첨부합니다.
 - Codex workspace 폴더를 Discord 카테고리로, Codex 세션을 Discord 텍스트 채널로 동기화합니다.
 - `sync` 기본값은 세션 선택 UI입니다. 전체 동기화는 `sync all` 또는 `/sync-all`로 명시해야 합니다.
 - Codex thread state에서 활성으로 확인된 앱 세션만 가져옵니다.
@@ -256,6 +256,7 @@ chat new cwd:/Users/me/project name:주간 보고서
 | `/review prompt:<관점>` | `codex exec review`로 현재 변경사항을 리뷰시킵니다. |
 | `/fix-tests` | 테스트 실행, 실패 분석, 수정, 재검증을 요청합니다. |
 | `/summarize target:<대상>` | 현재 채널 또는 지정 대상을 요약합니다. |
+| `/howtouse` | 현재 Codex 세션에 Discord 봇 사용법과 첨부 전송 형식을 안내합니다. |
 | `/compact prompt:<요청>` | 대화형 `/compact` passthrough가 아니라, 현재 작업 맥락을 압축 요약하도록 Codex에 요청합니다. |
 | `/skill name:<skill> prompt:<요청>` | 지정한 skill 관점으로 Codex 요청을 실행합니다. |
 | `/model model:<모델>` | 이 Discord 채널의 이후 Codex 실행에 사용할 모델을 설정합니다. |
@@ -367,6 +368,22 @@ Codex 요청 중에는 raw 이벤트명 대신 읽기 쉬운 한국어 상태가
 ```
 
 Codex가 최종 답변에 `![이미지](/로컬/절대/경로.png)` 형태의 로컬 이미지 파일을 포함하면, 봇은 해당 파일을 Discord 메시지에 첨부합니다. `https://...png` 같은 원격 이미지 URL은 메시지 본문에 함께 표시되어 Discord에서 미리보기로 볼 수 있습니다.
+
+이미지 외의 파일이나 동영상을 명시적으로 첨부하려면 Codex가 최종 답변에 아래 블록을 넣으면 됩니다. 봇은 이 제어 블록을 Discord 본문에서는 숨기고, 존재하는 로컬 파일만 첨부합니다.
+
+````text
+```codex-discord-send
+{
+  "message": "Discord 메시지에 같이 보여줄 문장",
+  "files": [
+    "/absolute/path/result.png",
+    {"path": "/absolute/path/demo.mp4", "name": "demo.mp4"}
+  ]
+}
+```
+````
+
+`files`에는 절대경로 또는 `file://` URL을 넣습니다. 기본 업로드 안전 한도는 파일당 25MB이며, 한 메시지에 최대 10개 파일을 첨부합니다. 세션 채널에서 `/howtouse`를 실행하면 이 형식이 현재 Codex 세션에 직접 전달됩니다.
 
 동기화된 세션 채널에서 Discord로 보낸 요청은 항상 같은 Codex 세션에 `resume`되므로, Codex Desktop 쪽에서도 같은 세션 안에서 새 사용자 요청과 처리 과정이 이어집니다.
 

@@ -39,6 +39,7 @@ describe("Discord application commands", () => {
       "review",
       "fix-tests",
       "summarize",
+      "howtouse",
       "where",
       "reload",
       "clear",
@@ -106,6 +107,21 @@ describe("Discord application commands", () => {
         }),
       }),
     ).toBe("codex frontend-design skill을 적용해서 다음 요청을 처리해줘: Discord UI를 더 직관적으로 개선해줘");
+  });
+
+  it("routes /howtouse into a Codex usage prompt", () => {
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "howtouse",
+        options: options({}),
+      }),
+    ).toEqual(expect.stringContaining("codex "));
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "howtouse",
+        options: options({}),
+      }),
+    ).toEqual(expect.stringContaining("codex-discord-send"));
   });
 
   it("routes supported /codex-command shortcuts to working bridge commands", () => {

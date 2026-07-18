@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { COMPONENT_IDS } from "./componentRouter.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
@@ -24,6 +24,8 @@ const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const ATTACH_TEXT_THRESHOLD = 1_000;
 const CODEX_PROGRESS_EVENT_LIMIT = 8;
+const MAX_DISCORD_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_DISCORD_FILES = 10;
 
 type ChannelMode = "shell-admin" | "session-linked";
 
@@ -327,6 +329,197 @@ function normalizeLocalImagePath(reference: string): string | null {
   return path.isAbsolute(reference) ? reference : null;
 }
 
+function normalizeLocalAttachmentPath(reference: string): string | null {
+  if (reference.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(reference).pathname);
+    } catch {
+      return null;
+    }
+  }
+
+  return path.isAbsolute(reference) ? reference : null;
+}
+
+function sanitizeDiscordFileName(name: string): string | null {
+  const cleaned = path.basename(name).replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  return cleaned.length > 0 ? cleaned.slice(0, 128) : null;
+}
+
+function normalizeCodexSendFileReference(value: unknown): { filePath: string; name: string | null } | null {
+  if (typeof value === "string") {
+    const filePath = normalizeLocalAttachmentPath(value.trim());
+    return filePath ? { filePath, name: null } : null;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawPath = record.path ?? record.file ?? record.attachment;
+
+  if (typeof rawPath !== "string") {
+    return null;
+  }
+
+  const filePath = normalizeLocalAttachmentPath(rawPath.trim());
+
+  if (!filePath) {
+    return null;
+  }
+
+  const rawName = record.name;
+  const name = typeof rawName === "string" ? sanitizeDiscordFileName(rawName) : null;
+
+  return { filePath, name };
+}
+
+function codexSendFileAttachment(
+  reference: { filePath: string; name: string | null },
+): { attachment: DiscordFilePayload | null; notice: string | null } {
+  if (!existsSync(reference.filePath)) {
+    return { attachment: null, notice: `첨부 파일을 찾지 못했습니다: ${reference.filePath}` };
+  }
+
+  let stat;
+
+  try {
+    stat = statSync(reference.filePath);
+  } catch {
+    return { attachment: null, notice: `첨부 파일 상태를 읽지 못했습니다: ${reference.filePath}` };
+  }
+
+  if (!stat.isFile()) {
+    return { attachment: null, notice: `일반 파일만 첨부할 수 있습니다: ${reference.filePath}` };
+  }
+
+  if (stat.size > MAX_DISCORD_ATTACHMENT_BYTES) {
+    const sizeMb = Math.ceil(stat.size / 1024 / 1024);
+    return {
+      attachment: null,
+      notice: `첨부 파일이 너무 큽니다: ${reference.filePath} (${sizeMb}MB, 최대 25MB)`,
+    };
+  }
+
+  return {
+    attachment: {
+      attachment: reference.filePath,
+      name: reference.name ?? (path.basename(reference.filePath) || "codex-file"),
+    },
+    notice: null,
+  };
+}
+
+function fileReferencesFromCodexSendPayload(payload: Record<string, unknown>): unknown[] {
+  const values = [payload.files, payload.attachments, payload.file].filter((value) => value !== undefined);
+  const references: unknown[] = [];
+
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      references.push(...value);
+    } else {
+      references.push(value);
+    }
+  }
+
+  return references;
+}
+
+function extractCodexDiscordSendOutputs(text: string): {
+  cleanedText: string;
+  attachments: DiscordFilePayload[];
+  messages: string[];
+  notices: string[];
+  hadBlocks: boolean;
+} {
+  const attachments: DiscordFilePayload[] = [];
+  const messages: string[] = [];
+  const notices: string[] = [];
+  const seenPaths = new Set<string>();
+  const blocks: string[] = [];
+  const blockPattern = /```(?:codex-discord-send|discord-send)\s*([\s\S]*?)```/gi;
+
+  for (const match of text.matchAll(blockPattern)) {
+    const block = match[0] ?? "";
+    const rawJson = (match[1] ?? "").trim();
+    blocks.push(block);
+
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      notices.push("codex-discord-send 블록의 JSON을 읽지 못했습니다.");
+      continue;
+    }
+
+    const payloads = Array.isArray(parsed) ? parsed : [parsed];
+
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        notices.push("codex-discord-send 항목은 JSON object여야 합니다.");
+        continue;
+      }
+
+      const record = payload as Record<string, unknown>;
+      const message = typeof record.message === "string" ? record.message.trim() : "";
+
+      if (message) {
+        messages.push(message);
+      }
+
+      for (const rawReference of fileReferencesFromCodexSendPayload(record)) {
+        const reference = normalizeCodexSendFileReference(rawReference);
+
+        if (!reference) {
+          notices.push("절대경로 또는 file:// URL인 첨부 파일만 처리했습니다.");
+          continue;
+        }
+
+        if (seenPaths.has(reference.filePath) || attachments.length >= MAX_DISCORD_FILES) {
+          continue;
+        }
+
+        seenPaths.add(reference.filePath);
+        const result = codexSendFileAttachment(reference);
+
+        if (result.attachment) {
+          attachments.push(result.attachment);
+        }
+
+        if (result.notice) {
+          notices.push(result.notice);
+        }
+      }
+    }
+  }
+
+  if (blocks.length === 0) {
+    return {
+      cleanedText: text,
+      attachments,
+      messages,
+      notices,
+      hadBlocks: false,
+    };
+  }
+
+  let cleanedText = text;
+
+  for (const block of blocks) {
+    cleanedText = cleanedText.replace(block, "");
+  }
+
+  return {
+    cleanedText: cleanedText.replace(/\n{3,}/g, "\n\n").trim(),
+    attachments,
+    messages,
+    notices,
+    hadBlocks: true,
+  };
+}
+
 function extractImageOutputs(text: string): { attachments: DiscordFilePayload[]; remoteUrls: string[] } {
   const attachments: DiscordFilePayload[] = [];
   const remoteUrls: string[] = [];
@@ -358,6 +551,24 @@ function extractImageOutputs(text: string): { attachments: DiscordFilePayload[];
   }
 
   return { attachments, remoteUrls };
+}
+
+function deduplicateDiscordFiles(files: DiscordFilePayload[]): DiscordFilePayload[] {
+  const seen = new Set<string>();
+  const deduped: DiscordFilePayload[] = [];
+
+  for (const file of files) {
+    const key = typeof file.attachment === "string" ? file.attachment : file.name ?? `buffer-${deduped.length}`;
+
+    if (seen.has(key) || deduped.length >= MAX_DISCORD_FILES) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(file);
+  }
+
+  return deduped;
 }
 
 function stripAttachedLocalImageMarkdown(text: string): string {
@@ -1184,7 +1395,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const sessionSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Session slash commands",
     value: codeBlock(
-      "/codex prompt:README 요약해줘\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
+      "/codex prompt:README 요약해줘\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
       "text",
     ),
     inline: false,
@@ -1241,7 +1452,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Session controls",
       value: codeBlock(
-        "model gpt-5.4\nfast\ntask\nmode default\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
+        "model gpt-5.4\nfast\ntask\nmode default\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
       inline: false,
@@ -2764,18 +2975,25 @@ export function formatCodexResultUpdate(
     });
   }
 
-  const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(finalMessage);
-  const visibleFinalMessage = stripAttachedLocalImageMarkdown(finalMessage);
+  const discordSendOutputs = failed
+    ? { cleanedText: finalMessage, attachments: [], messages: [], notices: [], hadBlocks: false }
+    : extractCodexDiscordSendOutputs(finalMessage);
+  const messageAfterDiscordSendBlocks = discordSendOutputs.cleanedText;
+  const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(messageAfterDiscordSendBlocks);
+  const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
   const openSessionActions = codexOpenSessionActions(sessionId);
 
   if (!failed) {
     const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
+    const attachedFileCount = imageOutputs.attachments.length + discordSendOutputs.attachments.length;
     const finalContent = [
-      visibleFinalMessage || (imageOutputs.attachments.length > 0 ? "생성 이미지 첨부" : finalMessage),
+      visibleFinalMessage,
+      ...discordSendOutputs.messages,
+      ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
       ...imageOutputs.remoteUrls,
     ]
       .filter((line) => line.trim().length > 0)
-      .join("\n");
+      .join("\n") || (attachedFileCount > 0 ? "첨부 파일을 보냈습니다." : finalMessage);
     const finalAttachmentName = "codex-final-message.txt";
     const shouldAttachFinal = finalContent.length > MAX_MESSAGE_CONTENT_LENGTH;
     const finalTextForDiscord = shouldAttachFinal
@@ -2785,9 +3003,15 @@ export function formatCodexResultUpdate(
           notice: "전체 답변은 첨부 파일",
         })
       : finalContent;
-    const finalFiles = shouldAttachFinal
-      ? [textAttachment(finalAttachmentName, finalMessage), ...imageOutputs.attachments]
-      : imageOutputs.attachments;
+    const finalFiles = deduplicateDiscordFiles(
+      shouldAttachFinal
+        ? [
+            textAttachment(finalAttachmentName, discordSendOutputs.hadBlocks ? finalContent : finalMessage),
+            ...discordSendOutputs.attachments,
+            ...imageOutputs.attachments,
+          ]
+        : [...discordSendOutputs.attachments, ...imageOutputs.attachments],
+    );
 
     if (recentEvents.length > 0) {
       const expanded = options.expanded ?? false;

@@ -62,6 +62,20 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes howtouse to the Codex Discord usage prompt", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "howtouse",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("codex-discord-send"),
+    });
+  });
+
   it("routes component-generated shell commands in session-linked channels", () => {
     expect(
       routeDiscordMessage({

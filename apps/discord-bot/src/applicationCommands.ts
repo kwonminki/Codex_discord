@@ -1,3 +1,5 @@
+import { CODEX_DISCORD_HOW_TO_USE_PROMPT } from "./codexUsagePrompt.js";
+
 const OPTION_TYPES = {
   string: 3,
   integer: 4,
@@ -214,6 +216,10 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
         description: "요약할 대상",
       }),
     ],
+  },
+  {
+    name: "howtouse",
+    description: "Discord 봇 사용법과 첨부 전송 형식을 현재 Codex 세션에 전달합니다.",
   },
   {
     name: "where",
@@ -558,6 +564,8 @@ export function routeDiscordApplicationCommand(
       return "codex 테스트를 실행하고 실패 원인을 분석한 뒤 수정해줘. 수정 후 테스트를 다시 실행해줘";
     case "summarize":
       return `codex ${interaction.options.getString("target")?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`;
+    case "howtouse":
+      return `codex ${CODEX_DISCORD_HOW_TO_USE_PROMPT}`;
     case "where":
       return "where";
     case "reload": {
