@@ -436,9 +436,11 @@ describe("notifyCodexTaskCompletions", () => {
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue(undefined);
     const videoPath = path.join(tempRoot, "demo.mp4");
+    const audioPath = path.join(tempRoot, "demo.wav");
 
     try {
       await writeFile(videoPath, "fake video");
+      await writeFile(audioPath, "fake audio");
       await notifyCodexTaskCompletions({
         guild: { sendTextMessage },
         stateStore,
@@ -458,8 +460,11 @@ describe("notifyCodexTaskCompletions", () => {
               "",
               "```codex-discord-send",
               JSON.stringify({
-                message: "테스트용 3초 MP4 파일입니다.",
-                files: [{ path: videoPath, name: "preview.mp4" }],
+                message: "테스트용 MP4와 WAV 파일입니다.",
+                files: [
+                  { path: videoPath, name: "preview.mp4" },
+                  { path: audioPath, name: "preview.wav" },
+                ],
               }),
               "```",
             ].join("\n"),
@@ -473,10 +478,13 @@ describe("notifyCodexTaskCompletions", () => {
         embeds: [
           expect.objectContaining({
             title: "답변",
-            description: "테스트 동영상 파일을 만들었습니다.\n테스트용 3초 MP4 파일입니다.",
+            description: "테스트 동영상 파일을 만들었습니다.\n테스트용 MP4와 WAV 파일입니다.",
           }),
         ],
-        files: [{ attachment: videoPath, name: "preview.mp4" }],
+        files: [
+          { attachment: videoPath, name: "preview.mp4" },
+          { attachment: audioPath, name: "preview.wav" },
+        ],
       });
       expect(JSON.stringify(payload)).not.toContain("codex-discord-send");
     } finally {

@@ -766,9 +766,11 @@ describe("responses", () => {
   it("attaches files from codex-discord-send blocks without showing the control block", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-discord-send-"));
     const videoPath = path.join(tempRoot, "demo.mp4");
+    const audioPath = path.join(tempRoot, "tone.wav");
 
     try {
       await writeFile(videoPath, "fake video");
+      await writeFile(audioPath, "fake audio");
 
       expect(
         formatCodexResultUpdate(
@@ -786,8 +788,11 @@ describe("responses", () => {
                 "",
                 "```codex-discord-send",
                 JSON.stringify({
-                  message: "동영상 첨부합니다.",
-                  files: [{ path: videoPath, name: "preview.mp4" }],
+                  message: "동영상과 오디오를 첨부합니다.",
+                  files: [
+                    { path: videoPath, name: "preview.mp4" },
+                    { path: audioPath, name: "tone.wav" },
+                  ],
                 }),
                 "```",
               ].join("\n"),
@@ -797,9 +802,12 @@ describe("responses", () => {
         ),
       ).toEqual(
         expect.objectContaining({
-          content: "완료했습니다.\n동영상 첨부합니다.",
+          content: "완료했습니다.\n동영상과 오디오를 첨부합니다.",
           embeds: [],
-          files: [{ attachment: videoPath, name: "preview.mp4" }],
+          files: [
+            { attachment: videoPath, name: "preview.mp4" },
+            { attachment: audioPath, name: "tone.wav" },
+          ],
         }),
       );
     } finally {
