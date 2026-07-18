@@ -2,6 +2,11 @@ import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { COMPONENT_IDS } from "./componentRouter.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
+import {
+  MAX_DISCORD_ATTACHMENT_BYTES,
+  MAX_DISCORD_ATTACHMENT_LABEL,
+  MAX_DISCORD_FILES,
+} from "./discordAttachmentLimits.js";
 import type { ScheduleCommandResult } from "./scheduler.js";
 
 const COLORS = {
@@ -24,8 +29,6 @@ const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const ATTACH_TEXT_THRESHOLD = 1_000;
 const CODEX_PROGRESS_EVENT_LIMIT = 8;
-const MAX_DISCORD_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-const MAX_DISCORD_FILES = 10;
 
 type ChannelMode = "shell-admin" | "session-linked";
 
@@ -317,6 +320,10 @@ function isImageReference(value: string): boolean {
   return /\.(?:png|jpe?g|gif|webp)(?:[?#].*)?$/i.test(value);
 }
 
+function isLocalMediaAttachmentReference(value: string): boolean {
+  return /\.(?:mp4|mov|webm|mkv|avi|mp3|wav|m4a|aac|flac|ogg)(?:[?#].*)?$/i.test(value);
+}
+
 function normalizeLocalImagePath(reference: string): string | null {
   if (reference.startsWith("file://")) {
     try {
@@ -398,7 +405,7 @@ function codexSendFileAttachment(
     const sizeMb = Math.ceil(stat.size / 1024 / 1024);
     return {
       attachment: null,
-      notice: `첨부 파일이 너무 큽니다: ${reference.filePath} (${sizeMb}MB, 최대 25MB)`,
+      notice: `첨부 파일이 너무 큽니다: ${reference.filePath} (${sizeMb}MiB, 최대 ${MAX_DISCORD_ATTACHMENT_LABEL})`,
     };
   }
 
@@ -518,6 +525,47 @@ export function extractCodexDiscordSendOutputs(text: string): {
     notices,
     hadBlocks: true,
   };
+}
+
+export function extractLocalMediaLinkOutputs(text: string): {
+  attachments: DiscordFilePayload[];
+  notices: string[];
+} {
+  const attachments: DiscordFilePayload[] = [];
+  const notices: string[] = [];
+  const seenPaths = new Set<string>();
+  const markdownLinkPattern = /(?<!!)\[([^\]]*)]\(([^)]+)\)/g;
+
+  for (const match of text.matchAll(markdownLinkPattern)) {
+    const label = (match[1] ?? "").trim();
+    const rawReference = (match[2] ?? "").trim().replace(/^<|>$/g, "");
+
+    if (!rawReference || /^https?:\/\//i.test(rawReference) || !isLocalMediaAttachmentReference(rawReference)) {
+      continue;
+    }
+
+    const filePath = normalizeLocalAttachmentPath(rawReference);
+
+    if (!filePath || seenPaths.has(filePath) || attachments.length >= MAX_DISCORD_FILES) {
+      continue;
+    }
+
+    seenPaths.add(filePath);
+    const result = codexSendFileAttachment({
+      filePath,
+      name: isLocalMediaAttachmentReference(label) ? sanitizeDiscordFileName(label) : null,
+    });
+
+    if (result.attachment) {
+      attachments.push(result.attachment);
+    }
+
+    if (result.notice) {
+      notices.push(result.notice);
+    }
+  }
+
+  return { attachments, notices };
 }
 
 function extractImageOutputs(text: string): { attachments: DiscordFilePayload[]; remoteUrls: string[] } {
@@ -2980,16 +3028,19 @@ export function formatCodexResultUpdate(
     : extractCodexDiscordSendOutputs(finalMessage);
   const messageAfterDiscordSendBlocks = discordSendOutputs.cleanedText;
   const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(messageAfterDiscordSendBlocks);
+  const mediaLinkOutputs = failed ? { attachments: [], notices: [] } : extractLocalMediaLinkOutputs(messageAfterDiscordSendBlocks);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
   const openSessionActions = codexOpenSessionActions(sessionId);
 
   if (!failed) {
     const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
-    const attachedFileCount = imageOutputs.attachments.length + discordSendOutputs.attachments.length;
+    const attachedFileCount =
+      imageOutputs.attachments.length + discordSendOutputs.attachments.length + mediaLinkOutputs.attachments.length;
     const finalContent = [
       visibleFinalMessage,
       ...discordSendOutputs.messages,
       ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
+      ...mediaLinkOutputs.notices.map((notice) => `주의: ${notice}`),
       ...imageOutputs.remoteUrls,
     ]
       .filter((line) => line.trim().length > 0)
@@ -3008,9 +3059,10 @@ export function formatCodexResultUpdate(
         ? [
             textAttachment(finalAttachmentName, discordSendOutputs.hadBlocks ? finalContent : finalMessage),
             ...discordSendOutputs.attachments,
+            ...mediaLinkOutputs.attachments,
             ...imageOutputs.attachments,
           ]
-        : [...discordSendOutputs.attachments, ...imageOutputs.attachments],
+        : [...discordSendOutputs.attachments, ...mediaLinkOutputs.attachments, ...imageOutputs.attachments],
     );
 
     if (recentEvents.length > 0) {

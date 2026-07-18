@@ -815,6 +815,85 @@ describe("responses", () => {
     }
   });
 
+  it("attaches local media files referenced by markdown links", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-media-link-"));
+    const videoPath = path.join(tempRoot, "sample.mp4");
+
+    try {
+      await writeFile(videoPath, "fake video");
+
+      expect(
+        formatCodexResultUpdate(
+          {
+            computerDisplayName: "Local Dev",
+            workspaceDisplayName: "CodexDiscordConnector",
+            cwd: "/repo",
+            prompt: "샘플 영상 보내줘",
+          },
+          {
+            result: {
+              status: "completed",
+              finalMessage: `확인용 영상입니다: [sample overlay](${videoPath})`,
+              sessionId: "session-1",
+            },
+          },
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          content: `확인용 영상입니다: [sample overlay](${videoPath})`,
+          embeds: [],
+          files: [{ attachment: videoPath, name: "sample.mp4" }],
+        }),
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when codex-discord-send files exceed the Discord upload limit", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-discord-send-large-"));
+    const largePath = path.join(tempRoot, "large.bin");
+
+    try {
+      await writeFile(largePath, Buffer.alloc(10 * 1024 * 1024 + 1));
+
+      const payload = formatCodexResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "CodexDiscordConnector",
+          cwd: "/repo",
+          prompt: "큰 파일 보내줘",
+        },
+        {
+          result: {
+            status: "completed",
+            finalMessage: [
+              "완료했습니다.",
+              "",
+              "```codex-discord-send",
+              JSON.stringify({
+                message: "큰 파일 첨부를 시도했습니다.",
+                files: [{ path: largePath, name: "large.bin" }],
+              }),
+              "```",
+            ].join("\n"),
+            sessionId: "session-1",
+          },
+        },
+      );
+
+      expect(payload).toEqual(
+        expect.objectContaining({
+          content: expect.stringContaining("최대 10MiB"),
+          embeds: [],
+        }),
+      );
+      expect(payload.files ?? []).toEqual([]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("formats a concise help card for shell-admin channels", () => {
     const payload = formatHelp("shell-admin");
 

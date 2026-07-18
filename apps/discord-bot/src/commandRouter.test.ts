@@ -72,7 +72,7 @@ describe("routeDiscordMessage", () => {
       }),
     ).toEqual({
       type: "codex-chat",
-      content: expect.stringContaining("codex-discord-send"),
+      content: expect.stringContaining("10MiB"),
     });
   });
 

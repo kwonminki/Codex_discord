@@ -16,6 +16,7 @@ import type {
 } from "./directState.js";
 import {
   extractCodexDiscordSendOutputs,
+  extractLocalMediaLinkOutputs,
   type DiscordFilePayload,
   type DiscordMessagePayload,
 } from "./responses.js";
@@ -132,9 +133,10 @@ function answerOutputs(answer: string): {
   files: DiscordFilePayload[];
 } {
   const discordSendOutputs = extractCodexDiscordSendOutputs(answer);
-  const files = [...discordSendOutputs.attachments];
+  const mediaLinkOutputs = extractLocalMediaLinkOutputs(discordSendOutputs.cleanedText);
+  const files = [...discordSendOutputs.attachments, ...mediaLinkOutputs.attachments];
 
-  if (!discordSendOutputs.hadBlocks) {
+  if (!discordSendOutputs.hadBlocks && mediaLinkOutputs.notices.length === 0) {
     return { previewAnswer: answer, files };
   }
 
@@ -142,6 +144,7 @@ function answerOutputs(answer: string): {
     discordSendOutputs.cleanedText,
     ...discordSendOutputs.messages,
     ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
+    ...mediaLinkOutputs.notices.map((notice) => `주의: ${notice}`),
   ]
     .filter((line) => line.trim().length > 0)
     .join("\n") || (files.length > 0 ? "첨부 파일을 보냈습니다." : answer);

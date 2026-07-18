@@ -33,6 +33,10 @@ interface DiscordInteractionEventClient {
   on(eventName: "interactionCreate", listener: (interaction: unknown) => void): unknown;
 }
 
+interface DiscordInteractionHandlerOptions {
+  isManagedChannel?(channelId: string): boolean | Promise<boolean>;
+}
+
 export function createDiscordClient(): Client {
   return new Client({
     intents: [
@@ -713,13 +717,34 @@ async function handleCodexThoughtsToggle(interaction: {
   });
 }
 
+async function shouldHandleInteractionChannel(
+  channelId: string,
+  options: DiscordInteractionHandlerOptions,
+): Promise<boolean> {
+  if (!options.isManagedChannel) {
+    return true;
+  }
+
+  try {
+    return Boolean(await options.isManagedChannel(channelId));
+  } catch (error) {
+    console.error("discord-bot failed to check interaction channel ownership", error);
+    return false;
+  }
+}
+
 export function attachDiscordInteractionHandler(
   client: DiscordInteractionEventClient,
   handleMessage: (message: DiscordMessageLike) => Promise<void>,
+  options: DiscordInteractionHandlerOptions = {},
 ): void {
   client.on("interactionCreate", (interaction) => {
     if (isChatInputCommandInteraction(interaction) && interaction.isChatInputCommand()) {
       void (async () => {
+        if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+          return;
+        }
+
         const commandName = interaction.commandName.trim() || "(empty)";
         const deferReply = interaction.deferReply;
         const initialReplyDeferred = typeof deferReply === "function";
@@ -775,30 +800,32 @@ export function attachDiscordInteractionHandler(
       interaction.isModalSubmit() &&
       interaction.customId === COMPONENT_IDS.codexSubmit
     ) {
-      const prompt = interaction.fields.getTextInputValue("prompt").trim();
+      void (async () => {
+        if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+          return;
+        }
 
-      if (prompt.length === 0) {
-        void Promise.resolve(
-          interaction.reply({
+        const prompt = interaction.fields.getTextInputValue("prompt").trim();
+
+        if (prompt.length === 0) {
+          await interaction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
             content: "요청 내용이 비어 있습니다.",
-          }),
-        ).catch((error) => {
-          console.error("discord-bot failed to acknowledge empty Codex modal", error);
-        });
-        return;
-      }
+          });
+          return;
+        }
 
-      void handleMessage({
-        authorBot: false,
-        userId: interaction.user.id,
-        channelId: interaction.channelId,
-        content: `codex ${prompt}`,
-        roleIds: getMemberRoleIds(interaction.member),
-        guild: createDiscordGuildSurface(interaction.guild),
-        reply: interactionReplyAdapter(interaction),
-      }).catch((error) => {
+        await handleMessage({
+          authorBot: false,
+          userId: interaction.user.id,
+          channelId: interaction.channelId,
+          content: `codex ${prompt}`,
+          roleIds: getMemberRoleIds(interaction.member),
+          guild: createDiscordGuildSurface(interaction.guild),
+          reply: interactionReplyAdapter(interaction),
+        });
+      })().catch((error) => {
         console.error("discord-bot failed to handle Codex modal submit", error);
       });
       return;
@@ -808,33 +835,35 @@ export function attachDiscordInteractionHandler(
       const continueSessionId = parseCodexContinueSubmit(interaction.customId);
 
       if (continueSessionId) {
-        const prompt = interaction.fields.getTextInputValue("prompt").trim();
+        void (async () => {
+          if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+            return;
+          }
 
-        if (prompt.length === 0) {
-          void Promise.resolve(
-            interaction.reply({
+          const prompt = interaction.fields.getTextInputValue("prompt").trim();
+
+          if (prompt.length === 0) {
+            await interaction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
               content: "요청 내용이 비어 있습니다.",
-            }),
-          ).catch((error) => {
-            console.error("discord-bot failed to acknowledge empty Codex continue modal", error);
-          });
-          return;
-        }
+            });
+            return;
+          }
 
-        void handleMessage({
-          authorBot: false,
-          userId: interaction.user.id,
-          channelId: interaction.channelId,
-          content: encodedCodexContinueCommand({
-            sessionId: continueSessionId,
-            prompt,
-          }),
-          roleIds: getMemberRoleIds(interaction.member),
-          guild: createDiscordGuildSurface(interaction.guild),
-          reply: interactionReplyAdapter(interaction),
-        }).catch((error) => {
+          await handleMessage({
+            authorBot: false,
+            userId: interaction.user.id,
+            channelId: interaction.channelId,
+            content: encodedCodexContinueCommand({
+              sessionId: continueSessionId,
+              prompt,
+            }),
+            roleIds: getMemberRoleIds(interaction.member),
+            guild: createDiscordGuildSurface(interaction.guild),
+            reply: interactionReplyAdapter(interaction),
+          });
+        })().catch((error) => {
           console.error("discord-bot failed to handle Codex continue modal submit", error);
         });
         return;
@@ -842,24 +871,30 @@ export function attachDiscordInteractionHandler(
     }
 
     if (isModalSubmitInteraction(interaction) && interaction.isModalSubmit() && isNewChatSubmit(interaction.customId)) {
-      const name = interaction.fields.getTextInputValue("name").trim() || null;
-      const initialPrompt = interaction.fields.getTextInputValue("prompt").trim() || null;
-      const isCurrent = interaction.customId === "cdc:chat:submit:current";
+      void (async () => {
+        if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+          return;
+        }
 
-      void handleMessage({
-        authorBot: false,
-        userId: interaction.user.id,
-        channelId: interaction.channelId,
-        content: encodedNewChatCommand({
-          name,
-          cwd: isCurrent ? "." : null,
-          useCategory: isCurrent,
-          initialPrompt,
-        }),
-        roleIds: getMemberRoleIds(interaction.member),
-        guild: createDiscordGuildSurface(interaction.guild),
-        reply: interactionReplyAdapter(interaction),
-      }).catch((error) => {
+        const name = interaction.fields.getTextInputValue("name").trim() || null;
+        const initialPrompt = interaction.fields.getTextInputValue("prompt").trim() || null;
+        const isCurrent = interaction.customId === "cdc:chat:submit:current";
+
+        await handleMessage({
+          authorBot: false,
+          userId: interaction.user.id,
+          channelId: interaction.channelId,
+          content: encodedNewChatCommand({
+            name,
+            cwd: isCurrent ? "." : null,
+            useCategory: isCurrent,
+            initialPrompt,
+          }),
+          roleIds: getMemberRoleIds(interaction.member),
+          guild: createDiscordGuildSurface(interaction.guild),
+          reply: interactionReplyAdapter(interaction),
+        });
+      })().catch((error) => {
         console.error("discord-bot failed to handle new chat modal submit", error);
       });
       return;
@@ -869,102 +904,86 @@ export function attachDiscordInteractionHandler(
       return;
     }
 
-    if (interaction.isButton()) {
-      const continueSessionId = parseCodexContinueButton(interaction.customId);
+    const componentInteraction = interaction;
 
-      if (continueSessionId) {
-        if (typeof interaction.showModal !== "function") {
-          void Promise.resolve(
-            interaction.reply({
+    void (async () => {
+      if (options.isManagedChannel && !(await shouldHandleInteractionChannel(componentInteraction.channelId, options))) {
+        return;
+      }
+
+      if (componentInteraction.isButton()) {
+        const continueSessionId = parseCodexContinueButton(componentInteraction.customId);
+
+        if (continueSessionId) {
+          if (typeof componentInteraction.showModal !== "function") {
+            await componentInteraction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
               content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
-            }),
-          ).catch((error) => {
-            console.error("discord-bot failed to acknowledge missing modal support", error);
+            });
+            return;
+          }
+
+          await componentInteraction.showModal(codexContinueModal(continueSessionId));
+          return;
+        }
+      }
+
+      if (componentInteraction.isButton() && isCodexThoughtsToggle(componentInteraction.customId)) {
+        await handleCodexThoughtsToggle(componentInteraction);
+        return;
+      }
+
+      if (componentInteraction.isButton() && componentInteraction.customId === COMPONENT_IDS.codexAsk) {
+        if (typeof componentInteraction.showModal !== "function") {
+          await componentInteraction.reply({
+            allowedMentions: { parse: [] },
+            ephemeral: true,
+            content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
           });
           return;
         }
 
-        void interaction.showModal(codexContinueModal(continueSessionId)).catch((error) => {
-          console.error("discord-bot failed to show Codex continue modal", error);
-        });
+        await componentInteraction.showModal(codexPromptModal());
         return;
       }
-    }
 
-    if (interaction.isButton() && isCodexThoughtsToggle(interaction.customId)) {
-      void handleCodexThoughtsToggle(interaction).catch((error) => {
-        console.error("discord-bot failed to toggle Codex progress thoughts", error);
-      });
-      return;
-    }
-
-    if (interaction.isButton() && interaction.customId === COMPONENT_IDS.codexAsk) {
-      if (typeof interaction.showModal !== "function") {
-        void Promise.resolve(
-          interaction.reply({
+      if (componentInteraction.isButton() && isNewChatButton(componentInteraction.customId)) {
+        if (typeof componentInteraction.showModal !== "function") {
+          await componentInteraction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
             content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
-          }),
-        ).catch((error) => {
-          console.error("discord-bot failed to acknowledge missing modal support", error);
-        });
+          });
+          return;
+        }
+
+        const kind = componentInteraction.customId === COMPONENT_IDS.newGeneralChat ? "general" : "current";
+        await componentInteraction.showModal(newChatModal(kind));
         return;
       }
 
-      void interaction.showModal(codexPromptModal()).catch((error) => {
-        console.error("discord-bot failed to show Codex modal", error);
-      });
-      return;
-    }
+      const content = routeDiscordComponent(componentInteraction.customId, componentInteraction.values ?? []);
 
-    if (interaction.isButton() && isNewChatButton(interaction.customId)) {
-      if (typeof interaction.showModal !== "function") {
-        void Promise.resolve(
-          interaction.reply({
-            allowedMentions: { parse: [] },
-            ephemeral: true,
-            content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
-          }),
-        ).catch((error) => {
-          console.error("discord-bot failed to acknowledge missing modal support", error);
-        });
-        return;
-      }
-
-      const kind = interaction.customId === COMPONENT_IDS.newGeneralChat ? "general" : "current";
-      void interaction.showModal(newChatModal(kind)).catch((error) => {
-        console.error("discord-bot failed to show new chat modal", error);
-      });
-      return;
-    }
-
-    const content = routeDiscordComponent(interaction.customId, interaction.values ?? []);
-
-    if (!content) {
-      void Promise.resolve(
-        interaction.reply({
+      if (!content) {
+        await componentInteraction.reply({
           allowedMentions: { parse: [] },
           ephemeral: true,
           content: "이 버튼은 더 이상 사용할 수 없습니다. `help`를 다시 눌러 최신 버튼을 열어주세요.",
-        }),
-      ).catch((error) => {
-        console.error("discord-bot failed to acknowledge unknown button", error);
-      });
-      return;
-    }
+        });
+        return;
+      }
 
-    void handleMessage({
-      authorBot: false,
-      userId: interaction.user.id,
-      channelId: interaction.channelId,
-      content,
-      roleIds: getMemberRoleIds(interaction.member),
-      guild: createDiscordGuildSurface(interaction.guild),
-      reply: interactionReplyAdapter(interaction),
-    }).catch((error) => {
+      await handleMessage({
+        authorBot: false,
+        userId: componentInteraction.user.id,
+        channelId: componentInteraction.channelId,
+        content,
+        roleIds: getMemberRoleIds(componentInteraction.member),
+        guild: createDiscordGuildSurface(componentInteraction.guild),
+        reply: interactionReplyAdapter(componentInteraction),
+      });
+    })().catch((error) => {
       console.error("discord-bot failed to handle interaction", error);
     });
   });

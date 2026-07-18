@@ -705,7 +705,9 @@ export async function startBot(): Promise<void> {
     }
   });
   attachDiscordMessageHandler(client, handleMessage);
-  attachDiscordInteractionHandler(client, handleMessage);
+  attachDiscordInteractionHandler(client, handleMessage, {
+    isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),
+  });
 
   await client.login(token);
 }

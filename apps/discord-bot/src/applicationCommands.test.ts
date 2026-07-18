@@ -110,18 +110,14 @@ describe("Discord application commands", () => {
   });
 
   it("routes /howtouse into a Codex usage prompt", () => {
-    expect(
-      routeDiscordApplicationCommand({
-        commandName: "howtouse",
-        options: options({}),
-      }),
-    ).toEqual(expect.stringContaining("codex "));
-    expect(
-      routeDiscordApplicationCommand({
-        commandName: "howtouse",
-        options: options({}),
-      }),
-    ).toEqual(expect.stringContaining("codex-discord-send"));
+    const prompt = routeDiscordApplicationCommand({
+      commandName: "howtouse",
+      options: options({}),
+    });
+
+    expect(prompt).toEqual(expect.stringContaining("codex "));
+    expect(prompt).toEqual(expect.stringContaining("codex-discord-send"));
+    expect(prompt).toEqual(expect.stringContaining("10MiB"));
     expect(
       routeDiscordApplicationCommand({
         commandName: "HOW-TO-USE",

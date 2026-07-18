@@ -219,6 +219,46 @@ describe("attachDiscordInteractionHandler", () => {
     expect(editReply).toHaveBeenCalledWith(payload);
   });
 
+  it("ignores slash command interactions in unmanaged channels before deferring replies", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const isManagedChannel = vi.fn().mockResolvedValue(false);
+
+    attachDiscordInteractionHandler(client, handleMessage, { isManagedChannel });
+    handlers.get("interactionCreate")?.({
+      isChatInputCommand: () => true,
+      commandName: "howtouse",
+      options: {
+        getString: () => null,
+        getInteger: () => null,
+        getBoolean: () => null,
+      },
+      user: { id: "discord-user-1" },
+      channelId: "unmanaged-channel",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      deferReply,
+      reply,
+      guild: null,
+    });
+
+    await vi.waitFor(() => expect(isManagedChannel).toHaveBeenCalledWith("unmanaged-channel"));
+    expect(deferReply).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
+    expect(handleMessage).not.toHaveBeenCalled();
+  });
+
   it("adapts Discord button interactions into the pure message handler", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {
@@ -266,6 +306,75 @@ describe("attachDiscordInteractionHandler", () => {
     const payload = { embeds: [{ title: "syncing" }] };
     await adaptedInteraction.reply(payload);
     expect(reply).toHaveBeenCalledWith(payload);
+  });
+
+  it("ignores button interactions in unmanaged channels before replying", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const isManagedChannel = vi.fn().mockResolvedValue(false);
+
+    attachDiscordInteractionHandler(client, handleMessage, { isManagedChannel });
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:sync:25",
+      user: { id: "discord-user-1" },
+      channelId: "unmanaged-channel",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      guild: null,
+    });
+
+    await vi.waitFor(() => expect(isManagedChannel).toHaveBeenCalledWith("unmanaged-channel"));
+    expect(reply).not.toHaveBeenCalled();
+    expect(handleMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores modal submit interactions in unmanaged channels", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const isManagedChannel = vi.fn().mockResolvedValue(false);
+
+    attachDiscordInteractionHandler(client, handleMessage, { isManagedChannel });
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => false,
+      isModalSubmit: () => true,
+      customId: "cdc:codex:submit",
+      user: { id: "discord-user-1" },
+      channelId: "unmanaged-channel",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      reply,
+      guild: null,
+      fields: {
+        getTextInputValue: () => "README 요약해줘",
+      },
+    });
+
+    await vi.waitFor(() => expect(isManagedChannel).toHaveBeenCalledWith("unmanaged-channel"));
+    expect(reply).not.toHaveBeenCalled();
+    expect(handleMessage).not.toHaveBeenCalled();
   });
 
   it("sends additional interaction replies through the channel", async () => {

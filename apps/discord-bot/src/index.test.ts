@@ -137,6 +137,7 @@ describe("bot entrypoint", () => {
     expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
       { login, once, on },
       expect.any(Function),
+      { isManagedChannel: expect.any(Function) },
     );
     expect(login).toHaveBeenCalledWith("discord-token");
   }, 15_000);
@@ -198,10 +199,11 @@ describe("bot entrypoint", () => {
         { login, once, on },
         expect.any(Function),
       );
-      expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
-        { login, once, on },
-        expect.any(Function),
-      );
+    expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
+      { login, once, on },
+      expect.any(Function),
+      { isManagedChannel: expect.any(Function) },
+    );
       expect(login).toHaveBeenCalledWith("discord-token");
 
       const readyHandler = once.mock.calls.find(([eventName]) => eventName === "ready")?.[1] as

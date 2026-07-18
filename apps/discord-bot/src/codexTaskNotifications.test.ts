@@ -492,6 +492,49 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
+  it("attaches local media markdown links in completion notifications", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-media-link-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+    const videoPath = path.join(tempRoot, "sample.mp4");
+
+    try {
+      await writeFile(videoPath, "fake video");
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            assistantAnswer: `확인용 영상입니다: [sample overlay](${videoPath})`,
+          }),
+        ],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      const payload = sendTextMessage.mock.calls[0]?.[1];
+      expect(payload).toMatchObject({
+        embeds: [
+          expect.objectContaining({
+            title: "답변",
+            description: `확인용 영상입니다: [sample overlay](${videoPath})`,
+          }),
+        ],
+        files: [{ attachment: videoPath, name: "sample.mp4" }],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("omits answer embeds for sessions requested from Discord", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
