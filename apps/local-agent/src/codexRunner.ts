@@ -490,7 +490,7 @@ function codexExecPermissionArgs(): string[] {
     return ["--dangerously-bypass-approvals-and-sandbox"];
   }
 
-  return ["--sandbox", codexSandboxMode(), "--ask-for-approval", codexApprovalPolicy()];
+  return ["--sandbox", codexSandboxMode(), "-c", `approval_policy="${codexApprovalPolicy()}"`];
 }
 
 function createCodexArgs(input: RunCodexPromptInput, outputPath: string, cwd: string): string[] {

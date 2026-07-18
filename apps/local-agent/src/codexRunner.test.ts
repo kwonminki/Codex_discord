@@ -72,8 +72,8 @@ describe("runCodexPrompt", () => {
           "exec",
           "--sandbox",
           "danger-full-access",
-          "--ask-for-approval",
-          "never",
+          "-c",
+          'approval_policy="never"',
           "Explain this",
         ]),
       );
@@ -193,8 +193,8 @@ describe("runCodexPrompt", () => {
         expect.arrayContaining([
           "--sandbox",
           "danger-full-access",
-          "--ask-for-approval",
-          "never",
+          "-c",
+          'approval_policy="never"',
         ]),
       );
     } finally {
@@ -247,8 +247,8 @@ describe("runCodexPrompt", () => {
           "exec",
           "--sandbox",
           "danger-full-access",
-          "--ask-for-approval",
-          "never",
+          "-c",
+          'approval_policy="never"',
           "review",
         ]),
       );
@@ -297,8 +297,8 @@ describe("runCodexPrompt", () => {
           "exec",
           "--sandbox",
           "danger-full-access",
-          "--ask-for-approval",
-          "never",
+          "-c",
+          'approval_policy="never"',
           "resume",
           "--skip-git-repo-check",
           "019db2be-b2b3-7e82-9e61-8c84b28ad287",
