@@ -1,10 +1,13 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   attachDiscordMessageHandler,
   attachDiscordInteractionHandler,
   createDiscordGuildSurface,
 } from "./discordClient.js";
-import { formatCodexProgressUpdate, formatCollapsibleThoughtMessage } from "./responses.js";
+import { formatCodexProgressUpdate, formatCodexResultUpdate, formatCollapsibleThoughtMessage } from "./responses.js";
 
 describe("attachDiscordMessageHandler", () => {
   it("adapts Discord messageCreate events into the pure message handler", async () => {
@@ -648,6 +651,93 @@ describe("attachDiscordInteractionHandler", () => {
         content: expect.stringContaining("이제 두 가지를 바로 바꾸겠습니다."),
       }),
     );
+  });
+
+  it("preserves attachments when editing a progress message into a collapsible final answer", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-progress-attachment-"));
+    const videoPath = path.join(tempRoot, "review.mp4");
+
+    try {
+      await writeFile(videoPath, "fake video");
+
+      const handlers = new Map<string, (message: unknown) => void>();
+      const client = {
+        on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
+          handlers.set(eventName, handler);
+          return client;
+        }),
+      };
+      const sentMessage = {
+        id: "message-1",
+        edit: vi.fn().mockResolvedValue(undefined),
+      };
+      const handleMessage = vi.fn(async (message) => {
+        const queued = await message.reply(
+          formatCodexProgressUpdate(
+            {
+              computerDisplayName: "Local Dev",
+              workspaceDisplayName: "CodexDiscordConnector",
+              cwd: "/repo",
+              prompt: "샘플 보내줘",
+            },
+            {
+              status: "답변 작성 중",
+              latestMessage: "샘플을 정리합니다.",
+              recentEvents: ["생각중..."],
+            },
+          ),
+        );
+
+        await queued?.edit(
+          formatCodexResultUpdate(
+            {
+              computerDisplayName: "Local Dev",
+              workspaceDisplayName: "CodexDiscordConnector",
+              cwd: "/repo",
+              prompt: "샘플 보내줘",
+            },
+            {
+              result: {
+                status: "completed",
+                finalMessage: [
+                  "우선 판단 가치가 높은 샘플을 보냅니다.",
+                  "",
+                  "```codex-discord-send",
+                  JSON.stringify({
+                    message: "검토 포인트입니다.",
+                    files: [{ path: videoPath, name: "review.mp4" }],
+                  }),
+                  "```",
+                ].join("\n"),
+                sessionId: "session-1",
+              },
+            },
+            { recentEvents: ["생각중..."] },
+          ),
+        );
+      });
+      const reply = vi.fn().mockResolvedValue(sentMessage);
+
+      attachDiscordMessageHandler(client, handleMessage);
+      handlers.get("messageCreate")?.({
+        author: { bot: false, id: "discord-user-1" },
+        channelId: "discord-channel-1",
+        content: "샘플 보내줘",
+        member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+        reply,
+        guild: null,
+      });
+
+      await vi.waitFor(() => expect(sentMessage.edit).toHaveBeenCalled());
+      expect(sentMessage.edit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.stringContaining("우선 판단 가치가 높은 샘플을 보냅니다."),
+          files: [{ attachment: videoPath, name: "review.mp4" }],
+        }),
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("toggles desktop-synced thought messages sent directly to a channel", async () => {

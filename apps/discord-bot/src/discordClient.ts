@@ -192,7 +192,13 @@ function prepareCodexProgressPayload(messageId: string, message: unknown): unkno
   }
 
   const expanded = codexProgressMessages.get(messageId)?.expanded ?? view.view.expanded;
-  return formatCodexThoughtView(view, { expanded });
+  const prepared = formatCodexThoughtView(view, { expanded });
+
+  if (message.files && message.files.length > 0) {
+    prepared.files = message.files;
+  }
+
+  return prepared;
 }
 
 function prepareOutgoingMessage(
