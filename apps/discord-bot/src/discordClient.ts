@@ -8,6 +8,7 @@ import {
   type MessagePayload,
 } from "discord.js";
 import {
+  DISCORD_APPLICATION_COMMANDS,
   registerDiscordApplicationCommands,
   routeDiscordApplicationCommand,
 } from "./applicationCommands.js";
@@ -718,26 +719,34 @@ export function attachDiscordInteractionHandler(
 ): void {
   client.on("interactionCreate", (interaction) => {
     if (isChatInputCommandInteraction(interaction) && interaction.isChatInputCommand()) {
-      const content = routeDiscordApplicationCommand(interaction);
-
-      if (!content) {
-        void Promise.resolve(
-          interaction.reply({
-            allowedMentions: { parse: [] },
-            ephemeral: true,
-            content: "이 slash command는 아직 연결되어 있지 않습니다.",
-          }),
-        ).catch((error) => {
-          console.error("discord-bot failed to acknowledge unknown slash command", error);
-        });
-        return;
-      }
-
       void (async () => {
-        const initialReplyDeferred = typeof interaction.deferReply === "function";
+        const commandName = interaction.commandName.trim() || "(empty)";
+        const deferReply = interaction.deferReply;
+        const initialReplyDeferred = typeof deferReply === "function";
 
         if (initialReplyDeferred) {
-          await interaction.deferReply?.();
+          await deferReply.call(interaction);
+        }
+
+        const content = routeDiscordApplicationCommand(interaction);
+
+        if (!content) {
+          console.warn("discord-bot received unhandled slash command", {
+            commandName,
+            knownCommands: DISCORD_APPLICATION_COMMANDS.map((command) => command.name),
+          });
+
+          const fallback = {
+            allowedMentions: { parse: [] },
+            content: `이 slash command는 아직 연결되어 있지 않습니다: /${commandName}`,
+          };
+
+          if (initialReplyDeferred && typeof interaction.editReply === "function") {
+            await interaction.editReply(fallback);
+          } else {
+            await interaction.reply({ ...fallback, ephemeral: true });
+          }
+          return;
         }
 
         await handleMessage({

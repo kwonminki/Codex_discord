@@ -518,7 +518,9 @@ function encodedScheduleCommand(input: {
 export function routeDiscordApplicationCommand(
   interaction: DiscordApplicationCommandInteractionLike,
 ): string | null {
-  switch (interaction.commandName) {
+  const commandName = interaction.commandName.trim().toLowerCase();
+
+  switch (commandName) {
     case "codex":
       return `codex ${interaction.options.getString("prompt", true)?.trim() ?? ""}`.trim();
     case "codex-command": {
@@ -565,6 +567,8 @@ export function routeDiscordApplicationCommand(
     case "summarize":
       return `codex ${interaction.options.getString("target")?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`;
     case "howtouse":
+    case "how-to-use":
+    case "how_to_use":
       return `codex ${CODEX_DISCORD_HOW_TO_USE_PROMPT}`;
     case "where":
       return "where";

@@ -122,6 +122,12 @@ describe("Discord application commands", () => {
         options: options({}),
       }),
     ).toEqual(expect.stringContaining("codex-discord-send"));
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "HOW-TO-USE",
+        options: options({}),
+      }),
+    ).toEqual(expect.stringContaining("codex-discord-send"));
   });
 
   it("routes supported /codex-command shortcuts to working bridge commands", () => {
