@@ -196,7 +196,10 @@ describe("syncCodexSessionTranscriptUpdates", () => {
           components: [
             {
               type: 1,
-              components: [{ type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 }],
+              components: [
+                { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
+                { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+              ],
             },
           ],
         }),

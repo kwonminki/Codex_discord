@@ -26,6 +26,7 @@ export const COMPONENT_IDS = {
   codexSubmit: "cdc:codex:submit",
   codexThoughtsOpen: "cdc:codex:thoughts:open",
   codexThoughtsClose: "cdc:codex:thoughts:close",
+  codexThoughtsSendProcess: "cdc:codex:thoughts:send-process",
   codexOpenSessionPrefix: "cdc:codex:open:",
   codexRestartOpenSessionPrefix: "cdc:codex:restart-open:",
   codexApprovalPrefix: "cdc:codex:approval:",

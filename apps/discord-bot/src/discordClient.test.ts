@@ -805,11 +805,80 @@ describe("attachDiscordInteractionHandler", () => {
         components: [
           {
             type: 1,
-            components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+            components: [
+              { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
+              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+            ],
           },
         ],
       }),
     );
+  });
+
+  it("sends the visible process as a separate truncated message", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const sentMessage = {
+      id: "process-message-1",
+      edit: vi.fn().mockResolvedValue(undefined),
+    };
+    const send = vi.fn().mockResolvedValue(sentMessage);
+    const guild = {
+      channels: {
+        fetch: vi.fn().mockResolvedValue({ send }),
+      },
+    };
+    const reply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, vi.fn());
+
+    const guildSurface = createDiscordGuildSurface(guild as never);
+
+    if (!guildSurface?.sendTextMessage) {
+      throw new Error("Guild surface did not expose sendTextMessage");
+    }
+
+    await guildSurface.sendTextMessage(
+      "channel-1",
+      formatCollapsibleThoughtMessage({
+        collapsedContent: "최종 답변입니다.\n\n_생각과 중간 출력은 버튼으로 열 수 있습니다._",
+        expandedContent: [
+          "최종 답변입니다.",
+          "",
+          "**생각 / 중간 출력**",
+          "파일 탐색 중",
+          "x".repeat(2_100),
+        ].join("\n"),
+      }),
+    );
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:codex:thoughts:send-process",
+      user: { id: "discord-user-1" },
+      channelId: "channel-1",
+      member: { roles: { cache: new Map() } },
+      guild: null,
+      message: sentMessage,
+      reply,
+    });
+
+    await vi.waitFor(() => expect(reply).toHaveBeenCalled());
+    expect(reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("**생각 / 중간 출력**"),
+      }),
+    );
+    const payload = reply.mock.calls[0]?.[0] as { content: string };
+    expect(payload.content).toContain("파일 탐색 중");
+    expect(payload.content).not.toContain("최종 답변입니다.");
+    expect(payload.content).toContain("... (일부만 표시)");
+    expect(payload.content.length).toBeLessThanOrEqual(1_900);
   });
 
   it("acknowledges unknown buttons without dispatching a command", async () => {

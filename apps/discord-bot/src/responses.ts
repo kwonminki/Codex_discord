@@ -28,7 +28,7 @@ const MAX_FIELD_VALUE_LENGTH = 1_024;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const ATTACH_TEXT_THRESHOLD = 1_000;
-const CODEX_PROGRESS_EVENT_LIMIT = 8;
+export const CODEX_PROGRESS_EVENT_LIMIT = 8;
 
 type ChannelMode = "shell-admin" | "session-linked";
 
@@ -2597,8 +2597,23 @@ function codexProgressActions(expanded: boolean): DiscordActionRowPayload[] {
         label: expanded ? "생각 닫기" : "생각 열기",
         style: BUTTON_STYLES.secondary,
       }),
+      button({
+        customId: COMPONENT_IDS.codexThoughtsSendProcess,
+        label: "과정 보내기",
+        style: BUTTON_STYLES.secondary,
+      }),
     ]),
   ];
+}
+
+export function codexVisibleProcessActionRow(): DiscordActionRowPayload {
+  return actionRow([
+    button({
+      customId: COMPONENT_IDS.codexThoughtsSendProcess,
+      label: "과정 보내기",
+      style: BUTTON_STYLES.secondary,
+    }),
+  ]);
 }
 
 function isOpenableCodexSessionId(sessionId: string | null): sessionId is string {
@@ -2722,6 +2737,19 @@ export function formatCollapsibleThoughtMessage(
   return payload;
 }
 
+export function attachCodexVisibleProcessSnapshot(
+  payload: DiscordMessagePayload,
+  expandedContent: string,
+): DiscordMessagePayload {
+  collapsibleThoughtViews.set(payload, {
+    collapsedContent: payload.content ?? "",
+    expandedContent: expandedContent.trim() || "아직 표시할 중간 출력이 없습니다.",
+    expanded: false,
+  });
+
+  return payload;
+}
+
 export function getCodexThoughtView(payload: DiscordMessagePayload): CodexThoughtView | null {
   const progressView = codexProgressViews.get(payload);
 
@@ -2743,6 +2771,33 @@ export function formatCodexThoughtView(view: CodexThoughtView, options: CodexPro
     expanded: options.expanded ?? view.view.expanded,
     actionRows: view.view.actionRows,
   });
+}
+
+export function formatCodexVisibleProcessMessage(view: CodexThoughtView): DiscordMessagePayload {
+  if (view.kind === "progress") {
+    const recentEvents =
+      view.view.progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
+    const latestMessage = view.view.progress.latestMessage ? compactMultiline(view.view.progress.latestMessage) : "";
+    const processLines = [...recentEvents.map((event) => renderProgressEvent(event))];
+
+    if (latestMessage.length > 0) {
+      processLines.push(renderProgressEvent(latestMessage));
+    }
+
+    return textPayload(
+      [
+        "**Codex 과정**",
+        processLines.length > 0 ? processLines.join("\n") : "아직 표시할 중간 출력이 없습니다.",
+      ].join("\n"),
+    );
+  }
+
+  const marker = "**생각 / 중간 출력**";
+  const expandedContent = view.view.expandedContent.trim();
+  const markerIndex = expandedContent.indexOf(marker);
+  const visibleProcess = markerIndex >= 0 ? expandedContent.slice(markerIndex).trim() : expandedContent;
+
+  return textPayload(visibleProcess.length > 0 ? visibleProcess : "아직 표시할 중간 출력이 없습니다.");
 }
 
 function getResultDetails(response: {

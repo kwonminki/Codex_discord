@@ -17,6 +17,7 @@ import type { DiscordMessageLike } from "./messageHandler.js";
 import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
 import {
   formatCodexThoughtView,
+  formatCodexVisibleProcessMessage,
   getCodexThoughtView,
   withRoleMentions,
   type CodexThoughtView,
@@ -108,6 +109,7 @@ interface ThreadParentDiscordChannelLike {
 interface StoredCodexProgressMessage {
   view: CodexThoughtView;
   expanded: boolean;
+  files?: DiscordMessagePayload["files"];
   message?: EditableDiscordMessageLike;
 }
 
@@ -194,8 +196,10 @@ function prepareCodexProgressPayload(messageId: string, message: unknown): unkno
   const expanded = codexProgressMessages.get(messageId)?.expanded ?? view.view.expanded;
   const prepared = formatCodexThoughtView(view, { expanded });
 
-  if (message.files && message.files.length > 0) {
-    prepared.files = message.files;
+  const files = message.files ?? codexProgressMessages.get(messageId)?.files;
+
+  if (files && files.length > 0) {
+    prepared.files = files;
   }
 
   return prepared;
@@ -225,6 +229,7 @@ function rememberCodexProgressMessage(message: unknown, payload: unknown): void 
   codexProgressMessages.set(message.id, {
     view,
     expanded: previous?.expanded ?? view.view.expanded,
+    files: payload.files ?? previous?.files,
     message,
   });
 }
@@ -681,6 +686,25 @@ function isCodexThoughtsToggle(customId: string): customId is
   return customId === COMPONENT_IDS.codexThoughtsOpen || customId === COMPONENT_IDS.codexThoughtsClose;
 }
 
+async function handleCodexProcessSend(interaction: {
+  message?: EditableDiscordMessageLike;
+  reply(message: unknown): Promise<unknown>;
+}): Promise<void> {
+  const messageId = interaction.message?.id;
+  const stored = messageId ? codexProgressMessages.get(messageId) : null;
+
+  if (!messageId || !stored) {
+    await interaction.reply({
+      allowedMentions: { parse: [] },
+      ephemeral: true,
+      content: "이 진행 메시지의 과정은 더 이상 보낼 수 없습니다. 새 요청에서 다시 시도해주세요.",
+    });
+    return;
+  }
+
+  await interaction.reply(formatCodexVisibleProcessMessage(stored.view));
+}
+
 async function handleCodexThoughtsToggle(interaction: {
   customId: string;
   message?: EditableDiscordMessageLike;
@@ -701,6 +725,9 @@ async function handleCodexThoughtsToggle(interaction: {
 
   const expanded = interaction.customId === COMPONENT_IDS.codexThoughtsOpen;
   const payload = formatCodexThoughtView(stored.view, { expanded });
+  if (stored.files && stored.files.length > 0) {
+    payload.files = stored.files;
+  }
   codexProgressMessages.set(messageId, {
     ...stored,
     expanded,
@@ -937,6 +964,11 @@ export function attachDiscordInteractionHandler(
 
       if (componentInteraction.isButton() && isCodexThoughtsToggle(componentInteraction.customId)) {
         await handleCodexThoughtsToggle(componentInteraction);
+        return;
+      }
+
+      if (componentInteraction.isButton() && componentInteraction.customId === COMPONENT_IDS.codexThoughtsSendProcess) {
+        await handleCodexProcessSend(componentInteraction);
         return;
       }
 

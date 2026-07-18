@@ -369,7 +369,10 @@ describe("responses", () => {
       components: [
         {
           type: 1,
-          components: [{ type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 }],
+          components: [
+            { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
+            { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+          ],
         },
       ],
     }));
@@ -398,7 +401,10 @@ describe("responses", () => {
       components: [
         {
           type: 1,
-          components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+          components: [
+            { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
+            { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+          ],
         },
       ],
     }));
@@ -435,6 +441,12 @@ describe("responses", () => {
       label: "생각 열기",
       style: 2,
     });
+    expect(collapsed.components?.[0]?.components).toContainEqual({
+      type: 2,
+      custom_id: "cdc:codex:thoughts:send-process",
+      label: "과정 보내기",
+      style: 2,
+    });
 
     expect(expanded.content).toContain("**생각 / 중간 출력**");
     expect(expanded.content).toContain("이제 두 가지를 바로 바꾸겠습니다.");
@@ -466,7 +478,10 @@ describe("responses", () => {
         components: [
           {
             type: 1,
-            components: [{ type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 }],
+            components: [
+              { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
+              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+            ],
           },
         ],
       }),
@@ -477,7 +492,10 @@ describe("responses", () => {
         components: [
           {
             type: 1,
-            components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+            components: [
+              { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
+              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+            ],
           },
         ],
       }),
@@ -614,7 +632,10 @@ describe("responses", () => {
         components: [
           {
             type: 1,
-            components: [{ type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 }],
+            components: [
+              { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
+              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+            ],
           },
           {
             type: 1,
@@ -652,7 +673,10 @@ describe("responses", () => {
     expect(expanded.components).toEqual([
       {
         type: 1,
-        components: [{ type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 }],
+        components: [
+          { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
+          { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+        ],
       },
       {
         type: 1,
