@@ -426,7 +426,7 @@ function fileReferencesFromCodexSendPayload(payload: Record<string, unknown>): u
   return references;
 }
 
-function extractCodexDiscordSendOutputs(text: string): {
+export function extractCodexDiscordSendOutputs(text: string): {
   cleanedText: string;
   attachments: DiscordFilePayload[];
   messages: string[];

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -426,6 +426,59 @@ describe("notifyCodexTaskCompletions", () => {
       expect(payload.embeds[0].description.length).toBeLessThanOrEqual(3_800);
       expect(Buffer.isBuffer(payload.files[0].attachment)).toBe(true);
       expect(payload.files[0].attachment.toString("utf8")).toBe(longAnswer.trim());
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("attaches files from codex-discord-send blocks in completion notifications", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+    const videoPath = path.join(tempRoot, "demo.mp4");
+
+    try {
+      await writeFile(videoPath, "fake video");
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-1" })],
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [
+          session({
+            completionKey: "complete-2",
+            assistantAnswer: [
+              "테스트 동영상 파일을 만들었습니다.",
+              "",
+              "```codex-discord-send",
+              JSON.stringify({
+                message: "테스트용 3초 MP4 파일입니다.",
+                files: [{ path: videoPath, name: "preview.mp4" }],
+              }),
+              "```",
+            ].join("\n"),
+          }),
+        ],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      const payload = sendTextMessage.mock.calls[0]?.[1];
+      expect(payload).toMatchObject({
+        embeds: [
+          expect.objectContaining({
+            title: "답변",
+            description: "테스트 동영상 파일을 만들었습니다.\n테스트용 3초 MP4 파일입니다.",
+          }),
+        ],
+        files: [{ attachment: videoPath, name: "preview.mp4" }],
+      });
+      expect(JSON.stringify(payload)).not.toContain("codex-discord-send");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

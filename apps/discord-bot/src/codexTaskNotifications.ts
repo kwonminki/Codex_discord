@@ -14,7 +14,11 @@ import type {
   DiscordRequestedCodexSessionState,
   SyncedSessionChannelState,
 } from "./directState.js";
-import type { DiscordFilePayload, DiscordMessagePayload } from "./responses.js";
+import {
+  extractCodexDiscordSendOutputs,
+  type DiscordFilePayload,
+  type DiscordMessagePayload,
+} from "./responses.js";
 
 const MAX_FIELD_CHARS = 180;
 const MAX_ANSWER_EMBED_CHARS = 3_800;
@@ -123,6 +127,28 @@ function answerAttachment(answer: string): DiscordFilePayload {
   };
 }
 
+function answerOutputs(answer: string): {
+  previewAnswer: string;
+  files: DiscordFilePayload[];
+} {
+  const discordSendOutputs = extractCodexDiscordSendOutputs(answer);
+  const files = [...discordSendOutputs.attachments];
+
+  if (!discordSendOutputs.hadBlocks) {
+    return { previewAnswer: answer, files };
+  }
+
+  const previewAnswer = [
+    discordSendOutputs.cleanedText,
+    ...discordSendOutputs.messages,
+    ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
+  ]
+    .filter((line) => line.trim().length > 0)
+    .join("\n") || (files.length > 0 ? "첨부 파일을 보냈습니다." : answer);
+
+  return { previewAnswer, files };
+}
+
 function nextNotificationState(input: {
   session: DiscoveredCodexSession;
   eventKey: string;
@@ -144,7 +170,10 @@ function formatTaskCompleteNotification(
   const threadName = sanitizeInline(session.threadName) || session.id.slice(0, 8);
   const cwd = sanitizeInline(session.cwdHint);
   const updatedAt = sanitizeInline(session.updatedAt);
-  const answer = options.includeAnswer ? latestAssistantAnswer(session) : null;
+  const rawAnswer = options.includeAnswer ? latestAssistantAnswer(session) : null;
+  const parsedAnswer = rawAnswer ? answerOutputs(rawAnswer) : null;
+  const answer = parsedAnswer?.previewAnswer ?? null;
+  const answerFiles = parsedAnswer?.files ?? [];
   const answerPreview = answer ? formatAnswerPreview(answer) : null;
   const lines = [
     "**Codex 작업 완료**",
@@ -179,7 +208,14 @@ function formatTaskCompleteNotification(
         ],
       },
     ],
-    ...(answer && answerPreview?.clipped ? { files: [answerAttachment(answer)] } : {}),
+    ...(rawAnswer && (answerPreview?.clipped || answerFiles.length > 0)
+      ? {
+          files: [
+            ...(answerPreview?.clipped ? [answerAttachment(answer ?? rawAnswer)] : []),
+            ...answerFiles,
+          ],
+        }
+      : {}),
   };
 }
 
