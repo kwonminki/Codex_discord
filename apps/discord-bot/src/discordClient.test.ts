@@ -171,6 +171,54 @@ describe("attachDiscordInteractionHandler", () => {
     );
   });
 
+  it("defers slash command replies before long handler work", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const sentMessage = { id: "slash-message-1", edit: vi.fn() };
+    const editReply = vi.fn().mockResolvedValue(sentMessage);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isChatInputCommand: () => true,
+      commandName: "howtouse",
+      options: {
+        getString: () => null,
+        getInteger: () => null,
+        getBoolean: () => null,
+      },
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: {
+        roles: {
+          cache: new Map([["role-operator", { id: "role-operator" }]]),
+        },
+      },
+      deferReply,
+      reply,
+      editReply,
+      fetchReply: vi.fn().mockResolvedValue(sentMessage),
+      guild: null,
+    });
+
+    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalled());
+    expect(deferReply.mock.invocationCallOrder[0]).toBeLessThan(handleMessage.mock.invocationCallOrder[0]);
+
+    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
+    const payload = { embeds: [{ title: "Codex 작업 시작" }] };
+    await adaptedMessage.reply(payload);
+
+    expect(reply).not.toHaveBeenCalled();
+    expect(editReply).toHaveBeenCalledWith(payload);
+  });
+
   it("adapts Discord button interactions into the pure message handler", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {

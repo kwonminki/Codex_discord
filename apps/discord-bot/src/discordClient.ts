@@ -73,6 +73,7 @@ interface EditableDiscordMessageLike {
 }
 
 interface InteractionReplySource {
+  deferReply?(): Promise<unknown>;
   reply(message: unknown): Promise<unknown>;
   editReply?(message: unknown): Promise<unknown>;
   fetchReply?(): Promise<unknown>;
@@ -402,12 +403,12 @@ function isModalSubmitInteraction(interaction: unknown): interaction is {
   channelId: string;
   member?: unknown;
   guild: Guild | null;
-    reply(message: unknown): Promise<unknown>;
-    editReply?(message: unknown): Promise<unknown>;
-    fetchReply?(): Promise<unknown>;
-    followUp?(message: unknown): Promise<unknown>;
-    channel?: { send?(message: unknown): Promise<unknown> } | null;
-    fields: { getTextInputValue(fieldId: string): string };
+  reply(message: unknown): Promise<unknown>;
+  editReply?(message: unknown): Promise<unknown>;
+  fetchReply?(): Promise<unknown>;
+  followUp?(message: unknown): Promise<unknown>;
+  channel?: { send?(message: unknown): Promise<unknown> } | null;
+  fields: { getTextInputValue(fieldId: string): string };
 } {
   return (
     typeof interaction === "object" &&
@@ -426,17 +427,18 @@ function isChatInputCommandInteraction(interaction: unknown): interaction is {
   channelId: string;
   member?: unknown;
   guild: Guild | null;
-    reply(message: unknown): Promise<unknown>;
-    editReply?(message: unknown): Promise<unknown>;
-    fetchReply?(): Promise<unknown>;
-    followUp?(message: unknown): Promise<unknown>;
-    channel?: { send?(message: unknown): Promise<unknown> } | null;
-    options: {
-      getString(name: string, required?: boolean): string | null;
-      getInteger?(name: string, required?: boolean): number | null;
-      getBoolean?(name: string, required?: boolean): boolean | null;
-    };
-  } {
+  deferReply?(): Promise<unknown>;
+  reply(message: unknown): Promise<unknown>;
+  editReply?(message: unknown): Promise<unknown>;
+  fetchReply?(): Promise<unknown>;
+  followUp?(message: unknown): Promise<unknown>;
+  channel?: { send?(message: unknown): Promise<unknown> } | null;
+  options: {
+    getString(name: string, required?: boolean): string | null;
+    getInteger?(name: string, required?: boolean): number | null;
+    getBoolean?(name: string, required?: boolean): boolean | null;
+  };
+} {
   return (
     typeof interaction === "object" &&
     interaction !== null &&
@@ -588,10 +590,36 @@ async function fetchInteractionReply(interaction: { fetchReply?(): Promise<unkno
   }
 }
 
-function interactionReplyAdapter(interaction: InteractionReplySource) {
+function interactionReplyAdapter(
+  interaction: InteractionReplySource,
+  options: { initialReplyDeferred?: boolean } = {},
+) {
   let hasInitialReply = false;
 
   return async (replyMessage: unknown) => {
+    if (options.initialReplyDeferred && !hasInitialReply) {
+      const editedInitialMessage =
+        typeof interaction.editReply === "function" ? await interaction.editReply(replyMessage) : null;
+      hasInitialReply = true;
+      const initialMessage = isEditableDiscordMessage(editedInitialMessage)
+        ? editedInitialMessage
+        : await fetchInteractionReply(interaction);
+      rememberCodexProgressMessage(initialMessage, replyMessage);
+
+      if (!isEditableDiscordMessage(initialMessage) || typeof interaction.editReply !== "function") {
+        return undefined;
+      }
+
+      return {
+        edit: async (nextMessage: unknown) => {
+          const preparedMessage = prepareCodexProgressPayload(initialMessage.id, nextMessage);
+          const editedMessage = await interaction.editReply?.(preparedMessage);
+          rememberCodexProgressMessage(editedMessage ?? initialMessage, preparedMessage);
+          return editedMessage;
+        },
+      };
+    }
+
     if (hasInitialReply) {
       const sentMessage =
         typeof interaction.channel?.send === "function"
@@ -705,21 +733,29 @@ export function attachDiscordInteractionHandler(
         return;
       }
 
-      void handleMessage({
-        authorBot: false,
-        userId: interaction.user.id,
-        channelId: interaction.channelId,
-        content,
-        roleIds: getMemberRoleIds(interaction.member),
-        guild: createDiscordGuildSurface(interaction.guild),
-        clearMessages: (clearInput) =>
-          clearChannelMessages({
-            guild: interaction.guild,
-            channelId: interaction.channelId,
-            ...clearInput,
-          }),
-        reply: interactionReplyAdapter(interaction),
-      }).catch((error) => {
+      void (async () => {
+        const initialReplyDeferred = typeof interaction.deferReply === "function";
+
+        if (initialReplyDeferred) {
+          await interaction.deferReply?.();
+        }
+
+        await handleMessage({
+          authorBot: false,
+          userId: interaction.user.id,
+          channelId: interaction.channelId,
+          content,
+          roleIds: getMemberRoleIds(interaction.member),
+          guild: createDiscordGuildSurface(interaction.guild),
+          clearMessages: (clearInput) =>
+            clearChannelMessages({
+              guild: interaction.guild,
+              channelId: interaction.channelId,
+              ...clearInput,
+            }),
+          reply: interactionReplyAdapter(interaction, { initialReplyDeferred }),
+        });
+      })().catch((error) => {
         console.error("discord-bot failed to handle slash command", error);
       });
       return;
