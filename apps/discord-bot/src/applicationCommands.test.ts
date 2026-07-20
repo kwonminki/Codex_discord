@@ -52,6 +52,7 @@ describe("Discord application commands", () => {
       "sync-archive",
       "schedule",
       "chat-new",
+      "fork",
       "archive",
       "browse",
       "shell",

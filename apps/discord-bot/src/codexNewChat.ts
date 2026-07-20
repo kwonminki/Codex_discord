@@ -44,6 +44,15 @@ export interface NewCodexChatResult {
   channelMode: Extract<ChannelMode, "session-linked" | "claude-code">;
 }
 
+export interface ForkDiscordSessionThreadInput {
+  guild: DiscordGuildSurface;
+  controlApi: Pick<ControlApiClient, "createManagedChannel">;
+  stateStore: DirectSyncStateStore;
+  sourceDiscordChannelId: string;
+  name: string;
+  now?: Date;
+}
+
 function sanitizeName(value: string): string {
   const sanitized = value
     .trim()
@@ -306,6 +315,91 @@ export async function createNewCodexChatChannel(
     pendingSession: true,
     initialPrompt: prompt,
     discordDeliveryMode: nextChannel.discordDeliveryMode ?? "channel",
+    channelMode,
+  };
+}
+
+export async function createForkedDiscordSessionThread(
+  input: ForkDiscordSessionThreadInput,
+): Promise<NewCodexChatResult> {
+  const name = input.name.trim();
+
+  if (!name) {
+    throw new Error("Fork thread name is required.");
+  }
+
+  if (!input.guild.createThread) {
+    throw new Error("Discord guild surface cannot create threads.");
+  }
+
+  const state = await input.stateStore.read();
+  const sourceChannel = state.sessionChannels.find(
+    (channel) => channel.discordChannelId === input.sourceDiscordChannelId,
+  );
+
+  if (!sourceChannel) {
+    throw new Error("현재 Discord 스레드의 세션 상태를 찾을 수 없습니다.");
+  }
+
+  const channelMode = sourceChannel.channelMode === "claude-code" ? "claude-code" : "session-linked";
+  const parentChannelId = sourceChannel.discordParentChannelId?.trim();
+
+  if (!parentChannelId || sourceChannel.discordDeliveryMode !== "thread") {
+    throw new Error("Fork는 세션별 Discord thread 안에서만 사용할 수 있습니다.");
+  }
+
+  const channelName = sanitizeName(name);
+  const discordThreadName = sanitizeDiscordThreadName(name, channelName);
+  const thread = await input.guild.createThread({
+    name: discordThreadName,
+    parentChannelId,
+    autoArchiveDuration: 10_080,
+    reason: [
+      `${channelMode === "claude-code" ? "Claude Code" : "Codex"} session fork`,
+      `Source thread: ${sourceChannel.threadName}`,
+      `Workspace: ${sourceChannel.workspaceRoot}`,
+      `Working directory: ${sourceChannel.cwd}`,
+    ].join("\n"),
+  });
+  const nextChannel: SyncedSessionChannelState = {
+    codexSessionId: null,
+    threadName: name,
+    updatedAt: (input.now ?? new Date()).toISOString(),
+    cwd: sourceChannel.cwd,
+    workspaceRoot: sourceChannel.workspaceRoot,
+    workspaceDisplayName: sourceChannel.workspaceDisplayName,
+    discordCategoryId: sourceChannel.discordCategoryId ?? null,
+    discordChannelId: thread.id,
+    discordParentChannelId: parentChannelId,
+    discordDeliveryMode: "thread",
+    channelMode,
+    channelName,
+    computerId: sourceChannel.computerId,
+    workspaceId: sourceChannel.workspaceId,
+  };
+
+  await input.controlApi.createManagedChannel({
+    id: `channel:${thread.id}`,
+    discordChannelId: thread.id,
+    computerId: nextChannel.computerId,
+    workspaceId: nextChannel.workspaceId,
+    channelMode,
+  });
+
+  state.sessionChannels.push(nextChannel);
+  await input.stateStore.write(state);
+
+  return {
+    discordChannelId: thread.id,
+    discordCategoryId: nextChannel.discordCategoryId,
+    channelName,
+    threadName: name,
+    cwd: nextChannel.cwd,
+    workspaceRoot: nextChannel.workspaceRoot,
+    workspaceDisplayName: nextChannel.workspaceDisplayName,
+    pendingSession: true,
+    initialPrompt: null,
+    discordDeliveryMode: "thread",
     channelMode,
   };
 }

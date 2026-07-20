@@ -27,6 +27,7 @@ export interface RunClaudePromptJobPayload {
   prompt: string;
   timeoutMs: number;
   sessionId: string | null;
+  forkSession?: boolean;
 }
 
 export type CodexPromptProgressEvent =

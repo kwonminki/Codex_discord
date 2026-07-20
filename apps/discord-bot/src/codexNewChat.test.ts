@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { createNewCodexChatChannel } from "./codexNewChat.js";
+import { createForkedDiscordSessionThread, createNewCodexChatChannel } from "./codexNewChat.js";
 import { createDirectSyncStateStore } from "./directState.js";
 
 describe("createNewCodexChatChannel", () => {
@@ -343,6 +343,86 @@ describe("createNewCodexChatChannel", () => {
             discordCategoryId: "category-recreated",
           },
         ],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("createForkedDiscordSessionThread", () => {
+  it("copies the source thread workspace context into a new session thread", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "fork-chat-"));
+
+    try {
+      const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+      await stateStore.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [
+          {
+            codexSessionId: null,
+            claudeSessionId: "claude-source-session-1",
+            threadName: "Original Claude task",
+            updatedAt: "2026-07-20T05:00:00.000Z",
+            cwd: path.join(tempRoot, "project"),
+            workspaceRoot: tempRoot,
+            workspaceDisplayName: "project",
+            discordCategoryId: null,
+            discordChannelId: "source-thread",
+            discordParentChannelId: "claude-parent",
+            discordDeliveryMode: "thread",
+            channelMode: "claude-code",
+            channelName: "original-claude-task",
+            computerId: "local-dev",
+            workspaceId: `local-dev:${tempRoot}`,
+          },
+        ],
+      });
+      const guild = {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: "fork-thread" }),
+      };
+      const controlApi = {
+        createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-fork" }),
+      };
+
+      const result = await createForkedDiscordSessionThread({
+        guild,
+        controlApi,
+        stateStore,
+        sourceDiscordChannelId: "source-thread",
+        name: "Forked Claude task",
+        now: new Date("2026-07-20T05:10:00.000Z"),
+      });
+
+      expect(guild.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Forked Claude task",
+          parentChannelId: "claude-parent",
+          autoArchiveDuration: 10_080,
+        }),
+      );
+      expect(controlApi.createManagedChannel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "fork-thread",
+          channelMode: "claude-code",
+          workspaceId: `local-dev:${tempRoot}`,
+        }),
+      );
+      expect(result).toMatchObject({
+        discordChannelId: "fork-thread",
+        threadName: "Forked Claude task",
+        cwd: path.join(tempRoot, "project"),
+        workspaceRoot: tempRoot,
+        channelMode: "claude-code",
+      });
+      await expect(stateStore.findSessionChannelByDiscordId("fork-thread")).resolves.toMatchObject({
+        discordParentChannelId: "claude-parent",
+        discordDeliveryMode: "thread",
+        channelMode: "claude-code",
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

@@ -19,6 +19,7 @@ export type RoutedDiscordMessage =
   | { type: "codex-chat"; content: string }
   | { type: "codex-continue-session"; sessionId: string; content: string }
   | { type: "claude-chat"; content: string }
+  | { type: "fork-session"; name: string }
   | {
       type: "admin-new-chat";
       name: string | null;
@@ -362,6 +363,39 @@ function parseEncodedCodexContinueCommand(content: string): {
   } catch {
     return null;
   }
+}
+
+function parseEncodedForkSessionCommand(content: string): { name: string } | null {
+  if (!content.startsWith("__cdc_fork_session ")) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(content.slice("__cdc_fork_session ".length).trim())) as {
+      name?: unknown;
+    };
+    const name = typeof parsed.name === "string" ? parsed.name.trim() : "";
+    return name.length > 0 ? { name } : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseForkSessionCommand(content: string): { name: string } | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  const keyedName = parseKeyedValue(normalized, "name");
+
+  if (/^fork(?:\s+session)?$/i.test(normalized)) {
+    return null;
+  }
+
+  if (keyedName && /^(?:fork|fork session)(?:\s+name:[^\n]+)$/i.test(normalized)) {
+    return { name: keyedName };
+  }
+
+  const match = normalized.match(/^fork(?:\s+session)?\s+(.+)$/i);
+  const name = match?.[1]?.trim();
+  return name ? { name } : null;
 }
 
 function codexOpenShellCommand(sessionId: string): string {
@@ -857,6 +891,31 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "codex-continue-session", ...codexContinueSession };
+  }
+
+  const forkSession = parseEncodedForkSessionCommand(trimmedContent) ?? parseForkSessionCommand(trimmedContent);
+
+  if (forkSession) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    if (input.channelMode === "shell-admin") {
+      return blockedCommand(
+        "이 명령은 session thread 전용입니다.",
+        "Claude Code 세션 thread 안에서 /fork를 실행하세요.",
+      );
+    }
+
+    return { type: "fork-session", name: forkSession.name };
   }
 
   const codexOpenSession = parseCodexOpenSessionCommand(trimmedContent);

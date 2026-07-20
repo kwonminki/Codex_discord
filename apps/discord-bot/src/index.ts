@@ -3,7 +3,11 @@ import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
 import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
-import { createNewCodexChatChannel, linkPendingNewCodexChatSession } from "./codexNewChat.js";
+import {
+  createForkedDiscordSessionThread,
+  createNewCodexChatChannel,
+  linkPendingNewCodexChatSession,
+} from "./codexNewChat.js";
 import { archiveSyncedCodexSession } from "./codexSessionArchive.js";
 import {
   deleteSyncedDiscordSessions,
@@ -577,6 +581,21 @@ export async function startBot(): Promise<void> {
             sessionThreadParentChannelId: input.sessionThreadParentChannelId ?? connectConfig.direct.channelId,
           })
       : undefined;
+  const createForkedSessionThread =
+    connectConfig?.mode === "direct" && directStateStore
+      ? async (input: {
+          guild: DiscordGuildSurface;
+          sourceDiscordChannelId: string;
+          name: string;
+        }) =>
+          createForkedDiscordSessionThread({
+            guild: input.guild,
+            controlApi: controlApiClient,
+            stateStore: directStateStore,
+            sourceDiscordChannelId: input.sourceDiscordChannelId,
+            name: input.name,
+          })
+      : undefined;
   const linkNewCodexSession =
     directStateStore
       ? async (input: { discordChannelId: string; codexSessionId: string; threadName: string }) =>
@@ -595,6 +614,7 @@ export async function startBot(): Promise<void> {
     submitClaudePrompt: controlApiClient.submitClaudePrompt,
     syncCodexSessions,
     createNewCodexChat,
+    createForkedSessionThread,
     linkNewCodexSession,
     recordClaudeSession: directStateStore
       ? (input) =>

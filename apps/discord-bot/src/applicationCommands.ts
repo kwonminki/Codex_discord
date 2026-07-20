@@ -432,6 +432,10 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
     ],
   },
   {
+    name: "fork",
+    description: "현재 Claude Code session thread를 새 Discord thread로 fork합니다.",
+  },
+  {
     name: "archive",
     description: "현재 Codex 세션 채널을 보관하고 다음 sync에서 제외합니다.",
   },

@@ -39,6 +39,9 @@ import {
   formatDeleteResult,
   formatDenied,
   formatHelp,
+  formatForkedSessionThreadNotice,
+  formatForkSessionAck,
+  formatForkSessionResult,
   formatMaintenancePanel,
   formatNewChatAck,
   formatNewChatResult,
@@ -117,6 +120,11 @@ export interface CreateDiscordMessageHandlerInput {
     initialPrompt: string | null;
     channelMode: "session-linked" | "claude-code";
     sessionThreadParentChannelId: string | null;
+  }) => Promise<NewCodexChatResult>;
+  createForkedSessionThread?: (input: {
+    guild: DiscordGuildSurface;
+    sourceDiscordChannelId: string;
+    name: string;
   }) => Promise<NewCodexChatResult>;
   linkNewCodexSession?: (input: {
     discordChannelId: string;
@@ -264,6 +272,23 @@ function extractCodexResponseSessionId(response: { result?: unknown; error?: unk
     typeof (response.result as { sessionId?: unknown }).sessionId === "string"
     ? (response.result as { sessionId: string }).sessionId
     : null;
+}
+
+function extractCodexResponseFinalMessage(response: { result?: unknown; error?: unknown }): string | null {
+  return "result" in response &&
+    typeof response.result === "object" &&
+    response.result !== null &&
+    typeof (response.result as { finalMessage?: unknown }).finalMessage === "string"
+    ? (response.result as { finalMessage: string }).finalMessage
+    : null;
+}
+
+function claudeForkPrompt(name: string): string {
+  return [
+    `이 세션은 Discord /fork 명령으로 "${name}" 이름의 새 스레드에 분기되었습니다.`,
+    "기존 대화 맥락은 유지하되 아직 새 작업은 시작하지 마세요.",
+    "새 fork 세션이 준비되었다고 한 문장으로만 답하세요.",
+  ].join("\n");
 }
 
 function readableProgressEvent(event: {
@@ -896,6 +921,106 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+        );
+      }
+      return;
+    }
+
+    if (routed.type === "fork-session") {
+      if (channelContext.channelMode !== "claude-code") {
+        await reply(
+          formatForkSessionResult({
+            error: {
+              message: "현재 /fork는 Claude Code session thread에서만 지원됩니다.",
+            },
+          }),
+        );
+        return;
+      }
+
+      const sourceSessionId =
+        claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null;
+
+      const queuedReply = await reply(
+        formatForkSessionAck({
+          name: routed.name,
+          channelMode: channelContext.channelMode,
+          sourceSessionId,
+        }),
+      );
+
+      try {
+        if (!sourceSessionId) {
+          throw new Error("현재 Discord thread에 연결된 Claude session ID가 없습니다. 먼저 Claude Code 요청을 한 번 실행해 주세요.");
+        }
+
+        if (!input.createForkedSessionThread) {
+          throw new Error("Session fork thread creation is not connected for this bot mode.");
+        }
+
+        if (!input.submitClaudePrompt) {
+          throw new Error("Claude Code is not connected for this bot mode.");
+        }
+
+        if (!message.guild) {
+          throw new Error("Discord guild context is required for session fork.");
+        }
+
+        const forkThread = await input.createForkedSessionThread({
+          guild: message.guild,
+          sourceDiscordChannelId: message.channelId,
+          name: routed.name,
+        });
+
+        const response = await input.submitClaudePrompt({
+          computerId: channelContext.computerId,
+          payload: {
+            workspaceRoot: forkThread.workspaceRoot,
+            cwd: forkThread.cwd,
+            prompt: claudeForkPrompt(routed.name),
+            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+            sessionId: sourceSessionId,
+            forkSession: true,
+          },
+        });
+        const forkSessionId = extractCodexResponseSessionId(response);
+        const finalMessage = extractCodexResponseFinalMessage(response);
+
+        if (forkSessionId) {
+          claudeSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
+          await input.recordClaudeSession?.({
+            discordChannelId: forkThread.discordChannelId,
+            claudeSessionId: forkSessionId,
+          });
+        }
+
+        await message.guild.sendTextMessage?.(
+          forkThread.discordChannelId,
+          formatForkedSessionThreadNotice({
+            sourceChannelId: message.channelId,
+            sourceSessionId,
+            forkSessionId,
+            finalMessage,
+          }),
+          { mentionRoleIds: channelContext.allowedRoleIds },
+        );
+
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => reply(replyMessage),
+          formatForkSessionResult({
+            result: forkThread,
+            sourceSessionId,
+            forkSessionId,
+            finalMessage,
+          }),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Session fork failed";
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => reply(replyMessage),
+          formatForkSessionResult({ error: { message: messageText } }),
         );
       }
       return;

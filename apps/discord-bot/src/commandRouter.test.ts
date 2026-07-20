@@ -649,6 +649,32 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes session fork requests from Claude Code threads", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "__cdc_fork_session %7B%22name%22%3A%22GPU%20%EC%8B%A4%ED%97%98%22%7D",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "fork-session",
+      name: "GPU 실험",
+    });
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "fork 다른 접근 테스트",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "fork-session",
+      name: "다른 접근 테스트",
+    });
+  });
+
   it("routes explicit sync all requests to immediate admin sync", () => {
     expect(
       routeDiscordMessage({

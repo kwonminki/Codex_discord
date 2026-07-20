@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -77,6 +77,53 @@ describe("runClaudePrompt", () => {
         },
         { type: "agent-message", text: "중간 설명입니다." },
       ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("passes --fork-session when resuming a Claude Code session fork", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-runner-"));
+    const fakeClaude = path.join(tempRoot, "claude");
+    const argsPath = path.join(tempRoot, "args.json");
+
+    try {
+      await writeFile(
+        fakeClaude,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+          "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-fork-session-1' }));",
+          "console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'claude-fork-session-1', result: 'fork ready' }));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeClaude, 0o755);
+
+      await expect(
+        runClaudePrompt({
+          workspaceRoot: tempRoot,
+          cwd: tempRoot,
+          prompt: "Fork this session",
+          timeoutMs: 5_000,
+          claudeCommand: fakeClaude,
+          sessionId: "claude-source-session-1",
+          forkSession: true,
+        }),
+      ).resolves.toMatchObject({
+        status: "completed",
+        sessionId: "claude-fork-session-1",
+      });
+
+      const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+      expect(args).toEqual(
+        expect.arrayContaining([
+          "--resume",
+          "claude-source-session-1",
+          "--fork-session",
+        ]),
+      );
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

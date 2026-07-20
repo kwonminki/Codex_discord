@@ -842,6 +842,103 @@ describe("createDiscordMessageHandler", () => {
     expect(submitCodexPrompt).not.toHaveBeenCalled();
   });
 
+  it("forks a linked Claude Code session into a new Discord thread", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const recordClaudeSession = vi.fn();
+    const createForkedSessionThread = vi.fn().mockResolvedValue({
+      discordChannelId: "fork-thread-1",
+      discordCategoryId: null,
+      channelName: "gpu-experiment",
+      threadName: "GPU experiment",
+      cwd: "/repo",
+      workspaceRoot: "/repo",
+      workspaceDisplayName: "repo",
+      pendingSession: true,
+      initialPrompt: null,
+      discordDeliveryMode: "thread",
+      channelMode: "claude-code",
+    });
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "새 fork 세션이 준비되었습니다.",
+        sessionId: "claude-fork-session-1",
+      },
+    });
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "notice-1" });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        claudeSessionId: "claude-source-session-1",
+        discordDeliveryMode: "thread",
+        discordParentChannelId: "claude-parent-channel",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt,
+      createForkedSessionThread,
+      recordClaudeSession,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "__cdc_fork_session %7B%22name%22%3A%22GPU%20experiment%22%7D",
+      roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        sendTextMessage,
+      },
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+
+    expect(createForkedSessionThread).toHaveBeenCalledWith({
+      guild: expect.any(Object),
+      sourceDiscordChannelId: "discord-channel-1",
+      name: "GPU experiment",
+    });
+    expect(submitClaudePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          sessionId: "claude-source-session-1",
+          forkSession: true,
+          cwd: "/repo",
+        }),
+      }),
+    );
+    expect(recordClaudeSession).toHaveBeenCalledWith({
+      discordChannelId: "fork-thread-1",
+      claudeSessionId: "claude-fork-session-1",
+    });
+    expect(sendTextMessage).toHaveBeenCalledWith(
+      "fork-thread-1",
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Claude Code fork 연결됨" })],
+      }),
+      { mentionRoleIds: ["role-operator"] },
+    );
+    expect(replies[0]).toEqual(expect.objectContaining({ embeds: [expect.objectContaining({ title: "Claude Code fork 준비 중" })] }));
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Claude Code fork ready" })],
+      }),
+    );
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({

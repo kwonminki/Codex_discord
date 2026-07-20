@@ -563,6 +563,68 @@ describe("attachDiscordInteractionHandler", () => {
     );
   });
 
+  it("shows a fork modal from /fork and dispatches the submitted thread name", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const showModal = vi.fn().mockResolvedValue(undefined);
+    const deferReply = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isChatInputCommand: () => true,
+      commandName: "fork",
+      options: {
+        getString: () => null,
+        getInteger: () => null,
+        getBoolean: () => null,
+      },
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      deferReply,
+      reply: vi.fn(),
+      showModal,
+    });
+
+    expect(showModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "새 fork 스레드",
+        custom_id: "cdc:fork:submit",
+      }),
+    );
+    expect(deferReply).not.toHaveBeenCalled();
+    expect(handleMessage).not.toHaveBeenCalled();
+
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => false,
+      isModalSubmit: () => true,
+      customId: "cdc:fork:submit",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      fields: {
+        getTextInputValue: (fieldId: string) => (fieldId === "name" ? "GPU 실험" : ""),
+      },
+    });
+
+    expect(handleMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content:
+          "__cdc_fork_session %7B%22name%22%3A%22GPU%20%EC%8B%A4%ED%97%98%22%7D",
+      }),
+    );
+  });
+
   it("toggles Codex progress thoughts by updating the existing Discord message", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {

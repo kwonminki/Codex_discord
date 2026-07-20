@@ -579,6 +579,34 @@ function newChatModal(kind: "general" | "current") {
   };
 }
 
+function forkSessionModal() {
+  return {
+    title: "새 fork 스레드",
+    custom_id: "cdc:fork:submit",
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "name",
+            label: "스레드 이름",
+            style: 1,
+            required: true,
+            min_length: 1,
+            max_length: 90,
+            placeholder: "예: 실험 브랜치 / 다른 접근 테스트",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function encodedForkSessionCommand(input: { name: string }): string {
+  return `__cdc_fork_session ${encodeURIComponent(JSON.stringify(input))}`;
+}
+
 function isNewChatButton(customId: string): customId is
   | typeof COMPONENT_IDS.newGeneralChat
   | typeof COMPONENT_IDS.newCurrentFolderChat
@@ -779,6 +807,23 @@ export function attachDiscordInteractionHandler(
         }
 
         const commandName = interaction.commandName.trim() || "(empty)";
+
+        if (commandName.toLowerCase() === "fork") {
+          const showModal = (interaction as { showModal?: (modal: unknown) => Promise<unknown> }).showModal;
+
+          if (typeof showModal !== "function") {
+            await interaction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+            });
+            return;
+          }
+
+          await showModal.call(interaction, forkSessionModal());
+          return;
+        }
+
         const deferReply = interaction.deferReply;
         const initialReplyDeferred = typeof deferReply === "function";
 
@@ -929,6 +974,38 @@ export function attachDiscordInteractionHandler(
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle new chat modal submit", error);
+      });
+      return;
+    }
+
+    if (isModalSubmitInteraction(interaction) && interaction.isModalSubmit() && interaction.customId === "cdc:fork:submit") {
+      void (async () => {
+        if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+          return;
+        }
+
+        const name = interaction.fields.getTextInputValue("name").trim();
+
+        if (name.length === 0) {
+          await interaction.reply({
+            allowedMentions: { parse: [] },
+            ephemeral: true,
+            content: "스레드 이름이 비어 있습니다.",
+          });
+          return;
+        }
+
+        await handleMessage({
+          authorBot: false,
+          userId: interaction.user.id,
+          channelId: interaction.channelId,
+          content: encodedForkSessionCommand({ name }),
+          roleIds: getMemberRoleIds(interaction.member),
+          guild: createDiscordGuildSurface(interaction.guild),
+          reply: interactionReplyAdapter(interaction),
+        });
+      })().catch((error) => {
+        console.error("discord-bot failed to handle fork modal submit", error);
       });
       return;
     }

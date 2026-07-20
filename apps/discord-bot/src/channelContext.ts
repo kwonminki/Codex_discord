@@ -13,4 +13,5 @@ export interface ManagedDiscordChannelContext {
   codexSessionId?: string | null;
   claudeSessionId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
+  discordParentChannelId?: string | null;
 }

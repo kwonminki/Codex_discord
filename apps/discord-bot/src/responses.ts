@@ -1499,7 +1499,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const claudeCodeFields: DiscordEmbedFieldPayload[] = [
     {
       name: "Primary flow",
-      value: codeBlock("현재 GPU 사용량 봐봐\n이 파일 분석해줘\n버그 고치고 테스트 돌려줘", "text"),
+      value: codeBlock("현재 GPU 사용량 봐봐\n이 파일 분석해줘\n버그 고치고 테스트 돌려줘\n/fork", "text"),
       inline: false,
     },
     {
@@ -1509,7 +1509,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Claude Code",
-      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다.",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다.",
       inline: false,
     },
     {
@@ -2225,6 +2225,138 @@ export function formatNewChatResult(response: {
     },
     actions,
   );
+}
+
+export function formatForkSessionAck(input: {
+  name: string;
+  channelMode: ChannelMode;
+  sourceSessionId: string | null;
+}): DiscordMessagePayload {
+  const agentLabel = input.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
+  return messagePayload({
+    title: `${agentLabel} fork 준비 중`,
+    color: COLORS.codex,
+    description: "현재 세션을 새 Discord thread로 분기하는 중입니다.",
+    fields: [
+      {
+        name: "New thread",
+        value: wrapDiscordText(input.name),
+        inline: true,
+      },
+      {
+        name: "Source session",
+        value: wrapDiscordText(input.sourceSessionId ?? "(not linked yet)"),
+        inline: false,
+      },
+    ],
+  });
+}
+
+export function formatForkSessionResult(response: {
+  result?: {
+    discordChannelId: string;
+    threadName: string;
+    cwd: string;
+    workspaceDisplayName: string;
+    channelMode?: ChannelMode;
+  };
+  sourceSessionId?: string | null;
+  forkSessionId?: string | null;
+  finalMessage?: string | null;
+  error?: { message: string };
+}): DiscordMessagePayload {
+  if (response.error || !response.result) {
+    return messagePayload({
+      title: "Session fork failed",
+      color: COLORS.failure,
+      description: truncateDescription(wrapDiscordText(response.error?.message ?? "Unknown fork failure")),
+    });
+  }
+
+  const agentLabel = response.result.channelMode === "claude-code" ? "Claude Code" : "Codex";
+  const fields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Thread",
+      value: `<#${response.result.discordChannelId}>`,
+      inline: true,
+    },
+    {
+      name: "Name",
+      value: wrapDiscordText(response.result.threadName),
+      inline: true,
+    },
+    {
+      name: "Source session",
+      value: wrapDiscordText(response.sourceSessionId ?? "(unknown)"),
+      inline: false,
+    },
+    {
+      name: "Fork session",
+      value: wrapDiscordText(response.forkSessionId ?? "(pending)"),
+      inline: false,
+    },
+    {
+      name: "Working directory",
+      value: wrapDiscordText(response.result.cwd),
+      inline: false,
+    },
+  ];
+
+  if (response.finalMessage?.trim()) {
+    fields.push({
+      name: "Claude response",
+      value: wrapDiscordText(response.finalMessage.trim()),
+      inline: false,
+    });
+  }
+
+  return messagePayload({
+    title: `${agentLabel} fork ready`,
+    color: COLORS.success,
+    description: "새 Discord thread가 분기된 세션으로 연결되었습니다. 새 thread에서 바로 이어서 요청하세요.",
+    fields,
+  });
+}
+
+export function formatForkedSessionThreadNotice(input: {
+  sourceChannelId: string;
+  sourceSessionId: string | null;
+  forkSessionId: string | null;
+  finalMessage?: string | null;
+}): DiscordMessagePayload {
+  const fields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Forked from",
+      value: `<#${input.sourceChannelId}>`,
+      inline: true,
+    },
+    {
+      name: "Source session",
+      value: wrapDiscordText(input.sourceSessionId ?? "(unknown)"),
+      inline: false,
+    },
+    {
+      name: "Fork session",
+      value: wrapDiscordText(input.forkSessionId ?? "(pending)"),
+      inline: false,
+    },
+  ];
+
+  if (input.finalMessage?.trim()) {
+    fields.push({
+      name: "Claude response",
+      value: wrapDiscordText(input.finalMessage.trim()),
+      inline: false,
+    });
+  }
+
+  return messagePayload({
+    title: "Claude Code fork 연결됨",
+    color: COLORS.success,
+    description: "이 스레드에 메시지를 보내면 분기된 Claude Code 세션으로 이어집니다.",
+    fields,
+  });
 }
 
 export function formatSyncAck(input: { limit: number }): DiscordMessagePayload {
