@@ -131,6 +131,15 @@ On macOS LaunchAgent services, set `CODEX_DISCORD_CODEX_COMMAND` to the absolute
 
 Discord Codex prompts use extra high reasoning by default. Use `fast` in a session channel only when you want a quick low-reasoning pass; `task` and `mode default` use `xhigh`.
 
+Claude Code can also be launched from a session channel in direct mode:
+
+```text
+claude README 요약해줘
+claude 이어서 테스트 계획도 잡아줘
+```
+
+The connector runs Claude Code headless with stream JSON output and remembers the returned Claude session ID per Discord channel for later `claude ...` resumes. Set `CODEX_DISCORD_CLAUDE_COMMAND` if `claude` is not on the service `PATH`, and set `CODEX_DISCORD_CLAUDE_PERMISSION_MODE` to override the default `bypassPermissions` mode. Permission approval buttons and Claude hook-based notifications for externally started Claude sessions are not included in the MVP direct integration.
+
 Use this only on trusted machines and private Discord servers. To narrow permissions, set `CODEX_DISCORD_CODEX_APPROVAL_POLICY=on-request` and `CODEX_DISCORD_CODEX_SANDBOX=workspace-write`. For GPU work, the machine running the connector must already see the GPU outside Codex first. Check `nvidia-smi`, `/dev/nvidia*`, and any container runtime GPU settings before changing Codex sandbox settings.
 
 ## Development loop

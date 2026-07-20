@@ -806,6 +806,35 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes explicit Claude Code prompts in session channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "README 요약해줘",
+    });
+  });
+
+  it("blocks explicit Claude Code prompts in admin channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "blocked-command",
+      reason: "main 채널은 운영 전용입니다.",
+      guidance: "Claude Code와 대화하려면 /chat-new로 session 채널을 만들거나 기존 session 채널에서 `claude ...`를 보내세요.",
+    });
+  });
+
   it("routes encoded continue-session prompts to a specific Codex session", () => {
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
     const content = `__cdc_codex_continue ${encodeURIComponent(JSON.stringify({

@@ -670,6 +670,87 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("submits explicit Claude Code prompts and resumes the channel Claude session", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const submitClaudePrompt = vi.fn(async (input) => {
+      await input.onProgress?.({ type: "thread-started", sessionId: "claude-session-1" });
+      await input.onProgress?.({ type: "agent-message", text: "Claude가 작업 중입니다." });
+      return {
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: "Claude 답변입니다.",
+          sessionId: "claude-session-1",
+        },
+      };
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "claude README 요약해줘",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "claude 이어서 테스트 계획도 잡아줘",
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(replies[0]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude Code 작업 시작"),
+      }),
+    );
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude 답변입니다."),
+      }),
+    );
+    expect(submitClaudePrompt).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "README 요약해줘",
+          sessionId: null,
+        }),
+      }),
+    );
+    expect(submitClaudePrompt).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "이어서 테스트 계획도 잡아줘",
+          sessionId: "claude-session-1",
+        }),
+      }),
+    );
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({

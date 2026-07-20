@@ -62,6 +62,7 @@ export interface CodexProgressMessageInput {
   workspaceDisplayName: string;
   cwd: string;
   prompt: string;
+  agentLabel?: string;
   permissionSettings?: CodexPermissionSettings;
 }
 
@@ -1500,9 +1501,14 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Session controls",
       value: codeBlock(
-        "model gpt-5.4\nfast\ntask\nmode default\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
+        "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
+      inline: false,
+    },
+    {
+      name: "Claude Code",
+      value: "`claude <요청>`으로 현재 session 채널의 작업 디렉터리에서 Claude Code headless 실행을 시작합니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 `claude ...` 요청에 resume합니다.",
       inline: false,
     },
     {
@@ -2516,12 +2522,17 @@ export function formatCodexAck(input: {
   workspaceDisplayName: string;
   cwd: string;
   prompt: string;
+  agentLabel?: string;
 }): DiscordMessagePayload {
   const progress = { status: "thinking" };
-  const payload = textPayload(codexProgressText(input, progress, {}, "Codex 작업 시작"));
+  const payload = textPayload(codexProgressText(input, progress, {}, `${agentLabel(input)} 작업 시작`));
   payload.components = codexProgressActions(false);
   codexProgressViews.set(payload, { input, progress, expanded: false });
   return payload;
+}
+
+function agentLabel(input: { agentLabel?: string }): string {
+  return input.agentLabel?.trim() || "Codex";
 }
 
 function codexStatusLabel(status: string): string {
@@ -2708,7 +2719,7 @@ export function formatCodexProgressUpdate(
   options: CodexProgressRenderOptions = {},
 ): DiscordMessagePayload {
   const expanded = options.expanded ?? false;
-  const payload = textPayload(codexProgressText(input, progress, { expanded }));
+  const payload = textPayload(codexProgressText(input, progress, { expanded }, `${agentLabel(input)} 작업 중`));
   payload.components = codexProgressActions(expanded);
   codexProgressViews.set(payload, { input, progress, expanded });
   return payload;
@@ -3031,7 +3042,7 @@ export function formatCodexResultUpdate(
     ? result.finalMessage
     : null;
   const resultStderr = typeof result?.stderr === "string" && result.stderr.trim().length > 0 ? result.stderr : null;
-  const finalMessage = response.error?.message ?? resultFinalMessage ?? resultStderr ?? "Codex did not return a final message.";
+  const finalMessage = response.error?.message ?? resultFinalMessage ?? resultStderr ?? `${agentLabel(input)} did not return a final message.`;
   const sessionId = typeof result?.sessionId === "string" && result.sessionId.length > 0 ? result.sessionId : null;
   const errorCode = typeof result?.errorCode === "string" && result.errorCode.length > 0 ? result.errorCode : null;
   const fields: DiscordEmbedFieldPayload[] = [
@@ -3167,7 +3178,7 @@ export function formatCodexResultUpdate(
   }
 
   const payload = messagePayload({
-    title: "Codex failed",
+    title: `${agentLabel(input)} failed`,
     color: COLORS.failure,
     description: truncateDescription(sanitizeDiscordMarkdown(finalMessage)),
     fields,

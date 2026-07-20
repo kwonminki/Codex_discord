@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { listNativeCodexSessions } from "./codexAdapter.js";
+import { runClaudePrompt } from "./claudeRunner.js";
 import { runCodexPrompt, type CodexRunnerProgressEvent } from "./codexRunner.js";
 import { runWorkspaceCommand } from "./runner.js";
 
@@ -64,6 +65,13 @@ export async function handleAgentJob(job: AgentJob, options: AgentJobOptions = {
   if (job.type === "run-codex-prompt") {
     return runCodexPrompt({
       ...(job.payload as Parameters<typeof runCodexPrompt>[0]),
+      onProgress: options.onProgress,
+    });
+  }
+
+  if (job.type === "run-claude-prompt") {
+    return runClaudePrompt({
+      ...(job.payload as Parameters<typeof runClaudePrompt>[0]),
       onProgress: options.onProgress,
     });
   }

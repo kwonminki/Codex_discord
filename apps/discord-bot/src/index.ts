@@ -513,6 +513,7 @@ export async function startBot(): Promise<void> {
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
+    submitClaudePrompt: controlApiClient.submitClaudePrompt,
     syncCodexSessions,
     createNewCodexChat,
     linkNewCodexSession,

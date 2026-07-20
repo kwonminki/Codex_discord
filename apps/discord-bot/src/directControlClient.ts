@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
+import { runClaudePrompt } from "../../local-agent/src/claudeRunner.js";
 import { runCodexAppServerPrompt } from "../../local-agent/src/codexAppServerRunner.js";
 import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
@@ -34,7 +35,7 @@ export function createDirectControlClient(
           hostname: config.direct.computerId,
           status: "online",
           allowedRoleIds: [...config.discord.allowedRoleIds],
-          capabilities: ["shell", "codex-import", "codex-chat"],
+          capabilities: ["shell", "codex-import", "codex-chat", "claude-code"],
           workspaces: [
             {
               id: config.direct.workspaceId,
@@ -177,6 +178,17 @@ export function createDirectControlClient(
         codexRunner === "app-server" && input.payload.mode !== "review"
           ? await runCodexAppServerPrompt(runnerInput)
           : await runCodexPrompt(runnerInput);
+      return { jobId: randomUUID(), result };
+    },
+    async submitClaudePrompt(input) {
+      if (input.computerId !== config.direct.computerId) {
+        return { jobId: randomUUID(), error: { message: "Computer is offline" } };
+      }
+
+      const result = await runClaudePrompt({
+        ...input.payload,
+        onProgress: input.onProgress,
+      });
       return { jobId: randomUUID(), result };
     },
   };

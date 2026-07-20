@@ -101,6 +101,7 @@ export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
+  submitClaudePrompt?: ControlApiClient["submitClaudePrompt"];
   syncCodexSessions?: (input: {
     guild: DiscordGuildSurface;
     limit: number;
@@ -345,6 +346,7 @@ function codexPermissionSettings(): CodexPermissionSettings {
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
   const channelQueues = new Map<string, Promise<void>>();
   const codexSessionIdsByChannel = new Map<string, string>();
+  const claudeSessionIdsByChannel = new Map<string, string>();
   const codexModelsByChannel = new Map<string, string>();
   const codexRunModesByChannel = new Map<string, "fast" | "task">();
   const pendingCodexApprovals = new Map<
@@ -875,6 +877,96 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+        );
+      }
+      return;
+    }
+
+    if (routed.type === "claude-chat") {
+      const prompt = routed.content;
+      const claudeMessage = {
+        computerDisplayName: channelContext.computerDisplayName,
+        workspaceDisplayName: channelContext.workspaceDisplayName,
+        cwd: channelContext.cwd,
+        prompt,
+        agentLabel: "Claude Code",
+      };
+
+      if (!input.submitClaudePrompt) {
+        await reply(
+          formatCodexResultUpdate(claudeMessage, {
+            error: { message: "Claude Code is not connected for this mode yet." },
+          }),
+        );
+        return;
+      }
+
+      const queuedReply = await reply(formatCodexAck(claudeMessage));
+      let recentEvents: string[] = [];
+      let streamedSessionId = claudeSessionIdsByChannel.get(message.channelId) ?? null;
+
+      try {
+        const response = await input.submitClaudePrompt({
+          computerId: channelContext.computerId,
+          payload: {
+            workspaceRoot: channelContext.workspaceRoot,
+            cwd: channelContext.cwd,
+            prompt,
+            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+            sessionId: streamedSessionId,
+          },
+          onProgress: async (event) => {
+            if (event.type === "thread-started") {
+              streamedSessionId = event.sessionId;
+              recentEvents = appendProgressEvent(recentEvents, "생각중...");
+              await updateQueuedReply(
+                queuedReply,
+                (replyMessage) => reply(replyMessage),
+                formatCodexProgressUpdate(claudeMessage, {
+                  status: "session opened",
+                  sessionId: streamedSessionId,
+                  recentEvents,
+                }),
+              );
+              return;
+            }
+
+            const status = event.type === "operation-progress" ? event.label : event.type;
+            recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+            await updateQueuedReply(
+              queuedReply,
+              (replyMessage) => reply(replyMessage),
+              formatCodexProgressUpdate(claudeMessage, {
+                status,
+                sessionId: streamedSessionId,
+                latestMessage:
+                  event.type === "operation-progress"
+                    ? event.detail
+                    : event.type === "agent-message"
+                      ? event.text
+                      : undefined,
+                recentEvents,
+              }),
+            );
+          },
+        });
+        const responseSessionId = extractCodexResponseSessionId(response);
+
+        if (responseSessionId) {
+          claudeSessionIdsByChannel.set(message.channelId, responseSessionId);
+        }
+
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => reply(replyMessage),
+          formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "Claude Code prompt failed";
+        await updateQueuedReply(
+          queuedReply,
+          (replyMessage) => reply(replyMessage),
+          formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
         );
       }
       return;

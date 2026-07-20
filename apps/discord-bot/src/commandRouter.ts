@@ -18,6 +18,7 @@ export type RoutedDiscordMessage =
   | { type: "execute-command"; command: string; confirmedDangerous: boolean }
   | { type: "codex-chat"; content: string }
   | { type: "codex-continue-session"; sessionId: string; content: string }
+  | { type: "claude-chat"; content: string }
   | {
       type: "admin-new-chat";
       name: string | null;
@@ -697,13 +698,14 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
   if (
     bridgeShortcut &&
     (bridgeShortcut.type === "codex-chat" ||
+      bridgeShortcut.type === "claude-chat" ||
       bridgeShortcut.type === "codex-model" ||
       bridgeShortcut.type === "codex-run-mode" ||
       bridgeShortcut.type === "codex-review")
   ) {
     return blockedCommand(
       "main 채널은 운영 전용입니다.",
-      "Codex와 대화하거나 모델/리뷰 명령을 실행하려면 session 채널을 사용하세요.",
+      "Codex/Claude와 대화하거나 모델/리뷰 명령을 실행하려면 session 채널을 사용하세요.",
     );
   }
 
@@ -711,6 +713,13 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
     return blockedCommand(
       "main 채널은 운영 전용입니다.",
       "Codex와 대화하려면 /chat-new로 세션 채널을 만들거나 기존 session 채널에서 메시지를 보내세요.",
+    );
+  }
+
+  if (content.startsWith("claude ")) {
+    return blockedCommand(
+      "main 채널은 운영 전용입니다.",
+      "Claude Code와 대화하려면 /chat-new로 session 채널을 만들거나 기존 session 채널에서 `claude ...`를 보내세요.",
     );
   }
 
@@ -1185,6 +1194,22 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "codex-chat", content: trimmedContent.slice("codex ".length).trim() };
+  }
+
+  if (trimmedContent.startsWith("claude ")) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return { type: "claude-chat", content: trimmedContent.slice("claude ".length).trim() };
   }
 
   const parsed = parseDiscordMessageCommand({
