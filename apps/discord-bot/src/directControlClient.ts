@@ -86,8 +86,10 @@ export function createDirectControlClient(
         return null;
       }
 
+      const syncedChannelMode = syncedChannel.channelMode ?? "session-linked";
+
       return {
-        channelMode: "session-linked",
+        channelMode: syncedChannelMode,
         allowedRoleIds: [...config.discord.allowedRoleIds],
         computerId: syncedChannel.computerId,
         computerDisplayName: config.direct.computerDisplayName,

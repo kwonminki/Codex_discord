@@ -791,13 +791,6 @@ function sessionGlobalBlock(content: string): Extract<RoutedDiscordMessage, { ty
     );
   }
 
-  if (parseAdminNewChat(content)) {
-    return blockedCommand(
-      "이 명령은 main 채널 전용입니다.",
-      "새 Codex 채팅 채널은 main/admin 채널에서 /chat-new로 만드세요.",
-    );
-  }
-
   return null;
 }
 
@@ -828,6 +821,24 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
       command: componentShellCommand.command,
       confirmedDangerous: componentShellCommand.confirmedDangerous,
     };
+  }
+
+  const newChat = parseAdminNewChat(trimmedContent);
+
+  if (newChat) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return { type: "admin-new-chat", ...newChat };
   }
 
   const codexContinueSession = parseEncodedCodexContinueCommand(trimmedContent);
@@ -1036,24 +1047,6 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (input.channelMode === "shell-admin") {
-    const newChat = parseAdminNewChat(trimmedContent);
-
-    if (newChat) {
-      const authorization = authorizeCommand({
-        userRoleIds: input.userRoleIds,
-        allowedRoleIds: input.allowedRoleIds,
-      });
-
-      if (!authorization.allowed) {
-        return {
-          type: "denied",
-          reason: authorization.reason ?? "User does not have an allowed role",
-        };
-      }
-
-      return { type: "admin-new-chat", ...newChat };
-    }
-
     const clearMessages = parseAdminClearMessages(trimmedContent);
 
     if (clearMessages) {

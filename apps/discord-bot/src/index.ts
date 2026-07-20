@@ -482,6 +482,8 @@ export async function startBot(): Promise<void> {
           currentCwd: string;
           useCategory: boolean;
           initialPrompt: string | null;
+          channelMode: "session-linked" | "claude-code";
+          sessionThreadParentChannelId: string | null;
         }) =>
           createNewCodexChatChannel({
             guild: input.guild,
@@ -495,7 +497,8 @@ export async function startBot(): Promise<void> {
             cwd: input.cwd,
             useCategory: input.useCategory,
             initialPrompt: input.initialPrompt,
-            sessionThreadParentChannelId: connectConfig.direct.channelId,
+            channelMode: input.channelMode,
+            sessionThreadParentChannelId: input.sessionThreadParentChannelId ?? connectConfig.direct.channelId,
           })
       : undefined;
   const linkNewCodexSession =

@@ -130,6 +130,64 @@ describe("createNewCodexChatChannel", () => {
     }
   });
 
+  it("creates a pending Claude Code chat thread when requested from a Claude channel", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "new-chat-"));
+    const generalChatsRoot = path.join(tempRoot, "Codex");
+
+    try {
+      const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+      const guild = {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: "thread-claude" }),
+      };
+      const controlApi = {
+        createCategoryMapping: vi.fn(),
+        createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-1" }),
+        linkCodexSession: vi.fn(),
+      };
+
+      const result = await createNewCodexChatChannel({
+        guild,
+        controlApi,
+        stateStore,
+        computerId: "local-dev",
+        computerDisplayName: "Local Dev",
+        defaultWorkspaceRoot: tempRoot,
+        generalChatsRoot,
+        now: new Date("2026-04-22T12:00:00.000Z"),
+        name: "Claude scratch",
+        cwd: null,
+        useCategory: false,
+        initialPrompt: null,
+        sessionThreadParentChannelId: "claude-channel",
+        channelMode: "claude-code",
+      });
+
+      expect(result).toMatchObject({
+        discordChannelId: "thread-claude",
+        channelName: "claude-scratch",
+        pendingSession: true,
+        discordDeliveryMode: "thread",
+        channelMode: "claude-code",
+      });
+      expect(controlApi.createManagedChannel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "thread-claude",
+          channelMode: "claude-code",
+        }),
+      );
+      await expect(stateStore.findSessionChannelByDiscordId("thread-claude")).resolves.toMatchObject({
+        codexSessionId: null,
+        discordParentChannelId: "claude-channel",
+        discordDeliveryMode: "thread",
+        channelMode: "claude-code",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("creates a workspace category when a cwd is requested", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "new-chat-"));
     const appsRoot = path.join(tempRoot, "apps");

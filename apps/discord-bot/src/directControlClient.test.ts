@@ -204,6 +204,20 @@ describe("createDirectControlClient", () => {
             computerId: "local-dev",
             workspaceId: `local-dev:${workspaceRoot}`,
           },
+          {
+            codexSessionId: null,
+            threadName: "Claude scratch",
+            updatedAt: "2026-04-23T00:00:00.000Z",
+            cwd: workspaceRoot,
+            workspaceRoot,
+            workspaceDisplayName: "repo",
+            discordCategoryId: "category-1",
+            discordChannelId: "claude-thread-1",
+            channelName: "claude-scratch",
+            channelMode: "claude-code",
+            computerId: "local-dev",
+            workspaceId: `local-dev:${workspaceRoot}`,
+          },
         ],
       });
       const client = createDirectControlClient(
@@ -232,6 +246,12 @@ describe("createDirectControlClient", () => {
       await expect(client.getChannelContext("session-channel-1")).resolves.toMatchObject({
         channelMode: "session-linked",
         codexSessionId: "session-1",
+        workspaceRoot,
+        cwd: workspaceRoot,
+      });
+      await expect(client.getChannelContext("claude-thread-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        codexSessionId: null,
         workspaceRoot,
         cwd: workspaceRoot,
       });

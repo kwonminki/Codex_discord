@@ -115,6 +115,8 @@ export interface CreateDiscordMessageHandlerInput {
     currentCwd: string;
     useCategory: boolean;
     initialPrompt: string | null;
+    channelMode: "session-linked" | "claude-code";
+    sessionThreadParentChannelId: string | null;
   }) => Promise<NewCodexChatResult>;
   linkNewCodexSession?: (input: {
     discordChannelId: string;
@@ -397,7 +399,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     const reply = createReplyWithOptionalRoleMentions(
       (replyMessage) => message.reply(replyMessage),
-      channelContext.channelMode === "session-linked" && channelContext.discordDeliveryMode === "thread"
+      channelContext.channelMode !== "shell-admin" && channelContext.discordDeliveryMode === "thread"
         ? channelContext.allowedRoleIds
         : [],
     );
@@ -498,7 +500,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "admin-new-chat") {
-      const queuedReply = await reply(formatNewChatAck(routed));
+      const newChatChannelMode = channelContext.channelMode === "claude-code" ? "claude-code" : "session-linked";
+      const queuedReply = await reply(formatNewChatAck({
+        ...routed,
+        channelMode: newChatChannelMode,
+      }));
 
       try {
         if (!input.createNewCodexChat) {
@@ -516,6 +522,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           currentCwd: channelContext.cwd,
           useCategory: routed.useCategory,
           initialPrompt: routed.initialPrompt,
+          channelMode: newChatChannelMode,
+          sessionThreadParentChannelId:
+            (channelContext.discordDeliveryMode ?? "channel") === "channel" ? message.channelId : null,
         });
         await updateQueuedReply(
           queuedReply,

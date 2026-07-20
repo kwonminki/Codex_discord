@@ -1,7 +1,7 @@
 import path from "node:path";
 import os from "node:os";
 import { mkdir } from "node:fs/promises";
-import type { SessionOrigin } from "../../../packages/core/src/index.js";
+import type { ChannelMode, SessionOrigin } from "../../../packages/core/src/index.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type {
   DiscordSessionDeliveryMode,
@@ -27,6 +27,7 @@ export interface CreateNewCodexChatInput {
   useCategory: boolean;
   initialPrompt?: string | null;
   sessionThreadParentChannelId?: string | null;
+  channelMode?: Extract<ChannelMode, "session-linked" | "claude-code">;
 }
 
 export interface NewCodexChatResult {
@@ -40,6 +41,7 @@ export interface NewCodexChatResult {
   pendingSession: boolean;
   initialPrompt: string | null;
   discordDeliveryMode: DiscordSessionDeliveryMode;
+  channelMode: Extract<ChannelMode, "session-linked" | "claude-code">;
 }
 
 function sanitizeName(value: string): string {
@@ -121,16 +123,19 @@ function resolveRequestedCwd(defaultWorkspaceRoot: string, requestedCwd?: string
 }
 
 function newChatTopic(input: {
+  channelMode: Extract<ChannelMode, "session-linked" | "claude-code">;
   cwd: string;
   workspaceRoot: string;
   pendingSession: boolean;
   initialPrompt: string | null;
 }): string {
+  const agentLabel = input.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
   return [
-    `Codex session: ${input.pendingSession ? "pending" : "new"}`,
+    `${agentLabel} session: ${input.pendingSession ? "pending" : "new"}`,
     `Workspace: ${input.workspaceRoot}`,
     `Working directory: ${input.cwd}`,
-    input.initialPrompt ? "Initial prompt: queued by admin command" : null,
+    input.initialPrompt ? "Initial prompt: queued by chat-new command" : null,
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
@@ -199,6 +204,7 @@ export async function createNewCodexChatChannel(
   input: CreateNewCodexChatInput,
 ): Promise<NewCodexChatResult> {
   const state = await input.stateStore.read();
+  const channelMode = input.channelMode ?? "session-linked";
   const categorized = input.useCategory || Boolean(input.cwd?.trim());
   const cwd = categorized
     ? resolveRequestedCwd(input.defaultWorkspaceRoot, input.cwd, input.currentCwd)
@@ -226,6 +232,7 @@ export async function createNewCodexChatChannel(
     name: channelName,
     parentId: workspace?.discordCategoryId ?? null,
     topic: newChatTopic({
+      channelMode,
       cwd,
       workspaceRoot,
       pendingSession: true,
@@ -272,6 +279,7 @@ export async function createNewCodexChatChannel(
     discordChannelId: channel.id,
     discordParentChannelId: shouldCreateThread ? threadParentChannelId : (workspace?.discordCategoryId ?? null),
     discordDeliveryMode: shouldCreateThread ? "thread" : "channel",
+    channelMode,
     channelName,
     computerId: input.computerId,
     workspaceId: workspace?.workspaceId ?? workspaceId(input.computerId, workspaceRoot),
@@ -282,7 +290,7 @@ export async function createNewCodexChatChannel(
     discordChannelId: channel.id,
     computerId: input.computerId,
     workspaceId: nextChannel.workspaceId,
-    channelMode: "session-linked",
+    channelMode,
   });
   state.sessionChannels.push(nextChannel);
   await input.stateStore.write(state);
@@ -298,6 +306,7 @@ export async function createNewCodexChatChannel(
     pendingSession: true,
     initialPrompt: prompt,
     discordDeliveryMode: nextChannel.discordDeliveryMode ?? "channel",
+    channelMode,
   };
 }
 

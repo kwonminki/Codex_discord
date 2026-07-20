@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { ChannelMode } from "../../../packages/core/src/index.js";
 
 export interface SyncedWorkspaceState {
   workspaceRoot: string;
@@ -24,6 +25,7 @@ export interface SyncedSessionChannelState {
   discordChannelId: string;
   discordParentChannelId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
+  channelMode?: ChannelMode;
   channelName: string;
   computerId: string;
   workspaceId: string;

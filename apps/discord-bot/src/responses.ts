@@ -2073,14 +2073,17 @@ export function formatNewChatAck(input: {
   cwd: string | null;
   useCategory: boolean;
   initialPrompt: string | null;
+  channelMode?: ChannelMode;
 }): DiscordMessagePayload {
+  const agentLabel = input.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
   return messagePayload({
-    title: "Creating Codex chat",
+    title: `Creating ${agentLabel} chat`,
     color: COLORS.codex,
     description:
       input.cwd || input.useCategory
-        ? "지정한 작업 위치에 연결된 새 Codex 채널을 만드는 중입니다."
-        : "카테고리 없는 일반 Codex 채팅 채널을 만드는 중입니다.",
+        ? `지정한 작업 위치에 연결된 새 ${agentLabel} 스레드를 만드는 중입니다.`
+        : `카테고리 없는 일반 ${agentLabel} 채팅 스레드를 만드는 중입니다.`,
     fields: [
       {
         name: "Name",
@@ -2118,6 +2121,7 @@ export function formatNewChatResult(response: {
     pendingSession: boolean;
     initialPrompt: string | null;
     discordDeliveryMode?: "channel" | "thread";
+    channelMode?: ChannelMode;
   };
   error?: { message: string };
 }): DiscordMessagePayload {
@@ -2130,15 +2134,46 @@ export function formatNewChatResult(response: {
   }
 
   const targetLabel = response.result.discordDeliveryMode === "thread" ? "Thread" : "Channel";
+  const agentLabel = response.result.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
+  const actions =
+    response.result.channelMode === "claude-code"
+      ? [
+          actionRow([
+            button({
+              customId: COMPONENT_IDS.newGeneralChat,
+              label: "일반 채팅 하나 더",
+              style: BUTTON_STYLES.secondary,
+            }),
+          ]),
+        ]
+      : [
+          actionRow([
+            button({
+              customId: COMPONENT_IDS.newGeneralChat,
+              label: "일반 채팅 하나 더",
+              style: BUTTON_STYLES.secondary,
+            }),
+            button({
+              customId: COMPONENT_IDS.syncSelectDefault,
+              label: "기존 세션 선택",
+              style: BUTTON_STYLES.primary,
+            }),
+          ]),
+        ];
 
   return messagePayload(
     {
-      title: "Codex chat channel ready",
+      title: `${agentLabel} chat ${targetLabel.toLowerCase()} ready`,
       color: COLORS.success,
       description:
         response.result.discordDeliveryMode === "thread"
-          ? "새 Discord thread가 Codex 대기 세션으로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다."
-          : "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
+          ? response.result.channelMode === "claude-code"
+            ? "새 Discord thread가 Claude Code 대화로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 Claude Code로 이어집니다."
+            : "새 Discord thread가 Codex 대기 세션으로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다."
+          : response.result.channelMode === "claude-code"
+            ? "새 Discord 채널이 Claude Code 대화로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 Claude Code로 이어집니다."
+            : "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
       fields: [
         {
           name: targetLabel,
@@ -2174,20 +2209,7 @@ export function formatNewChatResult(response: {
         },
       ],
     },
-    [
-      actionRow([
-        button({
-          customId: COMPONENT_IDS.newGeneralChat,
-          label: "일반 채팅 하나 더",
-          style: BUTTON_STYLES.secondary,
-        }),
-        button({
-          customId: COMPONENT_IDS.syncSelectDefault,
-          label: "기존 세션 선택",
-          style: BUTTON_STYLES.primary,
-        }),
-      ]),
-    ],
+    actions,
   );
 }
 

@@ -946,6 +946,8 @@ describe("createDiscordMessageHandler", () => {
       currentCwd: channelContext.cwd,
       useCategory: false,
       initialPrompt: null,
+      channelMode: "session-linked",
+      sessionThreadParentChannelId: "discord-channel-1",
     });
     expect(replies).toEqual([
       expect.objectContaining({
@@ -957,6 +959,62 @@ describe("createDiscordMessageHandler", () => {
         embeds: [expect.objectContaining({ title: "Codex chat channel ready" })],
       }),
     ]);
+  });
+
+  it("creates a new Claude Code chat thread from a Claude Code channel", async () => {
+    const createNewCodexChat = vi.fn().mockResolvedValue({
+      discordChannelId: "claude-thread-1",
+      discordCategoryId: null,
+      channelName: "claude-scratch",
+      threadName: "Claude scratch",
+      cwd: "/repo",
+      workspaceRoot: "/repo",
+      workspaceDisplayName: "repo",
+      pendingSession: true,
+      initialPrompt: null,
+      discordDeliveryMode: "thread",
+      channelMode: "claude-code",
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        discordDeliveryMode: "channel",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      createNewCodexChat,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-parent-channel",
+      content: "chat new name:Claude scratch",
+      roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createThread: vi.fn(),
+        createTextChannel: vi.fn(),
+      },
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(createNewCodexChat).toHaveBeenCalledWith({
+      guild: expect.any(Object),
+      name: "Claude scratch",
+      cwd: null,
+      currentCwd: claudeChannelContext.cwd,
+      useCategory: false,
+      initialPrompt: null,
+      channelMode: "claude-code",
+      sessionThreadParentChannelId: "claude-parent-channel",
+    });
   });
 
   it("creates scheduled commands through the message handler", async () => {

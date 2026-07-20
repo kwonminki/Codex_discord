@@ -134,7 +134,7 @@ pnpm connect install --direct \
 
 설정이 끝나면 아래 파일이 생깁니다.
 
-`--channel-id`는 Codex/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다.
+`--channel-id`는 Codex/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다. Claude 채널에서 `/chat-new` 또는 `chat new`를 실행하면 그 Claude 채널 아래에 Claude Code 전용 Discord thread가 만들어집니다.
 
 ```text
 .connect/config.json
