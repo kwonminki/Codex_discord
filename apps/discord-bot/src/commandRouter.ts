@@ -901,7 +901,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
   }
 
-  if (input.channelMode === "session-linked") {
+  if (input.channelMode !== "shell-admin") {
     const blocked = sessionGlobalBlock(trimmedContent);
 
     if (blocked) {
@@ -911,6 +911,20 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   const bridgeShortcut = parseBridgeShortcut(trimmedContent);
+
+  if (
+    input.channelMode === "claude-code" &&
+    bridgeShortcut &&
+    (bridgeShortcut.type === "codex-chat" ||
+      bridgeShortcut.type === "codex-model" ||
+      bridgeShortcut.type === "codex-run-mode" ||
+      bridgeShortcut.type === "codex-review")
+  ) {
+    return blockedCommand(
+      "Claude Code 전용 채널입니다.",
+      "Codex와 대화하거나 Codex 설정을 바꾸려면 Codex 채널이나 session 채널에서 요청하세요.",
+    );
+  }
 
   if (bridgeShortcut) {
     const denied = authorizationDenied(input);
@@ -934,7 +948,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "schedule-command", request: schedule };
   }
 
-  const codexModel = parseCodexModel(trimmedContent);
+  const codexModel = input.channelMode === "claude-code" ? null : parseCodexModel(trimmedContent);
 
   if (codexModel) {
     const denied = authorizationDenied(input);
@@ -946,7 +960,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-model", model: codexModel.model };
   }
 
-  const codexRunMode = parseCodexRunMode(trimmedContent);
+  const codexRunMode = input.channelMode === "claude-code" ? null : parseCodexRunMode(trimmedContent);
 
   if (codexRunMode) {
     const denied = authorizationDenied(input);
@@ -958,7 +972,10 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-run-mode", mode: codexRunMode.mode };
   }
 
-  const codexReview = parseInternalCodexReview(trimmedContent) ?? parseCodexReviewCommand(trimmedContent);
+  const codexReview =
+    input.channelMode === "claude-code"
+      ? null
+      : parseInternalCodexReview(trimmedContent) ?? parseCodexReviewCommand(trimmedContent);
 
   if (codexReview) {
     const denied = authorizationDenied(input);
@@ -970,7 +987,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-review", prompt: codexReview.prompt };
   }
 
-  const codexShortcut = parseCodexShortcut(trimmedContent);
+  const codexShortcut = input.channelMode === "claude-code" ? null : parseCodexShortcut(trimmedContent);
 
   if (codexShortcut) {
     const denied = authorizationDenied(input);
@@ -1181,6 +1198,13 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (trimmedContent.startsWith("codex ")) {
+    if (input.channelMode === "claude-code") {
+      return blockedCommand(
+        "Claude Code 전용 채널입니다.",
+        "Codex와 대화하려면 Codex 채널이나 session 채널에서 요청하세요.",
+      );
+    }
+
     const authorization = authorizeCommand({
       userRoleIds: input.userRoleIds,
       allowedRoleIds: input.allowedRoleIds,
@@ -1230,6 +1254,10 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (parsed.kind === "chat") {
+    if (input.channelMode === "claude-code") {
+      return { type: "claude-chat", content: parsed.content };
+    }
+
     return { type: "codex-chat", content: parsed.content };
   }
 

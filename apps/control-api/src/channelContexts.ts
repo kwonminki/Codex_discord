@@ -36,7 +36,7 @@ function parseStringArray(value: string): string[] {
 }
 
 function isChannelMode(value: string): value is ChannelMode {
-  return value === "shell-admin" || value === "session-linked";
+  return value === "shell-admin" || value === "session-linked" || value === "claude-code";
 }
 
 function assertCwdInsideWorkspace(workspaceRoot: string, cwd: string): string {

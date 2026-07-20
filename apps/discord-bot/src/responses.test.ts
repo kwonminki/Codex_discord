@@ -1061,6 +1061,37 @@ describe("responses", () => {
     expect(JSON.stringify(payload)).not.toContain("봇 명령어 재등록");
   });
 
+  it("formats Claude Code channel help without Codex-only actions", () => {
+    const payload = formatHelp("claude-code");
+
+    expectActionRowsWithinDiscordLimits(payload);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        allowedMentions: { parse: [] },
+        embeds: [
+          expect.objectContaining({
+            title: "Codex 운영 콘솔 사용법",
+            description: expect.stringContaining("Claude Code 전용"),
+            fields: expect.arrayContaining([
+              expect.objectContaining({
+                name: "Claude Code",
+                value: expect.stringContaining("Claude Code headless"),
+              }),
+              expect.objectContaining({
+                name: "Channel boundary",
+                value: expect.stringContaining("Claude Code 전용"),
+              }),
+            ]),
+          }),
+        ],
+        components: expect.any(Array),
+      }),
+    );
+    expect(JSON.stringify(payload)).not.toContain("Codex에게 요청");
+    expect(JSON.stringify(payload)).not.toContain("Codex 리뷰");
+    expect(JSON.stringify(payload)).not.toContain("이 세션 보관");
+  });
+
   it("formats a maintenance panel with button-first Git and test actions", () => {
     expect(formatMaintenancePanel("shell-admin")).toEqual({
       allowedMentions: { parse: [] },

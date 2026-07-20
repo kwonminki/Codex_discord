@@ -21,6 +21,7 @@ export interface DirectConnectConfig {
     initialCwd?: string;
     workspaceDisplayName: string;
     channelId: string;
+    claudeChannelId?: string;
     channelMode: "shell-admin" | "session-linked";
     timeoutMs: number;
     codexHome: string;
@@ -42,6 +43,7 @@ export interface BuildDirectConfigInput {
   token: string;
   guildId: string;
   channelId: string;
+  claudeChannelId?: string;
   roleIds: string | string[];
   workspaceRoot: string;
   initialCwd?: string;
@@ -85,6 +87,7 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
       ...(initialCwd ? { initialCwd } : {}),
       workspaceDisplayName: input.workspaceDisplayName ?? path.basename(workspaceRoot),
       channelId: input.channelId,
+      ...(input.claudeChannelId?.trim() ? { claudeChannelId: input.claudeChannelId.trim() } : {}),
       channelMode: "shell-admin",
       timeoutMs: input.timeoutMs ?? 30_000,
       codexHome: input.codexHome ?? path.join(os.homedir(), ".codex"),
@@ -126,6 +129,9 @@ export function renderEnvFile(config: ConnectConfig): string {
     lines.push(`AGENT_DISPLAY_NAME="${config.direct.computerDisplayName}"`);
     lines.push(`AGENT_WORKSPACE_ROOT="${config.direct.workspaceRoot}"`);
     lines.push(`AGENT_WORKSPACE_DISPLAY_NAME="${config.direct.workspaceDisplayName}"`);
+    if (config.direct.claudeChannelId) {
+      lines.push(`CLAUDE_CHANNEL_ID="${config.direct.claudeChannelId}"`);
+    }
     lines.push(`CODEX_HOME="${config.direct.codexHome}"`);
   }
 

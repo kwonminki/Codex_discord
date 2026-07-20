@@ -24,7 +24,9 @@ Ubuntu server Codex
 
 - Mac과 Ubuntu가 같은 Discord admin channel을 쓰지 않게 합니다.
 - Ubuntu 전용 admin channel을 새로 만듭니다. 예: `#ubuntu-codex-admin`.
+- Claude Code도 쓸 서버라면 서버별 Claude channel도 따로 만듭니다. 예: `#ubuntu-claude-code`.
 - Mac connector의 `--channel-id`와 Ubuntu connector의 `--channel-id`는 달라야 합니다.
+- Mac connector의 `--claude-channel-id`와 Ubuntu connector의 `--claude-channel-id`도 서로 달라야 합니다.
 - operator role은 같은 role을 써도 됩니다.
 - 같은 bot token으로 여러 프로세스를 띄우면 모든 프로세스가 Discord event를 볼 수 있으므로, 채널 분리가 사실상 안전장치입니다.
 
@@ -121,6 +123,7 @@ pnpm connect install --direct \
   --guild-id "DISCORD_GUILD_ID" \
   --role-ids "OPERATOR_ROLE_ID" \
   --channel-id "UBUNTU_ADMIN_CHANNEL_ID" \
+  --claude-channel-id "UBUNTU_CLAUDE_CHANNEL_ID" \
   --workspace-root "$HOME" \
   --initial-cwd "$HOME" \
   --workspace-name "Ubuntu Server Codex" \
@@ -130,6 +133,8 @@ pnpm connect install --direct \
 ```
 
 설정이 끝나면 아래 파일이 생깁니다.
+
+`--channel-id`는 Codex/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다.
 
 ```text
 .connect/config.json

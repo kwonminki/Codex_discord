@@ -820,6 +820,49 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes Claude Code channel normal text to Claude Code", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "현재 GPU 사용량 봐봐",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "현재 GPU 사용량 봐봐",
+    });
+  });
+
+  it("routes Claude Code channel explicit Claude prompts without keeping the prefix", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "README 요약해줘",
+    });
+  });
+
+  it("blocks explicit Codex prompts in Claude Code channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "codex README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "blocked-command",
+      reason: "Claude Code 전용 채널입니다.",
+      guidance: "Codex와 대화하려면 Codex 채널이나 session 채널에서 요청하세요.",
+    });
+  });
+
   it("blocks explicit Claude Code prompts in admin channels", () => {
     expect(
       routeDiscordMessage({

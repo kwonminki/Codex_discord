@@ -14,9 +14,11 @@ export function createDirectControlClient(
   options: { stateStore?: DirectSyncStateStore } = {},
 ): ControlApiClient {
   const codexRunner = process.env.CODEX_DISCORD_CODEX_RUNNER === "app-server" ? "app-server" : "exec";
+  const claudeChannelId = config.direct.claudeChannelId?.trim() || null;
   let cwd = config.direct.initialCwd
     ? assertInsideWorkspace(config.direct.workspaceRoot, config.direct.initialCwd)
     : config.direct.workspaceRoot;
+  let claudeCwd = cwd;
   const sessionLinks = new Map<string, {
     id: string;
     channelId: string;
@@ -63,6 +65,21 @@ export function createDirectControlClient(
         };
       }
 
+      if (claudeChannelId && discordChannelId === claudeChannelId) {
+        return {
+          channelMode: "claude-code",
+          allowedRoleIds: [...config.discord.allowedRoleIds],
+          computerId: config.direct.computerId,
+          computerDisplayName: config.direct.computerDisplayName,
+          workspaceDisplayName: config.direct.workspaceDisplayName,
+          workspaceRoot: config.direct.workspaceRoot,
+          cwd: claudeCwd,
+          timeoutMs: config.direct.timeoutMs,
+          codexSessionId: null,
+          discordDeliveryMode: "channel",
+        };
+      }
+
       const syncedChannel = await options.stateStore?.findSessionChannelByDiscordId(discordChannelId);
 
       if (!syncedChannel) {
@@ -103,13 +120,21 @@ export function createDirectControlClient(
       };
     },
     async updateChannelCwd(input) {
+      let updatedCwd = input.cwd;
+
       if (input.discordChannelId === config.direct.channelId) {
         cwd = input.cwd;
+        updatedCwd = cwd;
+      }
+
+      if (claudeChannelId && input.discordChannelId === claudeChannelId) {
+        claudeCwd = input.cwd;
+        updatedCwd = claudeCwd;
       }
 
       await options.stateStore?.updateChannelCwd(input.discordChannelId, input.cwd);
 
-      return { cwd };
+      return { cwd: updatedCwd };
     },
     async recordCommandAudit(input) {
       return {

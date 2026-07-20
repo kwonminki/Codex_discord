@@ -66,6 +66,58 @@ describe("createDirectControlClient", () => {
     }
   });
 
+  it("resolves a configured Claude Code channel separately from the Codex admin channel", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "direct-control-claude-"));
+    const claudeCwd = path.join(workspaceRoot, "claude-project");
+
+    try {
+      await mkdir(claudeCwd);
+      const client = createDirectControlClient({
+        mode: "direct",
+        discord: {
+          token: "discord-token",
+          guildId: "guild-1",
+          allowedRoleIds: ["role-operator"],
+        },
+        direct: {
+          computerId: "local-dev",
+          computerDisplayName: "Local Dev",
+          workspaceId: `local-dev:${workspaceRoot}`,
+          workspaceRoot,
+          workspaceDisplayName: "repo",
+          channelId: "codex-channel-1",
+          claudeChannelId: "claude-channel-1",
+          channelMode: "shell-admin",
+          timeoutMs: 5_000,
+          codexHome: path.join(workspaceRoot, ".codex"),
+        },
+      });
+
+      await expect(client.getChannelContext("claude-channel-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        workspaceRoot,
+        cwd: workspaceRoot,
+        codexSessionId: null,
+      });
+      await expect(
+        client.updateChannelCwd({
+          discordChannelId: "claude-channel-1",
+          cwd: claudeCwd,
+        }),
+      ).resolves.toEqual({ cwd: claudeCwd });
+      await expect(client.getChannelContext("claude-channel-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        cwd: claudeCwd,
+      });
+      await expect(client.getChannelContext("codex-channel-1")).resolves.toMatchObject({
+        channelMode: "shell-admin",
+        cwd: workspaceRoot,
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("starts direct commands from an initial cwd inside the configured workspace", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "direct-control-"));
     const initialCwd = path.join(workspaceRoot, "project");

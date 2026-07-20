@@ -23,6 +23,12 @@ const sessionChannelContext: ManagedDiscordChannelContext = {
   codexSessionId: null,
 };
 
+const claudeChannelContext: ManagedDiscordChannelContext = {
+  ...channelContext,
+  channelMode: "claude-code",
+  codexSessionId: null,
+};
+
 describe("createDiscordMessageHandler", () => {
   it("uses a long Codex prompt timeout by default while allowing explicit override", () => {
     expect(resolveCodexPromptTimeoutMs(3_000, undefined)).toBe(DEFAULT_CODEX_PROMPT_TIMEOUT_MS);
@@ -749,6 +755,48 @@ describe("createDiscordMessageHandler", () => {
         }),
       }),
     );
+  });
+
+  it("submits bare Claude Code channel messages to Claude Code", async () => {
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "Claude 답변입니다.",
+        sessionId: "claude-session-1",
+      },
+    });
+    const submitCodexPrompt = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => claudeChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      submitClaudePrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "현재 GPU 사용량 봐봐",
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(submitClaudePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "현재 GPU 사용량 봐봐",
+          sessionId: null,
+        }),
+      }),
+    );
+    expect(submitCodexPrompt).not.toHaveBeenCalled();
   });
 
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
