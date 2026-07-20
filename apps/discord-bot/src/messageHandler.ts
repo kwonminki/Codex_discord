@@ -123,6 +123,10 @@ export interface CreateDiscordMessageHandlerInput {
     codexSessionId: string;
     threadName: string;
   }) => Promise<void>;
+  recordClaudeSession?: (input: {
+    discordChannelId: string;
+    claudeSessionId: string;
+  }) => Promise<void> | void;
   previewSelectableCodexSessions?: (input: { limit: number }) => Promise<{
     sessions: SelectableCodexSession[];
     totalAvailable: number;
@@ -446,9 +450,15 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "channel-status") {
+      const claudeSessionId =
+        channelContext.channelMode === "claude-code"
+          ? claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null
+          : null;
+
       await reply(
         formatChannelStatus({
           ...channelContext,
+          claudeSessionId,
           codexModel: codexModelsByChannel.get(message.channelId) ?? null,
         }),
       );
@@ -912,7 +922,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       const queuedReply = await reply(formatCodexAck(claudeMessage));
       let recentEvents: string[] = [];
-      let streamedSessionId = claudeSessionIdsByChannel.get(message.channelId) ?? null;
+      let streamedSessionId =
+        claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null;
 
       try {
         const response = await input.submitClaudePrompt({
@@ -963,6 +974,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         if (responseSessionId) {
           claudeSessionIdsByChannel.set(message.channelId, responseSessionId);
+          await input.recordClaudeSession?.({
+            discordChannelId: message.channelId,
+            claudeSessionId: responseSessionId,
+          });
         }
 
         await updateQueuedReply(

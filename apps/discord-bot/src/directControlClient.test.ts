@@ -215,6 +215,7 @@ describe("createDirectControlClient", () => {
             discordChannelId: "claude-thread-1",
             channelName: "claude-scratch",
             channelMode: "claude-code",
+            claudeSessionId: "claude-session-1",
             computerId: "local-dev",
             workspaceId: `local-dev:${workspaceRoot}`,
           },
@@ -252,6 +253,7 @@ describe("createDirectControlClient", () => {
       await expect(client.getChannelContext("claude-thread-1")).resolves.toMatchObject({
         channelMode: "claude-code",
         codexSessionId: null,
+        claudeSessionId: "claude-session-1",
         workspaceRoot,
         cwd: workspaceRoot,
       });

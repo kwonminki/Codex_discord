@@ -758,6 +758,9 @@ describe("createDiscordMessageHandler", () => {
   });
 
   it("submits bare Claude Code channel messages to Claude Code", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const recordClaudeSession = vi.fn();
     const submitClaudePrompt = vi.fn().mockResolvedValue({
       jobId: "job-1",
       result: {
@@ -772,6 +775,7 @@ describe("createDiscordMessageHandler", () => {
       submitCommandJob: vi.fn(),
       submitCodexPrompt,
       submitClaudePrompt,
+      recordClaudeSession,
       syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
@@ -783,10 +787,49 @@ describe("createDiscordMessageHandler", () => {
       channelId: "discord-channel-1",
       content: "현재 GPU 사용량 봐봐",
       roleIds: ["role-operator"],
-      reply: async () => ({
-        edit: async () => undefined,
-      }),
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
     });
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "where",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async () => undefined,
+        };
+      },
+    });
+
+    expect(recordClaudeSession).toHaveBeenCalledWith({
+      discordChannelId: "discord-channel-1",
+      claudeSessionId: "claude-session-1",
+    });
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude 답변입니다."),
+      }),
+    );
+    expect(replies.at(-1)).toEqual(
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            fields: expect.arrayContaining([
+              { name: "Claude session", value: "`claude-session-1`", inline: false },
+            ]),
+          }),
+        ],
+      }),
+    );
 
     expect(submitClaudePrompt).toHaveBeenCalledWith(
       expect.objectContaining({

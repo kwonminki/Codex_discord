@@ -98,6 +98,7 @@ export function createDirectControlClient(
         cwd: syncedChannel.cwd,
         timeoutMs: config.direct.timeoutMs,
         codexSessionId: syncedChannel.codexSessionId,
+        claudeSessionId: syncedChannel.claudeSessionId ?? null,
         discordDeliveryMode: syncedChannel.discordDeliveryMode ?? "channel",
       };
     },

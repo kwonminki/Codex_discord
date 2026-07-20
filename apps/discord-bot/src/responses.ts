@@ -1719,9 +1719,32 @@ export function formatChannelStatus(input: {
   workspaceRoot: string;
   cwd: string;
   codexSessionId?: string | null;
+  claudeSessionId?: string | null;
   codexModel?: string | null;
   timeoutMs: number;
 }): DiscordMessagePayload {
+  const isClaudeCodeChannel = input.channelMode === "claude-code";
+  const sessionFields: DiscordEmbedFieldPayload[] = isClaudeCodeChannel
+    ? [
+        {
+          name: "Claude session",
+          value: wrapDiscordText(input.claudeSessionId ?? "(not linked yet)"),
+          inline: false,
+        },
+      ]
+    : [
+        {
+          name: "Codex session",
+          value: wrapDiscordText(input.codexSessionId ?? "(not linked yet)"),
+          inline: false,
+        },
+        {
+          name: "Codex model",
+          value: wrapDiscordText(input.codexModel ?? "default"),
+          inline: true,
+        },
+      ];
+
   return messagePayload(
     {
       title: "Current channel target",
@@ -1753,16 +1776,7 @@ export function formatChannelStatus(input: {
           value: wrapDiscordText(input.cwd),
           inline: false,
         },
-        {
-          name: "Codex session",
-          value: wrapDiscordText(input.codexSessionId ?? "(not linked yet)"),
-          inline: false,
-        },
-        {
-          name: "Codex model",
-          value: wrapDiscordText(input.codexModel ?? "default"),
-          inline: true,
-        },
+        ...sessionFields,
       ],
     },
     [

@@ -520,6 +520,10 @@ export async function startBot(): Promise<void> {
     syncCodexSessions,
     createNewCodexChat,
     linkNewCodexSession,
+    recordClaudeSession: directStateStore
+      ? (input) =>
+          directStateStore.updateSessionChannelClaudeSession(input.discordChannelId, input.claudeSessionId)
+      : undefined,
     previewSelectableCodexSessions,
     getSyncStatus,
     setTranscriptSyncMode,

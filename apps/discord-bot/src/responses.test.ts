@@ -1243,6 +1243,33 @@ describe("responses", () => {
     });
   });
 
+  it("formats Claude Code channel status with a Claude session field", () => {
+    const payload = formatChannelStatus({
+      channelMode: "claude-code",
+      computerDisplayName: "Local Dev",
+      workspaceDisplayName: "repo",
+      workspaceRoot: "/repo",
+      cwd: "/repo/apps",
+      claudeSessionId: "claude-session-1",
+      timeoutMs: 300_000,
+    });
+
+    expect(payload).toEqual(
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            fields: expect.arrayContaining([
+              { name: "Mode", value: "`claude-code`", inline: true },
+              { name: "Claude session", value: "`claude-session-1`", inline: false },
+            ]),
+          }),
+        ],
+      }),
+    );
+    expect(JSON.stringify(payload)).not.toContain("Codex session");
+    expect(JSON.stringify(payload)).not.toContain("Codex model");
+  });
+
   it("formats bot reload confirmation and result cards", () => {
     expect(formatReloadConfirmation()).toEqual({
       allowedMentions: { parse: [] },
