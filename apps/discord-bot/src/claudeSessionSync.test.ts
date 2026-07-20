@@ -54,6 +54,8 @@ describe("discoverClaudeCodeSessions", () => {
           cwd: "/repo",
           entrypoint: "claude-vscode",
           firstUserMessage: "테스트 대화야",
+          latestAssistantMessage: "좋아요",
+          latestAssistantMessageKey: "session-ide:2026-07-20T04:31:45.812Z:1",
           updatedAt: "2026-07-20T04:31:45.812Z",
           filePath: sessionPath,
         }),
@@ -108,6 +110,8 @@ describe("syncClaudeCodeSessionsToDiscord", () => {
     cwd: "/repo",
     entrypoint: "claude-vscode",
     firstUserMessage: "테스트 대화야",
+    latestAssistantMessage: "좋아요",
+    latestAssistantMessageKey: "session-ide:2026-07-20T04:31:45.812Z:1",
     updatedAt: "2026-07-20T04:31:45.812Z",
     filePath: "/tmp/session-ide.jsonl",
   } satisfies DiscoveredClaudeCodeSession;

@@ -138,6 +138,8 @@ pnpm connect install --direct \
 
 `--claude-channel-id`가 있으면 봇은 `~/.claude/projects` 아래의 최근 Claude Code 세션 로그도 봅니다. VS Code, Antigravity 같은 IDE 확장에서 시작한 Claude Code 세션은 자동으로 Claude 채널 아래 Discord thread로 연결됩니다. 봇이 Discord에서 직접 시작한 Claude 세션은 중복 thread가 생기지 않도록 건너뜁니다.
 
+첫 baseline scan 이후에는 외부 IDE Claude Code 세션의 새 assistant 답변도 해당 Discord thread에 `Claude Code 작업 완료` 알림과 최종 답변으로 올라옵니다. Discord에서 봇이 직접 시작한 Claude 세션은 요청 메시지 자체에 결과가 이미 표시되므로 별도 완료 알림을 보내지 않습니다.
+
 관련 주기는 필요하면 아래 값으로 조절할 수 있습니다.
 
 ```bash

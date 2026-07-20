@@ -17,7 +17,8 @@ import {
 } from "./codexSessionSync.js";
 import { syncCodexSessionTranscriptUpdates } from "./codexTranscriptSync.js";
 import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
-import { syncClaudeCodeSessionsToDiscord } from "./claudeSessionSync.js";
+import { discoverClaudeCodeSessions, syncClaudeCodeSessionsToDiscord } from "./claudeSessionSync.js";
+import { notifyClaudeCodeTaskCompletions } from "./claudeTaskNotifications.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
@@ -418,6 +419,21 @@ export async function startBot(): Promise<void> {
             limit: CLAUDE_SESSION_SYNC_LIMIT,
           })
       : undefined;
+  const notifyClaudeCodeCompletions =
+    connectConfig?.mode === "direct" && directStateStore && connectConfig.direct.claudeChannelId?.trim()
+      ? async (input: { guild: DiscordGuildSurface }) => {
+          const sessions = await discoverClaudeCodeSessions({
+            updatedAfter: new Date(Date.now() - CLAUDE_SESSION_SYNC_LOOKBACK_MS),
+          });
+
+          return notifyClaudeCodeTaskCompletions({
+            guild: input.guild,
+            stateStore: directStateStore,
+            sessions,
+            mentionRoleIds: connectConfig.discord.allowedRoleIds,
+          });
+        }
+      : undefined;
   const getSyncStatus =
     directStateStore
       ? async () => {
@@ -713,7 +729,7 @@ export async function startBot(): Promise<void> {
       timer.unref();
     }
 
-    if (syncClaudeCodeSessions) {
+    if (syncClaudeCodeSessions || notifyClaudeCodeCompletions) {
       let running = false;
       const pollState = createBackgroundPollState(Date.now(), CLAUDE_SESSION_SYNC_INTERVAL_MS);
       const timer = setInterval(() => {
@@ -740,18 +756,30 @@ export async function startBot(): Promise<void> {
 
         const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
 
-        if (!guild?.createThread) {
+        if (!guild) {
           return;
         }
 
         running = true;
-        void syncClaudeCodeSessions({ guild })
-          .then((result) => {
+        void (async () => {
+          const syncResult = syncClaudeCodeSessions
+            ? await syncClaudeCodeSessions({ guild })
+            : null;
+          const notifyResult = notifyClaudeCodeCompletions
+            ? await notifyClaudeCodeCompletions({ guild })
+            : null;
+
+          return { syncResult, notifyResult };
+        })()
+          .then(({ syncResult, notifyResult }) => {
             recordBackgroundPollResult(pollState, {
               now: Date.now(),
               baseIntervalMs: CLAUDE_SESSION_SYNC_INTERVAL_MS,
               maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
-              changed: result.createdThreads > 0,
+              changed:
+                (syncResult?.createdThreads ?? 0) > 0 ||
+                (notifyResult?.notifiedSessions ?? 0) > 0 ||
+                Boolean(notifyResult?.initialized),
             });
           })
           .catch((error) => {

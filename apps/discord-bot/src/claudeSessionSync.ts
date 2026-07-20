@@ -17,6 +17,8 @@ export interface DiscoveredClaudeCodeSession {
   cwd: string;
   entrypoint: string | null;
   firstUserMessage: string | null;
+  latestAssistantMessage: string | null;
+  latestAssistantMessageKey: string | null;
   updatedAt: string;
   filePath: string;
 }
@@ -143,10 +145,12 @@ async function parseClaudeCodeSessionFile(filePath: string, fallbackUpdatedAt: s
   let cwd: string | null = null;
   let entrypoint: string | null = null;
   let firstUserMessage: string | null = null;
+  let latestAssistantMessage: string | null = null;
+  let latestAssistantMessageKey: string | null = null;
   let updatedAt: string | null = null;
   const raw = await readFile(filePath, "utf8");
 
-  for (const line of raw.split(/\r?\n/)) {
+  for (const [lineIndex, line] of raw.split(/\r?\n/).entries()) {
     if (!line.trim()) {
       continue;
     }
@@ -168,6 +172,15 @@ async function parseClaudeCodeSessionFile(filePath: string, fallbackUpdatedAt: s
     if (!firstUserMessage && (role === "user" || type === "user")) {
       firstUserMessage = textFromContent(record.message?.content);
     }
+
+    if (role === "assistant" || type === "assistant") {
+      const assistantMessage = textFromContent(record.message?.content);
+
+      if (assistantMessage) {
+        latestAssistantMessage = assistantMessage;
+        latestAssistantMessageKey = `${sessionId}:${asString(record.timestamp) ?? lineIndex}:${lineIndex}`;
+      }
+    }
   }
 
   if (!sessionId || !cwd) {
@@ -179,6 +192,8 @@ async function parseClaudeCodeSessionFile(filePath: string, fallbackUpdatedAt: s
     cwd,
     entrypoint,
     firstUserMessage,
+    latestAssistantMessage,
+    latestAssistantMessageKey,
     updatedAt: updatedAt ?? fallbackUpdatedAt,
     filePath,
   };

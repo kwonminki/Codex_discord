@@ -65,6 +65,14 @@ export interface CodexTaskCompletionNotificationState {
   notifiedAt?: string | null;
 }
 
+export interface ClaudeCodeCompletionNotificationState {
+  sessionId: string;
+  lastAssistantMessageKey: string;
+  threadName?: string | null;
+  updatedAt?: string | null;
+  notifiedAt?: string | null;
+}
+
 export interface DiscordRequestedCodexSessionState {
   sessionId: string;
   requestedAt: string;
@@ -80,6 +88,9 @@ export interface DirectSyncState {
   taskCompletionNotificationsInitializedAt?: string | null;
   taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications: CodexTaskCompletionNotificationState[];
+  claudeCompletionNotificationsInitializedAt?: string | null;
+  claudeCompletionNotificationScope?: string | null;
+  claudeCompletionNotifications: ClaudeCodeCompletionNotificationState[];
   discordRequestedCodexSessionIds: string[];
   discordRequestedCodexSessionRequests: DiscordRequestedCodexSessionState[];
 }
@@ -90,6 +101,8 @@ export type DirectSyncStateWriteInput = Omit<
   | "scheduledCommands"
   | "taskCompletionNotificationsInitializedAt"
   | "taskCompletionNotifications"
+  | "claudeCompletionNotificationsInitializedAt"
+  | "claudeCompletionNotifications"
   | "discordRequestedCodexSessionIds"
   | "discordRequestedCodexSessionRequests"
 > & {
@@ -98,6 +111,9 @@ export type DirectSyncStateWriteInput = Omit<
   taskCompletionNotificationsInitializedAt?: string | null;
   taskCompletionNotificationScope?: string | null;
   taskCompletionNotifications?: CodexTaskCompletionNotificationState[];
+  claudeCompletionNotificationsInitializedAt?: string | null;
+  claudeCompletionNotificationScope?: string | null;
+  claudeCompletionNotifications?: ClaudeCodeCompletionNotificationState[];
   discordRequestedCodexSessionIds?: string[];
   discordRequestedCodexSessionRequests?: DiscordRequestedCodexSessionState[];
 };
@@ -128,6 +144,9 @@ export function createEmptyDirectSyncState(): DirectSyncState {
     taskCompletionNotificationsInitializedAt: null,
     taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
+    claudeCompletionNotificationsInitializedAt: null,
+    claudeCompletionNotificationScope: null,
+    claudeCompletionNotifications: [],
     discordRequestedCodexSessionIds: [],
     discordRequestedCodexSessionRequests: [],
   };
@@ -172,6 +191,23 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
             notification !== null &&
             typeof (notification as CodexTaskCompletionNotificationState).sessionId === "string" &&
             typeof (notification as CodexTaskCompletionNotificationState).lastTaskCompleteEventKey === "string",
+        )
+      : [],
+    claudeCompletionNotificationsInitializedAt:
+      typeof state.claudeCompletionNotificationsInitializedAt === "string"
+        ? state.claudeCompletionNotificationsInitializedAt
+        : null,
+    claudeCompletionNotificationScope:
+      typeof state.claudeCompletionNotificationScope === "string"
+        ? state.claudeCompletionNotificationScope
+        : null,
+    claudeCompletionNotifications: Array.isArray(state.claudeCompletionNotifications)
+      ? state.claudeCompletionNotifications.filter(
+          (notification): notification is ClaudeCodeCompletionNotificationState =>
+            typeof notification === "object" &&
+            notification !== null &&
+            typeof (notification as ClaudeCodeCompletionNotificationState).sessionId === "string" &&
+            typeof (notification as ClaudeCodeCompletionNotificationState).lastAssistantMessageKey === "string",
         )
       : [],
     discordRequestedCodexSessionIds: Array.isArray(state.discordRequestedCodexSessionIds)

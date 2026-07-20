@@ -76,6 +76,9 @@ function seededState() {
     taskCompletionNotificationsInitializedAt: null,
     taskCompletionNotificationScope: null,
     taskCompletionNotifications: [],
+    claudeCompletionNotificationsInitializedAt: null,
+    claudeCompletionNotificationScope: null,
+    claudeCompletionNotifications: [],
     discordRequestedCodexSessionIds: [],
     discordRequestedCodexSessionRequests: [],
   };
@@ -153,6 +156,9 @@ describe("synced Discord session deletion", () => {
         taskCompletionNotificationsInitializedAt: null,
         taskCompletionNotificationScope: null,
         taskCompletionNotifications: [],
+        claudeCompletionNotificationsInitializedAt: null,
+        claudeCompletionNotificationScope: null,
+        claudeCompletionNotifications: [],
         discordRequestedCodexSessionIds: [],
         discordRequestedCodexSessionRequests: [],
       });
