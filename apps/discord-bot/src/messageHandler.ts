@@ -291,6 +291,14 @@ function claudeForkPrompt(name: string): string {
   ].join("\n");
 }
 
+function codexForkPrompt(name: string): string {
+  return [
+    `이 세션은 Discord /fork 명령으로 "${name}" 이름의 새 스레드에 분기되었습니다.`,
+    "기존 대화 맥락은 유지하되 아직 새 작업은 시작하지 마세요.",
+    "새 fork 세션이 준비되었다고 한 문장으로만 답하세요.",
+  ].join("\n");
+}
+
 function readableProgressEvent(event: {
   type: string;
   label?: string;
@@ -927,19 +935,21 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "fork-session") {
-      if (channelContext.channelMode !== "claude-code") {
+      if (channelContext.channelMode !== "session-linked" && channelContext.channelMode !== "claude-code") {
         await reply(
           formatForkSessionResult({
             error: {
-              message: "현재 /fork는 Claude Code session thread에서만 지원됩니다.",
+              message: "현재 /fork는 Codex 또는 Claude Code session thread에서만 지원됩니다.",
             },
           }),
         );
         return;
       }
 
-      const sourceSessionId =
-        claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null;
+      const isClaudeFork = channelContext.channelMode === "claude-code";
+      const sourceSessionId = isClaudeFork
+        ? claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null
+        : codexSessionIdsByChannel.get(message.channelId) ?? channelContext.codexSessionId ?? null;
 
       const queuedReply = await reply(
         formatForkSessionAck({
@@ -951,15 +961,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       try {
         if (!sourceSessionId) {
-          throw new Error("현재 Discord thread에 연결된 Claude session ID가 없습니다. 먼저 Claude Code 요청을 한 번 실행해 주세요.");
+          const agentLabel = isClaudeFork ? "Claude Code" : "Codex";
+          throw new Error(`현재 Discord thread에 연결된 ${agentLabel} session ID가 없습니다. 먼저 이 thread에서 요청을 한 번 실행해 주세요.`);
         }
 
         if (!input.createForkedSessionThread) {
           throw new Error("Session fork thread creation is not connected for this bot mode.");
-        }
-
-        if (!input.submitClaudePrompt) {
-          throw new Error("Claude Code is not connected for this bot mode.");
         }
 
         if (!message.guild) {
@@ -972,31 +979,74 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           name: routed.name,
         });
 
-        const response = await input.submitClaudePrompt({
-          computerId: channelContext.computerId,
-          payload: {
-            workspaceRoot: forkThread.workspaceRoot,
-            cwd: forkThread.cwd,
-            prompt: claudeForkPrompt(routed.name),
-            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
-            sessionId: sourceSessionId,
-            forkSession: true,
-          },
-        });
-        const forkSessionId = extractCodexResponseSessionId(response);
-        const finalMessage = extractCodexResponseFinalMessage(response);
+        let forkSessionId: string | null = null;
+        let finalMessage: string | null = null;
 
-        if (forkSessionId) {
-          claudeSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
-          await input.recordClaudeSession?.({
-            discordChannelId: forkThread.discordChannelId,
-            claudeSessionId: forkSessionId,
+        if (isClaudeFork) {
+          if (!input.submitClaudePrompt) {
+            throw new Error("Claude Code is not connected for this bot mode.");
+          }
+
+          const response = await input.submitClaudePrompt({
+            computerId: channelContext.computerId,
+            payload: {
+              workspaceRoot: forkThread.workspaceRoot,
+              cwd: forkThread.cwd,
+              prompt: claudeForkPrompt(routed.name),
+              timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+              sessionId: sourceSessionId,
+              forkSession: true,
+            },
           });
+
+          forkSessionId = extractCodexResponseSessionId(response);
+          finalMessage = extractCodexResponseFinalMessage(response);
+
+          if (forkSessionId) {
+            claudeSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
+            await input.recordClaudeSession?.({
+              discordChannelId: forkThread.discordChannelId,
+              claudeSessionId: forkSessionId,
+            });
+          }
+        } else {
+          if (!input.submitCodexPrompt) {
+            throw new Error("Codex chat is not connected for this bot mode.");
+          }
+
+          const response = await input.submitCodexPrompt({
+            computerId: channelContext.computerId,
+            payload: {
+              workspaceRoot: forkThread.workspaceRoot,
+              cwd: forkThread.cwd,
+              prompt: codexForkPrompt(routed.name),
+              timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+              sessionId: sourceSessionId,
+              forkSession: true,
+              model: codexModelsByChannel.get(message.channelId) ?? null,
+              reasoningEffort: reasoningEffortForChannel(message.channelId),
+            },
+            onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
+          });
+
+          forkSessionId = extractCodexResponseSessionId(response);
+          finalMessage = extractCodexResponseFinalMessage(response);
+
+          if (forkSessionId) {
+            codexSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
+            await input.markDiscordRequestedCodexSession?.(forkSessionId);
+            await input.linkNewCodexSession?.({
+              discordChannelId: forkThread.discordChannelId,
+              codexSessionId: forkSessionId,
+              threadName: routed.name,
+            });
+          }
         }
 
         await message.guild.sendTextMessage?.(
           forkThread.discordChannelId,
           formatForkedSessionThreadNotice({
+            channelMode: forkThread.channelMode,
             sourceChannelId: message.channelId,
             sourceSessionId,
             forkSessionId,

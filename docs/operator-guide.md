@@ -55,7 +55,7 @@ Session-linked commands:
 - `/skill name:<skill> prompt:<요청>` sends an exec-compatible prompt asking Codex to apply the named skill perspective.
 - `/model model:<모델>` stores a per-channel model preference used by later Codex runs until the bot restarts.
 - `/archive` opens a confirmation card for the current generated session channel; use `archive confirm` to archive.
-- `/fork` opens a name modal in Claude Code session threads and creates a new Discord thread backed by `claude --resume <session> --fork-session`.
+- `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a forked agent session. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
 - `/where` and `/status` show bridge channel status, including channel mode, computer, workspace, cwd, linked session, and model preference.
 - `/browse` opens the current directory browser UI.
 - `/shell command:<명령>` runs a shell command through the existing safety policy; typed shell commands in session channels use the `!` prefix.
@@ -130,7 +130,7 @@ Session-linked channels attach/import native Codex session identity. Normal text
 
 Session channels do not manage global bridge state. `/sync`, `/sync-all`, `/sync-status`, `/sync-mode`, `/chat-new`, and `/reload` are blocked with guidance to use the admin/main channel.
 
-Component-generated shell commands are routed internally, so file/Git/Test buttons work in session-linked channels even though manually typed shell commands still use the `!` prefix. New-chat buttons open a modal for channel name and initial prompt; `현재 폴더 채팅` and `여기서 새 채팅` use the channel's current cwd. In Claude Code threads, `/fork` opens a thread-name modal, creates a sibling Discord thread, and links it to a new Claude session ID created with `--fork-session`.
+Component-generated shell commands are routed internally, so file/Git/Test buttons work in session-linked channels even though manually typed shell commands still use the `!` prefix. New-chat buttons open a modal for channel name and initial prompt; `현재 폴더 채팅` and `여기서 새 채팅` use the channel's current cwd. In Codex/Claude Code threads, `/fork` opens a thread-name modal, creates a sibling Discord thread, and links it to the forked agent session ID.
 
 Direct mode can run the same Discord bot token on multiple machines when every instance owns a different admin/session channel set. Message and interaction handling is channel-scoped: unmanaged channels are ignored before slash commands are deferred or buttons/modals are acknowledged.
 

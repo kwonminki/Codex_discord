@@ -240,6 +240,155 @@ describe("runCodexAppServerPrompt", () => {
     }
   });
 
+  it("forks an existing app-server thread before starting a turn", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
+    const socketPath = path.join("/tmp", `codex-app-server-runner-fork-${process.pid}-${Date.now()}.sock`);
+    socketPaths.push(socketPath);
+    const httpServer = createServer();
+    const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
+    const received: Array<{ method: string; params: unknown }> = [];
+
+    try {
+      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+
+      wsServer.on("connection", (socket) => {
+        socket.on("message", (raw) => {
+          const message = JSON.parse(raw.toString()) as { id?: number; method?: string; params?: unknown };
+
+          if (!message.method) {
+            return;
+          }
+
+          received.push({ method: message.method, params: message.params });
+
+          if (message.method === "initialize") {
+            socket.send(
+              JSON.stringify({
+                id: message.id,
+                result: {
+                  userAgent: "Codex Desktop/0.0.0 test",
+                  codexHome: path.join(workspaceRoot, ".codex"),
+                  platformFamily: "unix",
+                  platformOs: "macos",
+                },
+              }),
+            );
+            return;
+          }
+
+          if (message.method === "thread/fork") {
+            socket.send(
+              JSON.stringify({
+                id: message.id,
+                result: {
+                  newThread: {
+                    id: "fork-thread-1",
+                  },
+                },
+              }),
+            );
+            return;
+          }
+
+          if (message.method === "turn/start") {
+            socket.send(
+              JSON.stringify({
+                id: message.id,
+                result: {
+                  turn: {
+                    id: "fork-turn-1",
+                    status: "inProgress",
+                    items: [],
+                    itemsView: "notLoaded",
+                    error: null,
+                  },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "item/completed",
+                params: {
+                  threadId: "fork-thread-1",
+                  turnId: "fork-turn-1",
+                  item: {
+                    type: "agentMessage",
+                    id: "fork-message-1",
+                    text: "분기 세션이 준비되었습니다.",
+                    phase: "final_answer",
+                  },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "turn/completed",
+                params: {
+                  threadId: "fork-thread-1",
+                  turn: {
+                    id: "fork-turn-1",
+                    status: "completed",
+                    error: null,
+                  },
+                },
+              }),
+            );
+          }
+        });
+      });
+
+      const events: unknown[] = [];
+      const result = await runCodexAppServerPrompt({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        prompt: "fork 준비",
+        timeoutMs: 5_000,
+        sessionId: "source-thread-1",
+        forkSession: true,
+        appServerSocketPath: socketPath,
+        onProgress: (event) => {
+          events.push(event);
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: "completed",
+        finalMessage: "분기 세션이 준비되었습니다.",
+        sessionId: "fork-thread-1",
+        exitCode: 0,
+      });
+      expect(events).toEqual(
+        expect.arrayContaining([
+          { type: "thread-started", sessionId: "fork-thread-1" },
+          { type: "agent-message", text: "분기 세션이 준비되었습니다." },
+        ]),
+      );
+      expect(received).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            method: "thread/fork",
+            params: expect.objectContaining({
+              threadId: "source-thread-1",
+              approvalPolicy: "never",
+              sandbox: "danger-full-access",
+            }),
+          }),
+          expect.objectContaining({
+            method: "turn/start",
+            params: expect.objectContaining({
+              threadId: "fork-thread-1",
+            }),
+          }),
+        ]),
+      );
+      expect(received.some((entry) => entry.method === "thread/resume")).toBe(false);
+    } finally {
+      wsServer.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("answers app-server command approval requests", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
     const socketPath = path.join("/tmp", `codex-app-server-runner-approval-${process.pid}-${Date.now()}.sock`);

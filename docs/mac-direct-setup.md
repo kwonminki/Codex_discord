@@ -53,7 +53,7 @@ pnpm connect install --direct \
 
 This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the Codex/admin channel and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
 
-When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session. Inside a linked Claude Code thread, `/fork` asks for a new thread name and creates a sibling Discord thread backed by `claude --resume <session> --fork-session`.
+When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session. Inside a linked Codex or Claude Code thread, `/fork` asks for a new thread name and creates a sibling Discord thread. Claude Code forks use `claude --resume <session> --fork-session`; Codex forks use Codex app-server `thread/fork`.
 
 The bot also watches recent Claude Code session logs under `~/.claude/projects`. Sessions started by IDE surfaces such as VS Code or Antigravity are detected from their Claude entrypoint and automatically mapped to new Discord threads under `--claude-channel-id`. Connector-started Claude sessions are skipped so they do not create duplicate threads.
 
@@ -117,7 +117,7 @@ The first scan for the current notification scope only records a baseline, so ol
 
 Completion notifications include the latest assistant answer, plus an `이어 작업 요청` button. Long answers are previewed in Discord and attached as `codex-answer.txt`. Press the button to open a Discord modal, write the next instruction, and the bot will try to resume the completed Codex session with that prompt. The follow-up runs through `codex exec resume`; Codex Desktop or IDE sessions that use dynamic tools may not be resumable from exec mode, and those sessions also do not live-update the Desktop app UI from Discord.
 
-For a closer native Codex integration, set `CODEX_DISCORD_CODEX_RUNNER=app-server` before starting the bot. In this mode, Discord prompts are sent through Codex's app-server WebSocket protocol with `thread/start`, `thread/resume`, and `turn/start` instead of `codex exec`. The created or resumed thread is recorded in Codex's native session store and can be opened from Codex surfaces, but a currently visible Desktop, VS Code, or Antigravity panel is not forcibly navigated to that thread by the connector.
+For a closer native Codex integration, set `CODEX_DISCORD_CODEX_RUNNER=app-server` before starting the bot. In this mode, Discord prompts are sent through Codex's app-server WebSocket protocol with `thread/start`, `thread/resume`, `thread/fork`, and `turn/start` instead of `codex exec`. The created, resumed, or forked thread is recorded in Codex's native session store and can be opened from Codex surfaces, but a currently visible Desktop, VS Code, or Antigravity panel is not forcibly navigated to that thread by the connector. Codex `/fork` requires this app-server runner.
 
 Completion polling defaults to 3 seconds, transcript polling defaults to 5 seconds, and both can be changed with:
 

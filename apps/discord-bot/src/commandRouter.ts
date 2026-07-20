@@ -911,7 +911,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     if (input.channelMode === "shell-admin") {
       return blockedCommand(
         "이 명령은 session thread 전용입니다.",
-        "Claude Code 세션 thread 안에서 /fork를 실행하세요.",
+        "Codex 또는 Claude Code 세션 thread 안에서 /fork를 실행하세요.",
       );
     }
 

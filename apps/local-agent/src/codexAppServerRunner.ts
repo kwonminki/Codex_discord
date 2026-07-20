@@ -32,6 +32,9 @@ interface ThreadStartResponse {
   thread?: {
     id?: unknown;
   };
+  newThread?: {
+    id?: unknown;
+  };
 }
 
 interface TurnCompletedParams {
@@ -369,6 +372,17 @@ function approvalPolicy(): "untrusted" | "on-request" | "never" {
   return configured === "untrusted" || configured === "never" || configured === "on-request"
     ? configured
     : APP_SERVER_APPROVAL_POLICY;
+}
+
+function threadIdFromResponse(response: unknown): string | null {
+  if (typeof response !== "object" || response === null) {
+    return null;
+  }
+
+  const typed = response as ThreadStartResponse;
+  const threadId = typed.thread?.id ?? typed.newThread?.id;
+
+  return typeof threadId === "string" ? threadId : null;
 }
 
 function objectParam(value: unknown): Record<string, unknown> {
@@ -816,29 +830,42 @@ async function runPromptAgainstAppServer(input: {
 
           const currentApprovalPolicy = approvalPolicy();
           const currentSandboxMode = sandboxMode();
-          const threadResult = input.input.sessionId
-            ? await request("thread/resume", {
-                threadId: input.input.sessionId,
-                cwd: input.cwd,
-                runtimeWorkspaceRoots: [input.cwd],
-                approvalPolicy: currentApprovalPolicy,
-                approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
-                sandbox: currentSandboxMode,
-                model: model(input.input),
-              })
-            : await request("thread/start", {
-                cwd: input.cwd,
-                runtimeWorkspaceRoots: [input.cwd],
-                approvalPolicy: currentApprovalPolicy,
-                approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
-                sandbox: currentSandboxMode,
-                threadSource: "codex-discord",
-                model: model(input.input),
-              });
-          const thread = (threadResult as ThreadStartResponse).thread;
+          const threadResult =
+            input.input.sessionId && input.input.forkSession
+              ? await request("thread/fork", {
+                  threadId: input.input.sessionId,
+                  cwd: input.cwd,
+                  runtimeWorkspaceRoots: [input.cwd],
+                  approvalPolicy: currentApprovalPolicy,
+                  approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
+                  sandbox: currentSandboxMode,
+                  model: model(input.input),
+                })
+              : input.input.sessionId
+                ? await request("thread/resume", {
+                    threadId: input.input.sessionId,
+                    cwd: input.cwd,
+                    runtimeWorkspaceRoots: [input.cwd],
+                    approvalPolicy: currentApprovalPolicy,
+                    approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
+                    sandbox: currentSandboxMode,
+                    model: model(input.input),
+                  })
+                : await request("thread/start", {
+                    cwd: input.cwd,
+                    runtimeWorkspaceRoots: [input.cwd],
+                    approvalPolicy: currentApprovalPolicy,
+                    approvalsReviewer: APP_SERVER_APPROVALS_REVIEWER,
+                    sandbox: currentSandboxMode,
+                    threadSource: "codex-discord",
+                    model: model(input.input),
+                  });
+          const openedThreadId = threadIdFromResponse(threadResult);
 
-          if (typeof thread?.id === "string") {
-            await emitThreadStarted(thread.id);
+          if (openedThreadId) {
+            await emitThreadStarted(openedThreadId);
+          } else if (input.input.sessionId && input.input.forkSession) {
+            throw new Error("Codex app-server thread/fork did not return a forked thread ID.");
           }
 
           await request("turn/start", {

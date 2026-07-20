@@ -2305,7 +2305,7 @@ export function formatForkSessionResult(response: {
 
   if (response.finalMessage?.trim()) {
     fields.push({
-      name: "Claude response",
+      name: `${agentLabel} response`,
       value: wrapDiscordText(response.finalMessage.trim()),
       inline: false,
     });
@@ -2320,11 +2320,13 @@ export function formatForkSessionResult(response: {
 }
 
 export function formatForkedSessionThreadNotice(input: {
+  channelMode?: ChannelMode;
   sourceChannelId: string;
   sourceSessionId: string | null;
   forkSessionId: string | null;
   finalMessage?: string | null;
 }): DiscordMessagePayload {
+  const agentLabel = input.channelMode === "claude-code" ? "Claude Code" : "Codex";
   const fields: DiscordEmbedFieldPayload[] = [
     {
       name: "Forked from",
@@ -2345,16 +2347,16 @@ export function formatForkedSessionThreadNotice(input: {
 
   if (input.finalMessage?.trim()) {
     fields.push({
-      name: "Claude response",
+      name: `${agentLabel} response`,
       value: wrapDiscordText(input.finalMessage.trim()),
       inline: false,
     });
   }
 
   return messagePayload({
-    title: "Claude Code fork 연결됨",
+    title: `${agentLabel} fork 연결됨`,
     color: COLORS.success,
-    description: "이 스레드에 메시지를 보내면 분기된 Claude Code 세션으로 이어집니다.",
+    description: `이 스레드에 메시지를 보내면 분기된 ${agentLabel} 세션으로 이어집니다.`,
     fields,
   });
 }

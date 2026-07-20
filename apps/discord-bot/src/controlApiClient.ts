@@ -16,6 +16,7 @@ export interface RunCodexPromptJobPayload {
   prompt: string;
   timeoutMs: number;
   sessionId: string | null;
+  forkSession?: boolean;
   mode?: "prompt" | "review";
   model?: string | null;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;

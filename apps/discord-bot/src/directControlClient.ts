@@ -205,6 +205,19 @@ export function createDirectControlClient(
         onProgress: input.onProgress,
         onApprovalRequest: input.onApprovalRequest,
       };
+      if (input.payload.forkSession && codexRunner !== "app-server") {
+        return {
+          jobId: randomUUID(),
+          result: {
+            status: "failed",
+            finalMessage: "Codex session fork requires CODEX_DISCORD_CODEX_RUNNER=app-server.",
+            sessionId: input.payload.sessionId,
+            stderr: "",
+            exitCode: null,
+            errorCode: "CODEX_FORK_APP_SERVER_REQUIRED",
+          },
+        };
+      }
       const result =
         codexRunner === "app-server" && input.payload.mode !== "review"
           ? await runCodexAppServerPrompt(runnerInput)

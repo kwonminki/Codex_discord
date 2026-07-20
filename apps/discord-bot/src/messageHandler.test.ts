@@ -939,6 +939,110 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("forks a linked Codex session into a new Discord thread", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const createForkedSessionThread = vi.fn().mockResolvedValue({
+      discordChannelId: "codex-fork-thread-1",
+      discordCategoryId: null,
+      channelName: "refactor-branch",
+      threadName: "Refactor branch",
+      cwd: "/repo",
+      workspaceRoot: "/repo",
+      workspaceDisplayName: "repo",
+      pendingSession: true,
+      initialPrompt: null,
+      discordDeliveryMode: "thread",
+      channelMode: "session-linked",
+    });
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "새 Codex fork 세션이 준비되었습니다.",
+        sessionId: "codex-fork-session-1",
+      },
+    });
+    const submitClaudePrompt = vi.fn();
+    const linkNewCodexSession = vi.fn().mockResolvedValue(undefined);
+    const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "notice-1" });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "codex-source-session-1",
+        discordDeliveryMode: "thread",
+        discordParentChannelId: "codex-parent-channel",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      submitClaudePrompt,
+      createForkedSessionThread,
+      linkNewCodexSession,
+      markDiscordRequestedCodexSession,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "__cdc_fork_session %7B%22name%22%3A%22Refactor%20branch%22%7D",
+      roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        sendTextMessage,
+      },
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+
+    expect(createForkedSessionThread).toHaveBeenCalledWith({
+      guild: expect.any(Object),
+      sourceDiscordChannelId: "discord-channel-1",
+      name: "Refactor branch",
+    });
+    expect(submitCodexPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          sessionId: "codex-source-session-1",
+          forkSession: true,
+          cwd: "/repo",
+          reasoningEffort: "xhigh",
+        }),
+      }),
+    );
+    expect(submitClaudePrompt).not.toHaveBeenCalled();
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-fork-session-1");
+    expect(linkNewCodexSession).toHaveBeenCalledWith({
+      discordChannelId: "codex-fork-thread-1",
+      codexSessionId: "codex-fork-session-1",
+      threadName: "Refactor branch",
+    });
+    expect(sendTextMessage).toHaveBeenCalledWith(
+      "codex-fork-thread-1",
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Codex fork 연결됨" })],
+      }),
+      { mentionRoleIds: ["role-operator"] },
+    );
+    expect(replies[0]).toEqual(expect.objectContaining({ embeds: [expect.objectContaining({ title: "Codex fork 준비 중" })] }));
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Codex fork ready" })],
+      }),
+    );
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({

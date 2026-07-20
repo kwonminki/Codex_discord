@@ -63,8 +63,21 @@ export async function handleAgentJob(job: AgentJob, options: AgentJobOptions = {
   }
 
   if (job.type === "run-codex-prompt") {
+    const payload = job.payload as Parameters<typeof runCodexPrompt>[0];
+
+    if (payload.forkSession) {
+      return {
+        status: "failed",
+        finalMessage: "Codex session fork requires the direct app-server runner.",
+        sessionId: payload.sessionId ?? null,
+        stderr: "",
+        exitCode: null,
+        errorCode: "CODEX_FORK_APP_SERVER_REQUIRED",
+      };
+    }
+
     return runCodexPrompt({
-      ...(job.payload as Parameters<typeof runCodexPrompt>[0]),
+      ...payload,
       onProgress: options.onProgress,
     });
   }

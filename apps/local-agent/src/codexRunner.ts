@@ -10,6 +10,7 @@ export interface RunCodexPromptInput {
   prompt: string;
   timeoutMs: number;
   sessionId?: string | null;
+  forkSession?: boolean;
   codexHome?: string;
   codexCommand?: string;
   onProgress?: (event: CodexRunnerProgressEvent) => Promise<void> | void;

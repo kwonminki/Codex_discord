@@ -649,7 +649,19 @@ describe("routeDiscordMessage", () => {
     });
   });
 
-  it("routes session fork requests from Claude Code threads", () => {
+  it("routes session fork requests from linked agent threads", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "__cdc_fork_session %7B%22name%22%3A%22Refactor%20branch%22%7D",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "fork-session",
+      name: "Refactor branch",
+    });
+
     expect(
       routeDiscordMessage({
         channelMode: "claude-code",
