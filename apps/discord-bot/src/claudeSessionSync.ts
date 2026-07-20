@@ -13,6 +13,15 @@ import type { DirectSyncState, DirectSyncStateStore, SyncedSessionChannelState }
 const MAX_CHANNEL_NAME_LENGTH = 90;
 const MAX_SESSION_CACHE_ENTRIES = 1_000;
 
+export type ClaudeCodeSessionActivityKind =
+  | "assistant_text"
+  | "assistant_tool_use"
+  | "assistant_other"
+  | "tool_result"
+  | "user"
+  | "attachment"
+  | "other";
+
 export interface DiscoveredClaudeCodeSession {
   id: string;
   cwd: string;
@@ -20,6 +29,7 @@ export interface DiscoveredClaudeCodeSession {
   firstUserMessage: string | null;
   latestAssistantMessage: string | null;
   latestAssistantMessageKey: string | null;
+  latestActivityKind: ClaudeCodeSessionActivityKind | null;
   updatedAt: string;
   filePath: string;
 }
@@ -156,6 +166,43 @@ function newerIsoTimestamp(current: string | null, next: unknown): string | null
   return current;
 }
 
+function contentHasPartType(content: unknown, partType: string): boolean {
+  return Array.isArray(content) &&
+    content.some(
+      (part) =>
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === partType,
+    );
+}
+
+function claudeRecordActivityKind(record: ParsedClaudeRecord): ClaudeCodeSessionActivityKind {
+  const role = asString(record.message?.role);
+  const type = asString(record.type);
+
+  if (type === "attachment") {
+    return "attachment";
+  }
+
+  if (role === "assistant" || type === "assistant") {
+    if (textFromContent(record.message?.content)) {
+      return "assistant_text";
+    }
+
+    if (contentHasPartType(record.message?.content, "tool_use")) {
+      return "assistant_tool_use";
+    }
+
+    return "assistant_other";
+  }
+
+  if (role === "user" || type === "user") {
+    return contentHasPartType(record.message?.content, "tool_result") ? "tool_result" : "user";
+  }
+
+  return "other";
+}
+
 async function readTextSliceIfExists(filePath: string, position: number, length: number): Promise<string | null> {
   const handle = await open(filePath, "r").catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
@@ -192,6 +239,7 @@ function parseClaudeCodeSessionText(input: {
   let firstUserMessage: string | null = input.previous?.firstUserMessage ?? null;
   let latestAssistantMessage: string | null = input.previous?.latestAssistantMessage ?? null;
   let latestAssistantMessageKey: string | null = input.previous?.latestAssistantMessageKey ?? null;
+  let latestActivityKind: ClaudeCodeSessionActivityKind | null = input.previous?.latestActivityKind ?? null;
   let updatedAt: string | null = input.previous?.updatedAt ?? null;
   const lines = input.text.split(/\r?\n/);
   const lineCount = lines.length - (input.text.endsWith("\n") ? 1 : 0);
@@ -212,7 +260,12 @@ function parseClaudeCodeSessionText(input: {
     sessionId = asString(record.sessionId) ?? sessionId;
     cwd = asString(record.cwd) ?? cwd;
     entrypoint = asString(record.entrypoint) ?? entrypoint;
+    const previousUpdatedAt = updatedAt;
     updatedAt = newerIsoTimestamp(updatedAt, record.timestamp);
+
+    if (updatedAt && (updatedAt !== previousUpdatedAt || asString(record.timestamp) === updatedAt)) {
+      latestActivityKind = claudeRecordActivityKind(record);
+    }
 
     const role = asString(record.message?.role);
     const type = asString(record.type);
@@ -247,6 +300,7 @@ function parseClaudeCodeSessionText(input: {
       firstUserMessage,
       latestAssistantMessage,
       latestAssistantMessageKey,
+      latestActivityKind,
       updatedAt: updatedAt ?? input.fallbackUpdatedAt,
       filePath: input.filePath,
     },

@@ -140,6 +140,8 @@ pnpm connect install --direct \
 
 첫 baseline scan 이후에는 외부 IDE Claude Code 세션의 새 assistant 답변도 해당 Discord thread에 `Claude Code 작업 완료` 알림과 최종 답변으로 올라옵니다. Discord에서 봇이 직접 시작한 Claude 세션은 요청 메시지 자체에 결과가 이미 표시되므로 별도 완료 알림을 보내지 않습니다.
 
+Claude Code 완료 알림은 최신 활동이 assistant text이고, 이후 `CONNECT_CLAUDE_COMPLETION_IDLE_MS` 동안 세션이 조용할 때만 전송합니다. 그래서 tool call이 이어지는 중간 진행 문장은 최종 답변으로 처리하지 않습니다.
+
 Claude Code 세션 스캔은 메모리 캐시를 사용합니다. `~/.claude/projects/**/*.jsonl` 파일의 `mtime`과 크기가 그대로면 다시 파싱하지 않고, append된 로그는 새로 늘어난 byte range만 읽습니다. 한 번의 poll 안에서는 thread 자동 연결과 완료 알림이 같은 세션 목록을 공유합니다.
 
 관련 주기는 필요하면 아래 값으로 조절할 수 있습니다.
@@ -148,6 +150,7 @@ Claude Code 세션 스캔은 메모리 캐시를 사용합니다. `~/.claude/pro
 CONNECT_CLAUDE_SESSION_SYNC_INTERVAL_MS=5000
 CONNECT_CLAUDE_SESSION_SYNC_LOOKBACK_MS=86400000
 CONNECT_CLAUDE_SESSION_SYNC_LIMIT=10
+CONNECT_CLAUDE_COMPLETION_IDLE_MS=120000
 ```
 
 ```text

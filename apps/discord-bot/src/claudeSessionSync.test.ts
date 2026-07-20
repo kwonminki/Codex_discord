@@ -56,6 +56,7 @@ describe("discoverClaudeCodeSessions", () => {
           firstUserMessage: "테스트 대화야",
           latestAssistantMessage: "좋아요",
           latestAssistantMessageKey: "session-ide:2026-07-20T04:31:45.812Z:1",
+          latestActivityKind: "assistant_text",
           updatedAt: "2026-07-20T04:31:45.812Z",
           filePath: sessionPath,
         }),
@@ -131,6 +132,7 @@ describe("discoverClaudeCodeSessions", () => {
           id: "session-cache",
           latestAssistantMessage: "첫 답변",
           latestAssistantMessageKey: "session-cache:2026-07-20T04:31:45.812Z:1",
+          latestActivityKind: "assistant_text",
         }),
       ]);
 
@@ -153,6 +155,7 @@ describe("discoverClaudeCodeSessions", () => {
           firstUserMessage: "캐시 테스트",
           latestAssistantMessage: "둘째 답변",
           latestAssistantMessageKey: "session-cache:2026-07-20T04:32:00.000Z:2",
+          latestActivityKind: "assistant_text",
         }),
       ]);
     } finally {
@@ -177,6 +180,7 @@ describe("syncClaudeCodeSessionsToDiscord", () => {
     firstUserMessage: "테스트 대화야",
     latestAssistantMessage: "좋아요",
     latestAssistantMessageKey: "session-ide:2026-07-20T04:31:45.812Z:1",
+    latestActivityKind: "assistant_text",
     updatedAt: "2026-07-20T04:31:45.812Z",
     filePath: "/tmp/session-ide.jsonl",
   } satisfies DiscoveredClaudeCodeSession;

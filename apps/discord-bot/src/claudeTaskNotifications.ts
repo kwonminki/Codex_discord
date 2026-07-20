@@ -17,13 +17,16 @@ const MAX_FIELD_CHARS = 180;
 const MAX_ANSWER_EMBED_CHARS = 3_800;
 const ANSWER_ATTACHMENT_NAME = "claude-answer.txt";
 const ANSWER_EMBED_COLOR = 0x8e44ad;
-const CLAUDE_COMPLETION_NOTIFICATION_SCOPE = "external-claude-code-assistant-messages";
+const CLAUDE_COMPLETION_NOTIFICATION_SCOPE = "external-claude-code-idle-assistant-messages-v2";
+export const DEFAULT_CLAUDE_COMPLETION_IDLE_MS = 120_000;
 
 export interface NotifyClaudeCodeTaskCompletionsInput {
   guild: Pick<DiscordGuildSurface, "sendTextMessage">;
   stateStore: DirectSyncStateStore;
   sessions: DiscoveredClaudeCodeSession[];
   mentionRoleIds?: string[];
+  idleMs?: number;
+  now?: Date;
 }
 
 export interface NotifyClaudeCodeTaskCompletionsResult {
@@ -161,6 +164,25 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
   };
 }
 
+function isClaudeCompletionCandidate(session: DiscoveredClaudeCodeSession, input: { now: Date; idleMs: number }): boolean {
+  if (
+    !isExternallyStartedClaudeCodeSession(session) ||
+    !session.latestAssistantMessage ||
+    !session.latestAssistantMessageKey ||
+    session.latestActivityKind !== "assistant_text"
+  ) {
+    return false;
+  }
+
+  const updatedAtMs = Date.parse(session.updatedAt);
+
+  if (!Number.isFinite(updatedAtMs)) {
+    return false;
+  }
+
+  return updatedAtMs <= input.now.getTime() - input.idleMs;
+}
+
 export async function notifyClaudeCodeTaskCompletions(
   input: NotifyClaudeCodeTaskCompletionsInput,
 ): Promise<NotifyClaudeCodeTaskCompletionsResult> {
@@ -179,17 +201,15 @@ export async function notifyClaudeCodeTaskCompletions(
   const initialized =
     Boolean(state.claudeCompletionNotificationsInitializedAt) &&
     state.claudeCompletionNotificationScope === CLAUDE_COMPLETION_NOTIFICATION_SCOPE;
-  const now = new Date().toISOString();
+  const nowDate = input.now ?? new Date();
+  const now = nowDate.toISOString();
+  const idleMs = Math.max(0, input.idleMs ?? DEFAULT_CLAUDE_COMPLETION_IDLE_MS);
   let completedSessions = 0;
   let notifiedSessions = 0;
   let changed = false;
 
   for (const session of input.sessions) {
-    if (
-      !isExternallyStartedClaudeCodeSession(session) ||
-      !session.latestAssistantMessage ||
-      !session.latestAssistantMessageKey
-    ) {
+    if (!isClaudeCompletionCandidate(session, { now: nowDate, idleMs })) {
       continue;
     }
 

@@ -22,7 +22,10 @@ import {
   syncClaudeCodeSessionsToDiscord,
   type DiscoveredClaudeCodeSession,
 } from "./claudeSessionSync.js";
-import { notifyClaudeCodeTaskCompletions } from "./claudeTaskNotifications.js";
+import {
+  DEFAULT_CLAUDE_COMPLETION_IDLE_MS,
+  notifyClaudeCodeTaskCompletions,
+} from "./claudeTaskNotifications.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
@@ -163,6 +166,12 @@ const CLAUDE_SESSION_SYNC_LIMIT = resolveBoundedInteger(
   DEFAULT_CLAUDE_SESSION_SYNC_LIMIT,
   1,
   50,
+);
+const CLAUDE_COMPLETION_IDLE_MS = resolveBoundedInteger(
+  process.env.CONNECT_CLAUDE_COMPLETION_IDLE_MS,
+  DEFAULT_CLAUDE_COMPLETION_IDLE_MS,
+  5_000,
+  60 * 60 * 1_000,
 );
 const SCHEDULE_POLL_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_SCHEDULE_POLL_INTERVAL_MS,
@@ -436,6 +445,7 @@ export async function startBot(): Promise<void> {
                 updatedAfter: new Date(Date.now() - CLAUDE_SESSION_SYNC_LOOKBACK_MS),
               }),
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
+            idleMs: CLAUDE_COMPLETION_IDLE_MS,
           });
         }
       : undefined;

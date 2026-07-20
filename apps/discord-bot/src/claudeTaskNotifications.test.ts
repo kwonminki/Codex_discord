@@ -15,6 +15,7 @@ function claudeSession(input: Partial<DiscoveredClaudeCodeSession> = {}): Discov
     firstUserMessage: "테스트 대화야",
     latestAssistantMessage: "완료했습니다.",
     latestAssistantMessageKey: "claude-session-1:2026-07-20T04:31:45.812Z:1",
+    latestActivityKind: "assistant_text",
     updatedAt: "2026-07-20T04:31:45.812Z",
     filePath: "/tmp/claude-session-1.jsonl",
     ...input,
@@ -59,6 +60,7 @@ describe("notifyClaudeCodeTaskCompletions", () => {
           stateStore,
           sessions: [claudeSession()],
           mentionRoleIds: ["role-1"],
+          now: new Date("2026-07-20T04:40:00.000Z"),
         }),
       ).resolves.toMatchObject({
         checkedSessions: 1,
@@ -74,6 +76,7 @@ describe("notifyClaudeCodeTaskCompletions", () => {
           stateStore,
           sessions: [claudeSession()],
           mentionRoleIds: ["role-1"],
+          now: new Date("2026-07-20T04:40:00.000Z"),
         }),
       ).resolves.toMatchObject({
         notifiedSessions: 0,
@@ -93,6 +96,7 @@ describe("notifyClaudeCodeTaskCompletions", () => {
             }),
           ],
           mentionRoleIds: ["role-1"],
+          now: new Date("2026-07-20T04:45:00.000Z"),
         }),
       ).resolves.toMatchObject({
         checkedSessions: 1,
@@ -137,6 +141,95 @@ describe("notifyClaudeCodeTaskCompletions", () => {
         notifiedSessions: 0,
       });
       expect(sendTextMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("waits for an idle assistant text before sending completion notifications", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-notify-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+
+    try {
+      await stateStore.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [
+          {
+            codexSessionId: null,
+            claudeSessionId: "claude-session-1",
+            threadName: "테스트 대화야",
+            updatedAt: "2026-07-20T04:31:45.812Z",
+            cwd: "/repo",
+            workspaceRoot: "/repo",
+            workspaceDisplayName: "repo",
+            discordCategoryId: null,
+            discordChannelId: "thread-claude",
+            discordParentChannelId: "parent-claude",
+            discordDeliveryMode: "thread",
+            channelMode: "claude-code",
+            channelName: "test",
+            computerId: "mac",
+            workspaceId: "mac:/repo",
+          },
+        ],
+        claudeCompletionNotificationsInitializedAt: "2026-07-20T04:30:00.000Z",
+        claudeCompletionNotificationScope: "external-claude-code-idle-assistant-messages-v2",
+      });
+
+      await notifyClaudeCodeTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        sessions: [
+          claudeSession({
+            latestAssistantMessage: "파일을 먼저 확인하겠습니다.",
+            latestAssistantMessageKey: "claude-session-1:2026-07-20T04:40:00.000Z:2",
+            latestActivityKind: "assistant_text",
+            updatedAt: "2026-07-20T04:40:00.000Z",
+          }),
+        ],
+        idleMs: 120_000,
+        now: new Date("2026-07-20T04:40:30.000Z"),
+      });
+
+      await notifyClaudeCodeTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        sessions: [
+          claudeSession({
+            latestAssistantMessage: "파일을 먼저 확인하겠습니다.",
+            latestAssistantMessageKey: "claude-session-1:2026-07-20T04:40:00.000Z:2",
+            latestActivityKind: "tool_result",
+            updatedAt: "2026-07-20T04:45:00.000Z",
+          }),
+        ],
+        idleMs: 120_000,
+        now: new Date("2026-07-20T04:50:00.000Z"),
+      });
+
+      expect(sendTextMessage).not.toHaveBeenCalled();
+
+      await notifyClaudeCodeTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        sessions: [
+          claudeSession({
+            latestAssistantMessage: "최종 답변입니다.",
+            latestAssistantMessageKey: "claude-session-1:2026-07-20T04:52:00.000Z:3",
+            latestActivityKind: "assistant_text",
+            updatedAt: "2026-07-20T04:52:00.000Z",
+          }),
+        ],
+        idleMs: 120_000,
+        now: new Date("2026-07-20T04:55:00.000Z"),
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({
+        embeds: [expect.objectContaining({ description: "최종 답변입니다." })],
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
