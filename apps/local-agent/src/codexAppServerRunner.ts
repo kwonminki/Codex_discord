@@ -49,7 +49,11 @@ interface ItemNotificationParams {
     id?: unknown;
     type?: unknown;
     text?: unknown;
+    content?: unknown;
+    output?: unknown;
     phase?: unknown;
+    result?: unknown;
+    summary?: unknown;
   };
   delta?: unknown;
   itemId?: unknown;
@@ -109,29 +113,104 @@ function compactDetail(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
-function itemProgressEvent(params: ItemNotificationParams): CodexRunnerProgressEvent | null {
+function extractTextValues(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractTextValues(item));
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  return ["text", "summary_text", "message", "content", "output", "result"]
+    .flatMap((key) => extractTextValues(record[key]))
+    .filter((text) => text.length > 0);
+}
+
+function itemProgressDetail(item: ItemNotificationParams["item"]): string | undefined {
+  if (!item) {
+    return undefined;
+  }
+
+  const text = [
+    ...extractTextValues(item.text),
+    ...extractTextValues(item.summary),
+    ...extractTextValues(item.content),
+    ...extractTextValues(item.output),
+    ...extractTextValues(item.result),
+  ]
+    .filter((part, index, parts) => parts.indexOf(part) === index)
+    .join(" · ");
+
+  return text.trim().length > 0 ? compactDetail(text) : undefined;
+}
+
+function itemProgressEvent(
+  params: ItemNotificationParams,
+  phase: "started" | "completed",
+): CodexRunnerProgressEvent | null {
   const item = params.item;
   const type = typeof item?.type === "string" ? item.type : "";
+  const normalizedType = type.toLowerCase().replace(/[_-]/g, ".");
+  const detail = itemProgressDetail(item);
+
+  if (type === "agentMessage") {
+    return phase === "started"
+      ? {
+          type: "operation-progress",
+          label: "답변 작성 중",
+          detail,
+          eventType: "item/started",
+        }
+      : null;
+  }
 
   if (type === "commandExecution") {
     return {
       type: "operation-progress",
-      label: "명령 실행 중",
-      detail: typeof item?.text === "string" ? compactDetail(item.text) : undefined,
-      eventType: "item/started",
+      label: phase === "completed" ? "명령 실행 완료" : "명령 실행 중",
+      detail,
+      eventType: phase === "completed" ? "item/completed" : "item/started",
     };
   }
 
   if (type === "fileChange") {
     return {
       type: "operation-progress",
-      label: "파일 수정 중",
-      detail: typeof item?.text === "string" ? compactDetail(item.text) : undefined,
-      eventType: "item/started",
+      label: phase === "completed" ? "파일 수정 완료" : "파일 수정 중",
+      detail,
+      eventType: phase === "completed" ? "item/completed" : "item/started",
     };
   }
 
-  return null;
+  if (
+    normalizedType.includes("reasoning") ||
+    normalizedType.includes("thinking") ||
+    normalizedType.includes("thought")
+  ) {
+    return {
+      type: "operation-progress",
+      label: phase === "completed" ? "생각 정리" : "생각 중",
+      detail,
+      eventType: phase === "completed" ? "item/completed" : "item/started",
+    };
+  }
+
+  if (!type && !detail) {
+    return null;
+  }
+
+  return {
+    type: "operation-progress",
+    label: phase === "completed" ? "작업 단계 완료" : "작업 단계 실행 중",
+    detail: detail ?? type,
+    eventType: phase === "completed" ? "item/completed" : "item/started",
+  };
 }
 
 function spawnFailure(codexCommand: string, error: NodeJS.ErrnoException): RunCodexPromptResult {
@@ -645,7 +724,7 @@ async function runPromptAgainstAppServer(input: {
     }
 
     if (method === "item/started") {
-      const progress = itemProgressEvent(params as ItemNotificationParams);
+      const progress = itemProgressEvent(params as ItemNotificationParams, "started");
 
       if (progress) {
         void Promise.resolve(input.input.onProgress?.(progress));
@@ -659,6 +738,11 @@ async function runPromptAgainstAppServer(input: {
     }
 
     if (method === "item/completed") {
+      const progress = itemProgressEvent(params as ItemNotificationParams, "completed");
+
+      if (progress) {
+        void Promise.resolve(input.input.onProgress?.(progress));
+      }
       void handleItemCompleted(params as ItemNotificationParams);
       return;
     }

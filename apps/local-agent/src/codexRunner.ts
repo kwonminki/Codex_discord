@@ -61,13 +61,19 @@ type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 type CodexApprovalPolicy = "untrusted" | "on-request" | "never";
 
 interface RawCodexProgressItem {
+  id?: unknown;
   type?: unknown;
   text?: unknown;
   name?: unknown;
   arguments?: unknown;
   command?: unknown;
+  content?: unknown;
   file_count?: unknown;
   files?: unknown;
+  message?: unknown;
+  output?: unknown;
+  result?: unknown;
+  summary?: unknown;
 }
 
 interface RawCodexProgressPayload {
@@ -223,30 +229,26 @@ function parsePayloadAgentMessage(event: {
 }
 
 function extractProgressContentText(content: unknown): string {
-  if (typeof content === "string") {
-    return content.trim();
+  return extractTextValues(content).join("\n");
+}
+
+function extractTextValues(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
   }
 
-  if (!Array.isArray(content)) {
-    return "";
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractTextValues(item));
   }
 
-  return content
-    .map((item) => {
-      if (typeof item === "string") {
-        return item;
-      }
+  if (typeof value !== "object" || value === null) {
+    return [];
+  }
 
-      if (typeof item !== "object" || item === null) {
-        return "";
-      }
-
-      const text = (item as { text?: unknown }).text;
-      return typeof text === "string" ? text : "";
-    })
-    .map((text) => text.trim())
-    .filter((text) => text.length > 0)
-    .join("\n");
+  const record = value as Record<string, unknown>;
+  return ["text", "summary_text", "message", "content", "output", "result"]
+    .flatMap((key) => extractTextValues(record[key]))
+    .filter((text) => text.length > 0);
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> | null {
@@ -281,6 +283,26 @@ function itemCommand(item: RawCodexProgressItem): string | null {
   const command = parsedArguments?.cmd ?? parsedArguments?.command ?? parsedArguments?.query ?? parsedArguments?.prompt;
 
   return typeof command === "string" && command.trim().length > 0 ? compactDetail(command) : null;
+}
+
+function itemTextDetail(item: RawCodexProgressItem): string | null {
+  const text = [
+    ...extractTextValues(item.text),
+    ...extractTextValues(item.summary),
+    ...extractTextValues(item.content),
+    ...extractTextValues(item.output),
+    ...extractTextValues(item.result),
+    ...extractTextValues(item.message),
+  ]
+    .filter((part, index, parts) => parts.indexOf(part) === index)
+    .join(" · ");
+
+  return text.trim().length > 0 ? compactDetail(text) : null;
+}
+
+function itemArgumentDetail(item: RawCodexProgressItem): string | null {
+  const text = itemArgumentText(item);
+  return text.trim().length > 0 ? compactDetail(text) : null;
 }
 
 function fileCountDetail(item: RawCodexProgressItem): string | null {
@@ -394,7 +416,16 @@ function parseOperationProgress(event: {
       };
     }
 
-    return null;
+    if (name === "exec_command" || searchable.includes("shell")) {
+      return {
+        type: "operation-progress",
+        label: "명령 실행 완료",
+        detail: operationDetail([command, itemTextDetail(item)]),
+        eventType: event.type,
+      };
+    }
+
+    return genericItemProgressEvent(event.type, item, "completed");
   }
 
   if (!normalizedType.startsWith("item.started")) {
@@ -456,7 +487,69 @@ function parseOperationProgress(event: {
     };
   }
 
-  return null;
+  return genericItemProgressEvent(event.type, item, "started");
+}
+
+function genericItemProgressEvent(
+  eventType: string,
+  item: RawCodexProgressItem,
+  phase: "started" | "completed",
+): CodexRunnerProgressEvent {
+  const name = itemName(item);
+  const itemType = typeof item.type === "string" ? item.type : "";
+  const normalizedName = `${name} ${itemType}`.toLowerCase().replace(/[_-]/g, ".");
+  const command = itemCommand(item);
+  const text = itemTextDetail(item);
+  const argument = command ? null : itemArgumentDetail(item);
+  const itemLabel = name === "tool" || name === "function_call" ? null : name;
+  const detail = operationDetail([command, text, argument, itemLabel]);
+
+  if (
+    normalizedName.includes("reasoning") ||
+    normalizedName.includes("thinking") ||
+    normalizedName.includes("thought")
+  ) {
+    return {
+      type: "operation-progress",
+      label: phase === "completed" ? "생각 정리" : "생각 중",
+      detail: operationDetail([text]),
+      eventType,
+    };
+  }
+
+  if (normalizedName.includes("function.call.output") || normalizedName.includes("tool.result")) {
+    return {
+      type: "operation-progress",
+      label: "도구 결과 확인",
+      detail,
+      eventType,
+    };
+  }
+
+  if (normalizedName.includes("function.call") || normalizedName.includes("tool")) {
+    return {
+      type: "operation-progress",
+      label: phase === "completed" ? "도구 실행 완료" : "도구 실행 중",
+      detail,
+      eventType,
+    };
+  }
+
+  if (normalizedName.includes("message") || normalizedName.includes("answer")) {
+    return {
+      type: "operation-progress",
+      label: phase === "completed" ? "답변 작성 완료" : "답변 작성 중",
+      detail,
+      eventType,
+    };
+  }
+
+  return {
+    type: "operation-progress",
+    label: phase === "completed" ? "작업 단계 완료" : "작업 단계 실행 중",
+    detail,
+    eventType,
+  };
 }
 
 function modelArgs(input: RunCodexPromptInput): string[] {

@@ -90,6 +90,48 @@ describe("runCodexAppServerPrompt", () => {
             );
             socket.send(
               JSON.stringify({
+                method: "item/started",
+                params: {
+                  threadId: "thread-1",
+                  turnId: "turn-1",
+                  item: {
+                    type: "commandExecution",
+                    id: "command-1",
+                    text: "pnpm test",
+                  },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "item/completed",
+                params: {
+                  threadId: "thread-1",
+                  turnId: "turn-1",
+                  item: {
+                    type: "commandExecution",
+                    id: "command-1",
+                    text: "pnpm test",
+                  },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "item/completed",
+                params: {
+                  threadId: "thread-1",
+                  turnId: "turn-1",
+                  item: {
+                    type: "reasoning",
+                    id: "reasoning-1",
+                    summary: [{ type: "summary_text", text: "샘플 경계를 다시 확인했습니다." }],
+                  },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
                 method: "item/agentMessage/delta",
                 params: {
                   threadId: "thread-1",
@@ -152,6 +194,24 @@ describe("runCodexAppServerPrompt", () => {
       expect(events).toEqual(
         expect.arrayContaining([
           { type: "thread-started", sessionId: "thread-1" },
+          {
+            type: "operation-progress",
+            label: "명령 실행 중",
+            detail: "pnpm test",
+            eventType: "item/started",
+          },
+          {
+            type: "operation-progress",
+            label: "명령 실행 완료",
+            detail: "pnpm test",
+            eventType: "item/completed",
+          },
+          {
+            type: "operation-progress",
+            label: "생각 정리",
+            detail: "샘플 경계를 다시 확인했습니다.",
+            eventType: "item/completed",
+          },
           { type: "agent-message", text: "완료했습니다." },
         ]),
       );

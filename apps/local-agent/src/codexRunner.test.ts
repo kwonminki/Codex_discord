@@ -675,4 +675,69 @@ describe("runCodexPrompt", () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("maps unknown Codex item activity into readable fallback progress instead of raw item event names", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+    const fakeCodex = path.join(tempRoot, "codex");
+    const events: unknown[] = [];
+
+    try {
+      await writeFile(
+        fakeCodex,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          "const outputIndex = args.indexOf('--output-last-message');",
+          "console.log(JSON.stringify({ type: 'item.started', item: { type: 'reasoning' } }));",
+          "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'reasoning', summary: [{ type: 'summary_text', text: '품질 탈락 샘플 원인을 확인했습니다.' }] } }));",
+          "console.log(JSON.stringify({ type: 'item.started', item: { type: 'function_call', name: 'custom_inspector', arguments: JSON.stringify({ query: 'failed samples' }) } }));",
+          "console.log(JSON.stringify({ type: 'item.completed', item: { type: 'function_call_output', output: '5개 샘플에서 타임라인 경계가 어긋났습니다.' } }));",
+          "fs.writeFileSync(args[outputIndex + 1], 'Final answer');",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeCodex, 0o755);
+
+      await runCodexPrompt({
+        workspaceRoot: tempRoot,
+        cwd: tempRoot,
+        prompt: "Explain this",
+        timeoutMs: 5_000,
+        codexCommand: fakeCodex,
+        onProgress: async (event) => {
+          events.push(event);
+        },
+      });
+
+      expect(events).toEqual([
+        {
+          type: "operation-progress",
+          label: "생각 중",
+          detail: undefined,
+          eventType: "item.started",
+        },
+        {
+          type: "operation-progress",
+          label: "생각 정리",
+          detail: "품질 탈락 샘플 원인을 확인했습니다.",
+          eventType: "item.completed",
+        },
+        {
+          type: "operation-progress",
+          label: "도구 실행 중",
+          detail: "failed samples · custom_inspector",
+          eventType: "item.started",
+        },
+        {
+          type: "operation-progress",
+          label: "도구 결과 확인",
+          detail: "5개 샘플에서 타임라인 경계가 어긋났습니다. · function_call_output",
+          eventType: "item.completed",
+        },
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
