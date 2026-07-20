@@ -17,6 +17,7 @@ export interface DirectConnectConfig {
     initialCwd?: string;
     workspaceDisplayName: string;
     channelId: string;
+    claudeChannelId?: string;
     channelMode: ChannelMode;
     timeoutMs: number;
     codexHome: string;

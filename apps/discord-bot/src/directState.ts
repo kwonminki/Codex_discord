@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { ChannelMode } from "../../../packages/core/src/index.js";
 
 export interface SyncedWorkspaceState {
   workspaceRoot: string;
@@ -24,6 +25,8 @@ export interface SyncedSessionChannelState {
   discordChannelId: string;
   discordParentChannelId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
+  channelMode?: ChannelMode;
+  claudeSessionId?: string | null;
   channelName: string;
   computerId: string;
   workspaceId: string;
@@ -109,6 +112,7 @@ export interface DirectSyncStateStore {
     codexSessionId: string,
     threadName?: string,
   ): Promise<void>;
+  updateSessionChannelClaudeSession(discordChannelId: string, claudeSessionId: string): Promise<void>;
   updateTranscriptSyncMode(mode: TranscriptSyncMode): Promise<void>;
   markDiscordRequestedCodexSession(sessionId: string): Promise<void>;
 }
@@ -278,6 +282,29 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
                 ...channel,
                 codexSessionId,
                 threadName: threadName?.trim() || channel.threadName,
+                updatedAt: new Date().toISOString(),
+              }
+            : channel,
+        ),
+      };
+
+      await this.write(nextState);
+    },
+    async updateSessionChannelClaudeSession(discordChannelId, claudeSessionId) {
+      const normalizedSessionId = claudeSessionId.trim();
+
+      if (!normalizedSessionId) {
+        return;
+      }
+
+      const state = await this.read();
+      const nextState: DirectSyncState = {
+        ...state,
+        sessionChannels: state.sessionChannels.map((channel) =>
+          channel.discordChannelId === discordChannelId
+            ? {
+                ...channel,
+                claudeSessionId: normalizedSessionId,
                 updatedAt: new Date().toISOString(),
               }
             : channel,

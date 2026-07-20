@@ -20,7 +20,7 @@ export interface ManagedChannelCreateInput {
   discordChannelId: string;
   computerId: string;
   workspaceId: string;
-  channelMode: "shell-admin" | "session-linked";
+  channelMode: "shell-admin" | "session-linked" | "claude-code";
   cwd: string;
 }
 

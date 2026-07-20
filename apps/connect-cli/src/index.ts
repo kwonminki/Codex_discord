@@ -126,6 +126,7 @@ async function setup(flags: Map<string, string | boolean>) {
           guildId,
           roleIds,
           channelId: await askMissing(flag(flags, "channel-id"), "Discord channel id: "),
+          claudeChannelId: flag(flags, "claude-channel-id"),
           workspaceRoot: await askMissing(flag(flags, "workspace-root") ?? process.cwd(), "Workspace root: "),
           initialCwd: flag(flags, "initial-cwd"),
           workspaceDisplayName: flag(flags, "workspace-name"),

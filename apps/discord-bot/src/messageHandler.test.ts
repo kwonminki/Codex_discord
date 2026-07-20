@@ -23,6 +23,12 @@ const sessionChannelContext: ManagedDiscordChannelContext = {
   codexSessionId: null,
 };
 
+const claudeChannelContext: ManagedDiscordChannelContext = {
+  ...channelContext,
+  channelMode: "claude-code",
+  codexSessionId: null,
+};
+
 describe("createDiscordMessageHandler", () => {
   it("uses a long Codex prompt timeout by default while allowing explicit override", () => {
     expect(resolveCodexPromptTimeoutMs(3_000, undefined)).toBe(DEFAULT_CODEX_PROMPT_TIMEOUT_MS);
@@ -670,6 +676,172 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("submits explicit Claude Code prompts and resumes the channel Claude session", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const submitClaudePrompt = vi.fn(async (input) => {
+      await input.onProgress?.({ type: "thread-started", sessionId: "claude-session-1" });
+      await input.onProgress?.({ type: "agent-message", text: "Claude가 작업 중입니다." });
+      return {
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: "Claude 답변입니다.",
+          sessionId: "claude-session-1",
+        },
+      };
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "claude README 요약해줘",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "claude 이어서 테스트 계획도 잡아줘",
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(replies[0]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude Code 작업 시작"),
+      }),
+    );
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude 답변입니다."),
+      }),
+    );
+    expect(submitClaudePrompt).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "README 요약해줘",
+          sessionId: null,
+        }),
+      }),
+    );
+    expect(submitClaudePrompt).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "이어서 테스트 계획도 잡아줘",
+          sessionId: "claude-session-1",
+        }),
+      }),
+    );
+  });
+
+  it("submits bare Claude Code channel messages to Claude Code", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const recordClaudeSession = vi.fn();
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "Claude 답변입니다.",
+        sessionId: "claude-session-1",
+      },
+    });
+    const submitCodexPrompt = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => claudeChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      submitClaudePrompt,
+      recordClaudeSession,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "현재 GPU 사용량 봐봐",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async (nextMessage: unknown) => {
+            edits.push(nextMessage);
+          },
+        };
+      },
+    });
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "where",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        replies.push(message);
+        return {
+          edit: async () => undefined,
+        };
+      },
+    });
+
+    expect(recordClaudeSession).toHaveBeenCalledWith({
+      discordChannelId: "discord-channel-1",
+      claudeSessionId: "claude-session-1",
+    });
+    expect(edits.at(-1)).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude 답변입니다."),
+      }),
+    );
+    expect(replies.at(-1)).toEqual(
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            fields: expect.arrayContaining([
+              { name: "Claude session", value: "`claude-session-1`", inline: false },
+            ]),
+          }),
+        ],
+      }),
+    );
+
+    expect(submitClaudePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "현재 GPU 사용량 봐봐",
+          sessionId: null,
+        }),
+      }),
+    );
+    expect(submitCodexPrompt).not.toHaveBeenCalled();
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({
@@ -817,6 +989,8 @@ describe("createDiscordMessageHandler", () => {
       currentCwd: channelContext.cwd,
       useCategory: false,
       initialPrompt: null,
+      channelMode: "session-linked",
+      sessionThreadParentChannelId: "discord-channel-1",
     });
     expect(replies).toEqual([
       expect.objectContaining({
@@ -828,6 +1002,62 @@ describe("createDiscordMessageHandler", () => {
         embeds: [expect.objectContaining({ title: "Codex chat channel ready" })],
       }),
     ]);
+  });
+
+  it("creates a new Claude Code chat thread from a Claude Code channel", async () => {
+    const createNewCodexChat = vi.fn().mockResolvedValue({
+      discordChannelId: "claude-thread-1",
+      discordCategoryId: null,
+      channelName: "claude-scratch",
+      threadName: "Claude scratch",
+      cwd: "/repo",
+      workspaceRoot: "/repo",
+      workspaceDisplayName: "repo",
+      pendingSession: true,
+      initialPrompt: null,
+      discordDeliveryMode: "thread",
+      channelMode: "claude-code",
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        discordDeliveryMode: "channel",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      createNewCodexChat,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-parent-channel",
+      content: "chat new name:Claude scratch",
+      roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createThread: vi.fn(),
+        createTextChannel: vi.fn(),
+      },
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(createNewCodexChat).toHaveBeenCalledWith({
+      guild: expect.any(Object),
+      name: "Claude scratch",
+      cwd: null,
+      currentCwd: claudeChannelContext.cwd,
+      useCategory: false,
+      initialPrompt: null,
+      channelMode: "claude-code",
+      sessionThreadParentChannelId: "claude-parent-channel",
+    });
   });
 
   it("creates scheduled commands through the message handler", async () => {

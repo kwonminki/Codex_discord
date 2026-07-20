@@ -21,11 +21,21 @@ export interface RunCodexPromptJobPayload {
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
 }
 
+export interface RunClaudePromptJobPayload {
+  workspaceRoot: string;
+  cwd: string;
+  prompt: string;
+  timeoutMs: number;
+  sessionId: string | null;
+}
+
 export type CodexPromptProgressEvent =
   | { type: "thread-started"; sessionId: string }
   | { type: "agent-message"; text: string }
   | { type: "operation-progress"; label: string; detail?: string; eventType: string }
   | { type: "codex-event"; eventType: string };
+
+export type ClaudePromptProgressEvent = Exclude<CodexPromptProgressEvent, { type: "codex-event" }>;
 
 export type CodexPromptApprovalRequest = CodexApprovalRequest;
 export type CodexPromptApprovalDecision = CodexApprovalDecision;
@@ -44,6 +54,12 @@ export interface SubmitCodexPromptInput {
   payload: RunCodexPromptJobPayload;
   onProgress?: (event: CodexPromptProgressEvent) => Promise<void> | void;
   onApprovalRequest?: (request: CodexPromptApprovalRequest) => Promise<CodexPromptApprovalDecision> | CodexPromptApprovalDecision;
+}
+
+export interface SubmitClaudePromptInput {
+  computerId: string;
+  payload: RunClaudePromptJobPayload;
+  onProgress?: (event: ClaudePromptProgressEvent) => Promise<void> | void;
 }
 
 export interface ListCodexSessionsInput {
@@ -157,6 +173,7 @@ export interface ControlApiClient {
   linkCodexSession(input: LinkCodexSessionInput): Promise<LinkedCodexSessionResponse>;
   listCodexSessions(input: ListCodexSessionsInput): Promise<ControlApiJobResponse>;
   submitCodexPrompt(input: SubmitCodexPromptInput): Promise<ControlApiJobResponse>;
+  submitClaudePrompt?: (input: SubmitClaudePromptInput) => Promise<ControlApiJobResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }
 

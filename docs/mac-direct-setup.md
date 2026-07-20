@@ -43,6 +43,7 @@ pnpm connect install --direct \
   --guild-id "DISCORD_GUILD_ID" \
   --role-ids "OPERATOR_ROLE_ID" \
   --channel-id "MAC_ADMIN_CHANNEL_ID" \
+  --claude-channel-id "MAC_CLAUDE_CHANNEL_ID" \
   --workspace-root "/Users/kwonmingi/Documents/Codex" \
   --initial-cwd "/Users/kwonmingi/Documents/Codex/2026-07-16/new-chat/work/codex-discord-connector" \
   --workspace-name "Kwon Mac Codex" \
@@ -50,7 +51,11 @@ pnpm connect install --direct \
   --codex-home "$HOME/.codex"
 ```
 
-This writes `.connect/config.json` and `.env`. Do not commit those files.
+This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the Codex/admin channel and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
+
+When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session.
+
+The bot also watches recent Claude Code session logs under `~/.claude/projects`. Sessions started by IDE surfaces such as VS Code or Antigravity are detected from their Claude entrypoint and automatically mapped to new Discord threads under `--claude-channel-id`. Connector-started Claude sessions are skipped so they do not create duplicate threads.
 
 ## Start the bot
 
@@ -113,6 +118,9 @@ Completion polling defaults to 3 seconds, transcript polling defaults to 5 secon
 ```bash
 CONNECT_TASK_NOTIFICATION_INTERVAL_MS=3000
 CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=5000
+CONNECT_CLAUDE_SESSION_SYNC_INTERVAL_MS=5000
+CONNECT_CLAUDE_SESSION_SYNC_LOOKBACK_MS=86400000
+CONNECT_CLAUDE_SESSION_SYNC_LIMIT=10
 CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=20000
 CONNECT_BACKGROUND_MAX_LOAD=0.7
 ```
@@ -130,6 +138,15 @@ CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
 On macOS LaunchAgent services, set `CODEX_DISCORD_CODEX_COMMAND` to the absolute Codex CLI path because login services do not inherit the same `PATH` as an interactive terminal.
 
 Discord Codex prompts use extra high reasoning by default. Use `fast` in a session channel only when you want a quick low-reasoning pass; `task` and `mode default` use `xhigh`.
+
+Claude Code can be launched from a session channel in direct mode:
+
+```text
+claude README 요약해줘
+claude 이어서 테스트 계획도 잡아줘
+```
+
+If `--claude-channel-id` is configured, that Discord channel becomes Claude Code-only: bare natural-language messages go to Claude Code, while shell commands still use the `!` prefix. Running `/chat-new` or `chat new` there creates a Discord thread under the Claude Code channel, and messages inside that thread continue to use Claude Code. The connector runs Claude Code headless with stream JSON output and remembers the returned Claude session ID per Discord channel for later resumes. Set `CODEX_DISCORD_CLAUDE_COMMAND` if `claude` is not on the service `PATH`, and set `CODEX_DISCORD_CLAUDE_PERMISSION_MODE` to override the default `bypassPermissions` mode. Permission approval buttons and Claude hook-based notifications for externally started Claude sessions are not included in the MVP direct integration.
 
 Use this only on trusted machines and private Discord servers. To narrow permissions, set `CODEX_DISCORD_CODEX_APPROVAL_POLICY=on-request` and `CODEX_DISCORD_CODEX_SANDBOX=workspace-write`. For GPU work, the machine running the connector must already see the GPU outside Codex first. Check `nvidia-smi`, `/dev/nvidia*`, and any container runtime GPU settings before changing Codex sandbox settings.
 

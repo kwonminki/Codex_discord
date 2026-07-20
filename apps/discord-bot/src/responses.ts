@@ -30,7 +30,7 @@ const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const ATTACH_TEXT_THRESHOLD = 1_000;
 export const CODEX_PROGRESS_EVENT_LIMIT = 8;
 
-type ChannelMode = "shell-admin" | "session-linked";
+type ChannelMode = "shell-admin" | "session-linked" | "claude-code";
 
 export interface DiscordEmbedFieldPayload {
   name: string;
@@ -62,6 +62,7 @@ export interface CodexProgressMessageInput {
   workspaceDisplayName: string;
   cwd: string;
   prompt: string;
+  agentLabel?: string;
   permissionSettings?: CodexPermissionSettings;
 }
 
@@ -703,12 +704,26 @@ function commandPaletteActions(channelMode: ChannelMode): DiscordActionRowPayloa
     { label: "Codex 변경 리뷰", value: "codex-review" },
     { label: "Codex 테스트 수정", value: "fix-tests" },
   ];
+  const claudeOptions: DiscordSelectOptionPayload[] = [
+    { label: "현재 채널 상태", value: "where" },
+    { label: "파일 탐색", value: "browse" },
+    { label: "Git 상태", value: "git-status" },
+    { label: "Git 변경 요약", value: "git-diff" },
+    { label: "Git 충돌 점검", value: "git-conflicts" },
+    { label: "테스트 실행", value: "test" },
+  ];
+  const options =
+    channelMode === "shell-admin"
+      ? adminOptions
+      : channelMode === "claude-code"
+        ? claudeOptions
+        : sessionOptions;
 
   return actionRow([
     selectMenu({
       customId: COMPONENT_IDS.palette,
       placeholder: "작업 선택",
-      options: channelMode === "shell-admin" ? adminOptions : sessionOptions,
+      options,
     }),
   ]);
 }
@@ -872,7 +887,40 @@ function archiveSessionActions(): DiscordActionRowPayload[] {
   ];
 }
 
-function sessionHelpActions(): DiscordActionRowPayload[] {
+function sessionHelpActions(channelMode: Extract<ChannelMode, "session-linked" | "claude-code">): DiscordActionRowPayload[] {
+  if (channelMode === "claude-code") {
+    return [
+      actionRow([
+        button({
+          customId: COMPONENT_IDS.fileSystemRefresh,
+          label: "파일 보기",
+          style: BUTTON_STYLES.primary,
+        }),
+        button({
+          customId: COMPONENT_IDS.gitStatus,
+          label: "Git 상태",
+          style: BUTTON_STYLES.secondary,
+        }),
+        button({
+          customId: COMPONENT_IDS.testRun,
+          label: "테스트 실행",
+          style: BUTTON_STYLES.primary,
+        }),
+        button({
+          customId: COMPONENT_IDS.gitConflicts,
+          label: "충돌 점검",
+          style: BUTTON_STYLES.secondary,
+        }),
+        button({
+          customId: COMPONENT_IDS.maintenancePanel,
+          label: "유지보수",
+          style: BUTTON_STYLES.secondary,
+        }),
+      ]),
+      commandPaletteActions("claude-code"),
+    ];
+  }
+
   return [
     actionRow([
       button({
@@ -1034,7 +1082,7 @@ function fileCardActions(ui: FileCardUiPayload, channelMode: ChannelMode): Disco
 
   const rows: DiscordActionRowPayload[] = [actionRow(navigationButtons)];
 
-  if (channelMode === "shell-admin") {
+  if (channelMode !== "session-linked") {
     return rows;
   }
 
@@ -1448,6 +1496,28 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     ),
     inline: false,
   };
+  const claudeCodeFields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Primary flow",
+      value: codeBlock("현재 GPU 사용량 봐봐\n이 파일 분석해줘\n버그 고치고 테스트 돌려줘", "text"),
+      inline: false,
+    },
+    {
+      name: "Shell in this channel",
+      value: codeBlock("!pwd\n!cd /path/to/project\n!git status --short\n!nvidia-smi", "bash"),
+      inline: false,
+    },
+    {
+      name: "Claude Code",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다.",
+      inline: false,
+    },
+    {
+      name: "Channel boundary",
+      value: "이 채널은 Claude Code 전용입니다. Codex와 대화하거나 Codex 세션을 동기화하려면 Codex/admin 채널 또는 session 채널을 사용하세요.",
+      inline: false,
+    },
+  ];
   const shellAdminFields: DiscordEmbedFieldPayload[] = [
     {
       name: "Start here",
@@ -1500,9 +1570,14 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Session controls",
       value: codeBlock(
-        "model gpt-5.4\nfast\ntask\nmode default\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
+        "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
+      inline: false,
+    },
+    {
+      name: "Claude Code",
+      value: "`claude <요청>`으로 현재 session 채널의 작업 디렉터리에서 Claude Code headless 실행을 시작합니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 `claude ...` 요청에 resume합니다.",
       inline: false,
     },
     {
@@ -1524,29 +1599,37 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
       description:
         channelMode === "shell-admin"
           ? "main/admin 채널은 운영 전용입니다. 파일 탐색, 세션 생성/동기화, 봇 관리만 수행하고 Codex 대화는 session 채널에서 진행합니다."
+          : channelMode === "claude-code"
+            ? "이 채널은 Claude Code 전용입니다. 자연어는 Claude Code로 보내고, shell 명령은 `!` 접두어를 붙입니다."
           : "이 채널은 Codex 세션과 연결되어 있습니다. 자연어는 Codex로 보내고, shell 명령은 `!` 접두어를 붙입니다.",
-      fields: channelMode === "shell-admin" ? shellAdminFields : sessionLinkedFields,
+      fields:
+        channelMode === "shell-admin"
+          ? shellAdminFields
+          : channelMode === "claude-code"
+            ? claudeCodeFields
+            : sessionLinkedFields,
     },
-    channelMode === "shell-admin" ? adminQuickActions() : sessionHelpActions(),
+    channelMode === "shell-admin" ? adminQuickActions() : sessionHelpActions(channelMode),
   );
 }
 
 export function formatMaintenancePanel(channelMode: ChannelMode): DiscordMessagePayload {
-  const secondRow: DiscordButtonPayload[] =
-    channelMode === "session-linked"
+  const isSessionLinked = channelMode === "session-linked";
+  const secondRow: DiscordButtonPayload[] = isSessionLinked
+    ? [
+        button({
+          customId: COMPONENT_IDS.gitReview,
+          label: "Codex 리뷰",
+          style: BUTTON_STYLES.success,
+        }),
+        button({
+          customId: COMPONENT_IDS.testFix,
+          label: "테스트 수정",
+          style: BUTTON_STYLES.success,
+        }),
+      ]
+    : channelMode === "shell-admin"
       ? [
-          button({
-            customId: COMPONENT_IDS.gitReview,
-            label: "Codex 리뷰",
-            style: BUTTON_STYLES.success,
-          }),
-          button({
-            customId: COMPONENT_IDS.testFix,
-            label: "테스트 수정",
-            style: BUTTON_STYLES.success,
-          }),
-        ]
-      : [
           button({
             customId: COMPONENT_IDS.reloadCommands,
             label: "명령어 재등록",
@@ -1557,23 +1640,30 @@ export function formatMaintenancePanel(channelMode: ChannelMode): DiscordMessage
             label: "봇 재시작",
             style: BUTTON_STYLES.danger,
           }),
-        ];
+        ]
+      : [];
+  const maintenanceDescription =
+    channelMode === "shell-admin"
+      ? "버튼으로 Git 상태, Diff, 충돌 점검, 테스트 실행, 명령어 재등록과 봇 재시작을 처리합니다."
+      : channelMode === "claude-code"
+        ? "버튼으로 Git 상태, Diff, 충돌 점검, 테스트 실행을 이어갑니다."
+        : "버튼으로 Git 상태, Diff, 충돌 점검, 테스트 실행, Codex 리뷰와 테스트 수정을 이어갑니다.";
+  const recommendedOrder =
+    channelMode === "shell-admin"
+      ? "Git 상태 → 충돌 점검 → 테스트 실행 → 필요 시 명령어 재등록"
+      : channelMode === "claude-code"
+        ? "Git 상태 → 충돌 점검 → 테스트 실행"
+        : "Git 상태 → 충돌 점검 → 테스트 실행 → Codex 리뷰/수정";
 
   return messagePayload(
     {
       title: "유지보수 패널",
       color: COLORS.neutral,
-      description:
-        channelMode === "session-linked"
-          ? "버튼으로 Git 상태, Diff, 충돌 점검, 테스트 실행, Codex 리뷰와 테스트 수정을 이어갑니다."
-          : "버튼으로 Git 상태, Diff, 충돌 점검, 테스트 실행, 명령어 재등록과 봇 재시작을 처리합니다.",
+      description: maintenanceDescription,
       fields: [
         {
           name: "권장 순서",
-          value:
-            channelMode === "session-linked"
-              ? "Git 상태 → 충돌 점검 → 테스트 실행 → Codex 리뷰/수정"
-              : "Git 상태 → 충돌 점검 → 테스트 실행 → 필요 시 명령어 재등록",
+          value: recommendedOrder,
           inline: false,
         },
       ],
@@ -1629,9 +1719,32 @@ export function formatChannelStatus(input: {
   workspaceRoot: string;
   cwd: string;
   codexSessionId?: string | null;
+  claudeSessionId?: string | null;
   codexModel?: string | null;
   timeoutMs: number;
 }): DiscordMessagePayload {
+  const isClaudeCodeChannel = input.channelMode === "claude-code";
+  const sessionFields: DiscordEmbedFieldPayload[] = isClaudeCodeChannel
+    ? [
+        {
+          name: "Claude session",
+          value: wrapDiscordText(input.claudeSessionId ?? "(not linked yet)"),
+          inline: false,
+        },
+      ]
+    : [
+        {
+          name: "Codex session",
+          value: wrapDiscordText(input.codexSessionId ?? "(not linked yet)"),
+          inline: false,
+        },
+        {
+          name: "Codex model",
+          value: wrapDiscordText(input.codexModel ?? "default"),
+          inline: true,
+        },
+      ];
+
   return messagePayload(
     {
       title: "Current channel target",
@@ -1663,16 +1776,7 @@ export function formatChannelStatus(input: {
           value: wrapDiscordText(input.cwd),
           inline: false,
         },
-        {
-          name: "Codex session",
-          value: wrapDiscordText(input.codexSessionId ?? "(not linked yet)"),
-          inline: false,
-        },
-        {
-          name: "Codex model",
-          value: wrapDiscordText(input.codexModel ?? "default"),
-          inline: true,
-        },
+        ...sessionFields,
       ],
     },
     [
@@ -1983,14 +2087,17 @@ export function formatNewChatAck(input: {
   cwd: string | null;
   useCategory: boolean;
   initialPrompt: string | null;
+  channelMode?: ChannelMode;
 }): DiscordMessagePayload {
+  const agentLabel = input.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
   return messagePayload({
-    title: "Creating Codex chat",
+    title: `Creating ${agentLabel} chat`,
     color: COLORS.codex,
     description:
       input.cwd || input.useCategory
-        ? "지정한 작업 위치에 연결된 새 Codex 채널을 만드는 중입니다."
-        : "카테고리 없는 일반 Codex 채팅 채널을 만드는 중입니다.",
+        ? `지정한 작업 위치에 연결된 새 ${agentLabel} 스레드를 만드는 중입니다.`
+        : `카테고리 없는 일반 ${agentLabel} 채팅 스레드를 만드는 중입니다.`,
     fields: [
       {
         name: "Name",
@@ -2028,6 +2135,7 @@ export function formatNewChatResult(response: {
     pendingSession: boolean;
     initialPrompt: string | null;
     discordDeliveryMode?: "channel" | "thread";
+    channelMode?: ChannelMode;
   };
   error?: { message: string };
 }): DiscordMessagePayload {
@@ -2040,15 +2148,46 @@ export function formatNewChatResult(response: {
   }
 
   const targetLabel = response.result.discordDeliveryMode === "thread" ? "Thread" : "Channel";
+  const agentLabel = response.result.channelMode === "claude-code" ? "Claude Code" : "Codex";
+
+  const actions =
+    response.result.channelMode === "claude-code"
+      ? [
+          actionRow([
+            button({
+              customId: COMPONENT_IDS.newGeneralChat,
+              label: "일반 채팅 하나 더",
+              style: BUTTON_STYLES.secondary,
+            }),
+          ]),
+        ]
+      : [
+          actionRow([
+            button({
+              customId: COMPONENT_IDS.newGeneralChat,
+              label: "일반 채팅 하나 더",
+              style: BUTTON_STYLES.secondary,
+            }),
+            button({
+              customId: COMPONENT_IDS.syncSelectDefault,
+              label: "기존 세션 선택",
+              style: BUTTON_STYLES.primary,
+            }),
+          ]),
+        ];
 
   return messagePayload(
     {
-      title: "Codex chat channel ready",
+      title: `${agentLabel} chat ${targetLabel.toLowerCase()} ready`,
       color: COLORS.success,
       description:
         response.result.discordDeliveryMode === "thread"
-          ? "새 Discord thread가 Codex 대기 세션으로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다."
-          : "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
+          ? response.result.channelMode === "claude-code"
+            ? "새 Discord thread가 Claude Code 대화로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 Claude Code로 이어집니다."
+            : "새 Discord thread가 Codex 대기 세션으로 연결되었습니다. 그 thread에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다."
+          : response.result.channelMode === "claude-code"
+            ? "새 Discord 채널이 Claude Code 대화로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 Claude Code로 이어집니다."
+            : "새 Discord 채널이 Codex 대기 세션으로 연결되었습니다. 그 채널에서 바로 메시지를 보내면 첫 응답 때 실제 Codex 세션 ID가 자동으로 붙습니다.",
       fields: [
         {
           name: targetLabel,
@@ -2084,20 +2223,7 @@ export function formatNewChatResult(response: {
         },
       ],
     },
-    [
-      actionRow([
-        button({
-          customId: COMPONENT_IDS.newGeneralChat,
-          label: "일반 채팅 하나 더",
-          style: BUTTON_STYLES.secondary,
-        }),
-        button({
-          customId: COMPONENT_IDS.syncSelectDefault,
-          label: "기존 세션 선택",
-          style: BUTTON_STYLES.primary,
-        }),
-      ]),
-    ],
+    actions,
   );
 }
 
@@ -2516,12 +2642,17 @@ export function formatCodexAck(input: {
   workspaceDisplayName: string;
   cwd: string;
   prompt: string;
+  agentLabel?: string;
 }): DiscordMessagePayload {
   const progress = { status: "thinking" };
-  const payload = textPayload(codexProgressText(input, progress, {}, "Codex 작업 시작"));
+  const payload = textPayload(codexProgressText(input, progress, {}, `${agentLabel(input)} 작업 시작`));
   payload.components = codexProgressActions(false);
   codexProgressViews.set(payload, { input, progress, expanded: false });
   return payload;
+}
+
+function agentLabel(input: { agentLabel?: string }): string {
+  return input.agentLabel?.trim() || "Codex";
 }
 
 function codexStatusLabel(status: string): string {
@@ -2708,7 +2839,7 @@ export function formatCodexProgressUpdate(
   options: CodexProgressRenderOptions = {},
 ): DiscordMessagePayload {
   const expanded = options.expanded ?? false;
-  const payload = textPayload(codexProgressText(input, progress, { expanded }));
+  const payload = textPayload(codexProgressText(input, progress, { expanded }, `${agentLabel(input)} 작업 중`));
   payload.components = codexProgressActions(expanded);
   codexProgressViews.set(payload, { input, progress, expanded });
   return payload;
@@ -3031,7 +3162,7 @@ export function formatCodexResultUpdate(
     ? result.finalMessage
     : null;
   const resultStderr = typeof result?.stderr === "string" && result.stderr.trim().length > 0 ? result.stderr : null;
-  const finalMessage = response.error?.message ?? resultFinalMessage ?? resultStderr ?? "Codex did not return a final message.";
+  const finalMessage = response.error?.message ?? resultFinalMessage ?? resultStderr ?? `${agentLabel(input)} did not return a final message.`;
   const sessionId = typeof result?.sessionId === "string" && result.sessionId.length > 0 ? result.sessionId : null;
   const errorCode = typeof result?.errorCode === "string" && result.errorCode.length > 0 ? result.errorCode : null;
   const fields: DiscordEmbedFieldPayload[] = [
@@ -3090,7 +3221,7 @@ export function formatCodexResultUpdate(
   const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(messageAfterDiscordSendBlocks);
   const mediaLinkOutputs = failed ? { attachments: [], notices: [] } : extractLocalMediaLinkOutputs(messageAfterDiscordSendBlocks);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
-  const openSessionActions = codexOpenSessionActions(sessionId);
+  const openSessionActions = agentLabel(input) === "Codex" ? codexOpenSessionActions(sessionId) : [];
 
   if (!failed) {
     const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
@@ -3167,7 +3298,7 @@ export function formatCodexResultUpdate(
   }
 
   const payload = messagePayload({
-    title: "Codex failed",
+    title: `${agentLabel(input)} failed`,
     color: COLORS.failure,
     description: truncateDescription(sanitizeDiscordMarkdown(finalMessage)),
     fields,

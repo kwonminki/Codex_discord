@@ -1061,6 +1061,37 @@ describe("responses", () => {
     expect(JSON.stringify(payload)).not.toContain("봇 명령어 재등록");
   });
 
+  it("formats Claude Code channel help without Codex-only actions", () => {
+    const payload = formatHelp("claude-code");
+
+    expectActionRowsWithinDiscordLimits(payload);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        allowedMentions: { parse: [] },
+        embeds: [
+          expect.objectContaining({
+            title: "Codex 운영 콘솔 사용법",
+            description: expect.stringContaining("Claude Code 전용"),
+            fields: expect.arrayContaining([
+              expect.objectContaining({
+                name: "Claude Code",
+                value: expect.stringContaining("Claude Code headless"),
+              }),
+              expect.objectContaining({
+                name: "Channel boundary",
+                value: expect.stringContaining("Claude Code 전용"),
+              }),
+            ]),
+          }),
+        ],
+        components: expect.any(Array),
+      }),
+    );
+    expect(JSON.stringify(payload)).not.toContain("Codex에게 요청");
+    expect(JSON.stringify(payload)).not.toContain("Codex 리뷰");
+    expect(JSON.stringify(payload)).not.toContain("이 세션 보관");
+  });
+
   it("formats a maintenance panel with button-first Git and test actions", () => {
     expect(formatMaintenancePanel("shell-admin")).toEqual({
       allowedMentions: { parse: [] },
@@ -1210,6 +1241,33 @@ describe("responses", () => {
       ],
       components: expect.any(Array),
     });
+  });
+
+  it("formats Claude Code channel status with a Claude session field", () => {
+    const payload = formatChannelStatus({
+      channelMode: "claude-code",
+      computerDisplayName: "Local Dev",
+      workspaceDisplayName: "repo",
+      workspaceRoot: "/repo",
+      cwd: "/repo/apps",
+      claudeSessionId: "claude-session-1",
+      timeoutMs: 300_000,
+    });
+
+    expect(payload).toEqual(
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            fields: expect.arrayContaining([
+              { name: "Mode", value: "`claude-code`", inline: true },
+              { name: "Claude session", value: "`claude-session-1`", inline: false },
+            ]),
+          }),
+        ],
+      }),
+    );
+    expect(JSON.stringify(payload)).not.toContain("Codex session");
+    expect(JSON.stringify(payload)).not.toContain("Codex model");
   });
 
   it("formats bot reload confirmation and result cards", () => {

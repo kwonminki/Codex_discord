@@ -52,8 +52,8 @@ function stringArrayField(body: Record<string, unknown>, fieldName: string): str
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
-function isChannelMode(value: unknown): value is "shell-admin" | "session-linked" {
-  return value === "shell-admin" || value === "session-linked";
+function isChannelMode(value: unknown): value is "shell-admin" | "session-linked" | "claude-code" {
+  return value === "shell-admin" || value === "session-linked" || value === "claude-code";
 }
 
 function isSessionOrigin(value: unknown): value is "managed_new" | "imported_native" {

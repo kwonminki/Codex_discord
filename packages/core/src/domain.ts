@@ -1,4 +1,4 @@
-export type ChannelMode = "shell-admin" | "session-linked";
+export type ChannelMode = "shell-admin" | "session-linked" | "claude-code";
 export type ChannelStatus = "created" | "attached" | "active" | "archived" | "detached";
 export type SessionOrigin = "managed_new" | "imported_native";
 export type AvailabilityStatus = "available" | "unavailable";

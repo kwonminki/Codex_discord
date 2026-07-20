@@ -27,7 +27,7 @@ connectAgent(wsUrl, {
   displayName,
   hostname,
   allowedRoleIds,
-  capabilities: ["shell", "codex-import", "codex-chat"],
+  capabilities: ["shell", "codex-import", "codex-chat", "claude-code"],
   workspaces,
 });
 

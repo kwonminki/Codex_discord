@@ -21,6 +21,7 @@ describe("connect setup config", () => {
       token: "discord-token",
       guildId: "guild-1",
       channelId: "channel-1",
+      claudeChannelId: "claude-channel-1",
       roleIds: "role-operator, role-admin",
       workspaceRoot: "/repo",
       workspaceDisplayName: "repo",
@@ -43,11 +44,13 @@ describe("connect setup config", () => {
         workspaceRoot: "/repo",
         workspaceDisplayName: "repo",
         channelId: "channel-1",
+        claudeChannelId: "claude-channel-1",
         channelMode: "shell-admin",
         timeoutMs: 30_000,
         codexHome: "/Users/me/.codex",
       },
     });
+    expect(renderEnvFile(config)).toContain('CLAUDE_CHANNEL_ID="claude-channel-1"');
   });
 
   it("can keep the direct workspace root broader than the initial cwd", () => {

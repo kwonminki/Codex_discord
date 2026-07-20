@@ -66,6 +66,58 @@ describe("createDirectControlClient", () => {
     }
   });
 
+  it("resolves a configured Claude Code channel separately from the Codex admin channel", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "direct-control-claude-"));
+    const claudeCwd = path.join(workspaceRoot, "claude-project");
+
+    try {
+      await mkdir(claudeCwd);
+      const client = createDirectControlClient({
+        mode: "direct",
+        discord: {
+          token: "discord-token",
+          guildId: "guild-1",
+          allowedRoleIds: ["role-operator"],
+        },
+        direct: {
+          computerId: "local-dev",
+          computerDisplayName: "Local Dev",
+          workspaceId: `local-dev:${workspaceRoot}`,
+          workspaceRoot,
+          workspaceDisplayName: "repo",
+          channelId: "codex-channel-1",
+          claudeChannelId: "claude-channel-1",
+          channelMode: "shell-admin",
+          timeoutMs: 5_000,
+          codexHome: path.join(workspaceRoot, ".codex"),
+        },
+      });
+
+      await expect(client.getChannelContext("claude-channel-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        workspaceRoot,
+        cwd: workspaceRoot,
+        codexSessionId: null,
+      });
+      await expect(
+        client.updateChannelCwd({
+          discordChannelId: "claude-channel-1",
+          cwd: claudeCwd,
+        }),
+      ).resolves.toEqual({ cwd: claudeCwd });
+      await expect(client.getChannelContext("claude-channel-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        cwd: claudeCwd,
+      });
+      await expect(client.getChannelContext("codex-channel-1")).resolves.toMatchObject({
+        channelMode: "shell-admin",
+        cwd: workspaceRoot,
+      });
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("starts direct commands from an initial cwd inside the configured workspace", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "direct-control-"));
     const initialCwd = path.join(workspaceRoot, "project");
@@ -152,6 +204,21 @@ describe("createDirectControlClient", () => {
             computerId: "local-dev",
             workspaceId: `local-dev:${workspaceRoot}`,
           },
+          {
+            codexSessionId: null,
+            threadName: "Claude scratch",
+            updatedAt: "2026-04-23T00:00:00.000Z",
+            cwd: workspaceRoot,
+            workspaceRoot,
+            workspaceDisplayName: "repo",
+            discordCategoryId: "category-1",
+            discordChannelId: "claude-thread-1",
+            channelName: "claude-scratch",
+            channelMode: "claude-code",
+            claudeSessionId: "claude-session-1",
+            computerId: "local-dev",
+            workspaceId: `local-dev:${workspaceRoot}`,
+          },
         ],
       });
       const client = createDirectControlClient(
@@ -180,6 +247,13 @@ describe("createDirectControlClient", () => {
       await expect(client.getChannelContext("session-channel-1")).resolves.toMatchObject({
         channelMode: "session-linked",
         codexSessionId: "session-1",
+        workspaceRoot,
+        cwd: workspaceRoot,
+      });
+      await expect(client.getChannelContext("claude-thread-1")).resolves.toMatchObject({
+        channelMode: "claude-code",
+        codexSessionId: null,
+        claudeSessionId: "claude-session-1",
         workspaceRoot,
         cwd: workspaceRoot,
       });

@@ -11,5 +11,6 @@ export interface ManagedDiscordChannelContext {
   cwd: string;
   timeoutMs: number;
   codexSessionId?: string | null;
+  claudeSessionId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
 }

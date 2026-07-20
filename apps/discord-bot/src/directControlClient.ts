@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
+import { runClaudePrompt } from "../../local-agent/src/claudeRunner.js";
 import { runCodexAppServerPrompt } from "../../local-agent/src/codexAppServerRunner.js";
 import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
@@ -13,9 +14,11 @@ export function createDirectControlClient(
   options: { stateStore?: DirectSyncStateStore } = {},
 ): ControlApiClient {
   const codexRunner = process.env.CODEX_DISCORD_CODEX_RUNNER === "app-server" ? "app-server" : "exec";
+  const claudeChannelId = config.direct.claudeChannelId?.trim() || null;
   let cwd = config.direct.initialCwd
     ? assertInsideWorkspace(config.direct.workspaceRoot, config.direct.initialCwd)
     : config.direct.workspaceRoot;
+  let claudeCwd = cwd;
   const sessionLinks = new Map<string, {
     id: string;
     channelId: string;
@@ -34,7 +37,7 @@ export function createDirectControlClient(
           hostname: config.direct.computerId,
           status: "online",
           allowedRoleIds: [...config.discord.allowedRoleIds],
-          capabilities: ["shell", "codex-import", "codex-chat"],
+          capabilities: ["shell", "codex-import", "codex-chat", "claude-code"],
           workspaces: [
             {
               id: config.direct.workspaceId,
@@ -62,14 +65,31 @@ export function createDirectControlClient(
         };
       }
 
+      if (claudeChannelId && discordChannelId === claudeChannelId) {
+        return {
+          channelMode: "claude-code",
+          allowedRoleIds: [...config.discord.allowedRoleIds],
+          computerId: config.direct.computerId,
+          computerDisplayName: config.direct.computerDisplayName,
+          workspaceDisplayName: config.direct.workspaceDisplayName,
+          workspaceRoot: config.direct.workspaceRoot,
+          cwd: claudeCwd,
+          timeoutMs: config.direct.timeoutMs,
+          codexSessionId: null,
+          discordDeliveryMode: "channel",
+        };
+      }
+
       const syncedChannel = await options.stateStore?.findSessionChannelByDiscordId(discordChannelId);
 
       if (!syncedChannel) {
         return null;
       }
 
+      const syncedChannelMode = syncedChannel.channelMode ?? "session-linked";
+
       return {
-        channelMode: "session-linked",
+        channelMode: syncedChannelMode,
         allowedRoleIds: [...config.discord.allowedRoleIds],
         computerId: syncedChannel.computerId,
         computerDisplayName: config.direct.computerDisplayName,
@@ -78,6 +98,7 @@ export function createDirectControlClient(
         cwd: syncedChannel.cwd,
         timeoutMs: config.direct.timeoutMs,
         codexSessionId: syncedChannel.codexSessionId,
+        claudeSessionId: syncedChannel.claudeSessionId ?? null,
         discordDeliveryMode: syncedChannel.discordDeliveryMode ?? "channel",
       };
     },
@@ -102,13 +123,21 @@ export function createDirectControlClient(
       };
     },
     async updateChannelCwd(input) {
+      let updatedCwd = input.cwd;
+
       if (input.discordChannelId === config.direct.channelId) {
         cwd = input.cwd;
+        updatedCwd = cwd;
+      }
+
+      if (claudeChannelId && input.discordChannelId === claudeChannelId) {
+        claudeCwd = input.cwd;
+        updatedCwd = claudeCwd;
       }
 
       await options.stateStore?.updateChannelCwd(input.discordChannelId, input.cwd);
 
-      return { cwd };
+      return { cwd: updatedCwd };
     },
     async recordCommandAudit(input) {
       return {
@@ -177,6 +206,17 @@ export function createDirectControlClient(
         codexRunner === "app-server" && input.payload.mode !== "review"
           ? await runCodexAppServerPrompt(runnerInput)
           : await runCodexPrompt(runnerInput);
+      return { jobId: randomUUID(), result };
+    },
+    async submitClaudePrompt(input) {
+      if (input.computerId !== config.direct.computerId) {
+        return { jobId: randomUUID(), error: { message: "Computer is offline" } };
+      }
+
+      const result = await runClaudePrompt({
+        ...input.payload,
+        onProgress: input.onProgress,
+      });
       return { jobId: randomUUID(), result };
     },
   };

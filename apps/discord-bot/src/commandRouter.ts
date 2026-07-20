@@ -18,6 +18,7 @@ export type RoutedDiscordMessage =
   | { type: "execute-command"; command: string; confirmedDangerous: boolean }
   | { type: "codex-chat"; content: string }
   | { type: "codex-continue-session"; sessionId: string; content: string }
+  | { type: "claude-chat"; content: string }
   | {
       type: "admin-new-chat";
       name: string | null;
@@ -697,13 +698,14 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
   if (
     bridgeShortcut &&
     (bridgeShortcut.type === "codex-chat" ||
+      bridgeShortcut.type === "claude-chat" ||
       bridgeShortcut.type === "codex-model" ||
       bridgeShortcut.type === "codex-run-mode" ||
       bridgeShortcut.type === "codex-review")
   ) {
     return blockedCommand(
       "main 채널은 운영 전용입니다.",
-      "Codex와 대화하거나 모델/리뷰 명령을 실행하려면 session 채널을 사용하세요.",
+      "Codex/Claude와 대화하거나 모델/리뷰 명령을 실행하려면 session 채널을 사용하세요.",
     );
   }
 
@@ -711,6 +713,13 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
     return blockedCommand(
       "main 채널은 운영 전용입니다.",
       "Codex와 대화하려면 /chat-new로 세션 채널을 만들거나 기존 session 채널에서 메시지를 보내세요.",
+    );
+  }
+
+  if (content.startsWith("claude ")) {
+    return blockedCommand(
+      "main 채널은 운영 전용입니다.",
+      "Claude Code와 대화하려면 /chat-new로 session 채널을 만들거나 기존 session 채널에서 `claude ...`를 보내세요.",
     );
   }
 
@@ -782,13 +791,6 @@ function sessionGlobalBlock(content: string): Extract<RoutedDiscordMessage, { ty
     );
   }
 
-  if (parseAdminNewChat(content)) {
-    return blockedCommand(
-      "이 명령은 main 채널 전용입니다.",
-      "새 Codex 채팅 채널은 main/admin 채널에서 /chat-new로 만드세요.",
-    );
-  }
-
   return null;
 }
 
@@ -819,6 +821,24 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
       command: componentShellCommand.command,
       confirmedDangerous: componentShellCommand.confirmedDangerous,
     };
+  }
+
+  const newChat = parseAdminNewChat(trimmedContent);
+
+  if (newChat) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return { type: "admin-new-chat", ...newChat };
   }
 
   const codexContinueSession = parseEncodedCodexContinueCommand(trimmedContent);
@@ -892,7 +912,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
   }
 
-  if (input.channelMode === "session-linked") {
+  if (input.channelMode !== "shell-admin") {
     const blocked = sessionGlobalBlock(trimmedContent);
 
     if (blocked) {
@@ -902,6 +922,20 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   const bridgeShortcut = parseBridgeShortcut(trimmedContent);
+
+  if (
+    input.channelMode === "claude-code" &&
+    bridgeShortcut &&
+    (bridgeShortcut.type === "codex-chat" ||
+      bridgeShortcut.type === "codex-model" ||
+      bridgeShortcut.type === "codex-run-mode" ||
+      bridgeShortcut.type === "codex-review")
+  ) {
+    return blockedCommand(
+      "Claude Code 전용 채널입니다.",
+      "Codex와 대화하거나 Codex 설정을 바꾸려면 Codex 채널이나 session 채널에서 요청하세요.",
+    );
+  }
 
   if (bridgeShortcut) {
     const denied = authorizationDenied(input);
@@ -925,7 +959,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "schedule-command", request: schedule };
   }
 
-  const codexModel = parseCodexModel(trimmedContent);
+  const codexModel = input.channelMode === "claude-code" ? null : parseCodexModel(trimmedContent);
 
   if (codexModel) {
     const denied = authorizationDenied(input);
@@ -937,7 +971,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-model", model: codexModel.model };
   }
 
-  const codexRunMode = parseCodexRunMode(trimmedContent);
+  const codexRunMode = input.channelMode === "claude-code" ? null : parseCodexRunMode(trimmedContent);
 
   if (codexRunMode) {
     const denied = authorizationDenied(input);
@@ -949,7 +983,10 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-run-mode", mode: codexRunMode.mode };
   }
 
-  const codexReview = parseInternalCodexReview(trimmedContent) ?? parseCodexReviewCommand(trimmedContent);
+  const codexReview =
+    input.channelMode === "claude-code"
+      ? null
+      : parseInternalCodexReview(trimmedContent) ?? parseCodexReviewCommand(trimmedContent);
 
   if (codexReview) {
     const denied = authorizationDenied(input);
@@ -961,7 +998,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-review", prompt: codexReview.prompt };
   }
 
-  const codexShortcut = parseCodexShortcut(trimmedContent);
+  const codexShortcut = input.channelMode === "claude-code" ? null : parseCodexShortcut(trimmedContent);
 
   if (codexShortcut) {
     const denied = authorizationDenied(input);
@@ -1010,24 +1047,6 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (input.channelMode === "shell-admin") {
-    const newChat = parseAdminNewChat(trimmedContent);
-
-    if (newChat) {
-      const authorization = authorizeCommand({
-        userRoleIds: input.userRoleIds,
-        allowedRoleIds: input.allowedRoleIds,
-      });
-
-      if (!authorization.allowed) {
-        return {
-          type: "denied",
-          reason: authorization.reason ?? "User does not have an allowed role",
-        };
-      }
-
-      return { type: "admin-new-chat", ...newChat };
-    }
-
     const clearMessages = parseAdminClearMessages(trimmedContent);
 
     if (clearMessages) {
@@ -1172,6 +1191,13 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (trimmedContent.startsWith("codex ")) {
+    if (input.channelMode === "claude-code") {
+      return blockedCommand(
+        "Claude Code 전용 채널입니다.",
+        "Codex와 대화하려면 Codex 채널이나 session 채널에서 요청하세요.",
+      );
+    }
+
     const authorization = authorizeCommand({
       userRoleIds: input.userRoleIds,
       allowedRoleIds: input.allowedRoleIds,
@@ -1185,6 +1211,22 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "codex-chat", content: trimmedContent.slice("codex ".length).trim() };
+  }
+
+  if (trimmedContent.startsWith("claude ")) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return { type: "claude-chat", content: trimmedContent.slice("claude ".length).trim() };
   }
 
   const parsed = parseDiscordMessageCommand({
@@ -1205,6 +1247,10 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   }
 
   if (parsed.kind === "chat") {
+    if (input.channelMode === "claude-code") {
+      return { type: "claude-chat", content: parsed.content };
+    }
+
     return { type: "codex-chat", content: parsed.content };
   }
 

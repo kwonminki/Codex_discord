@@ -177,9 +177,11 @@ describe("direct sync state store", () => {
       });
 
       await store.updateSessionChannelCodexSession("channel-1", "session-new", "General Codex chat");
+      await store.updateSessionChannelClaudeSession("channel-1", "claude-session-1");
 
       await expect(store.findSessionChannelByDiscordId("channel-1")).resolves.toMatchObject({
         codexSessionId: "session-new",
+        claudeSessionId: "claude-session-1",
         threadName: "General Codex chat",
       });
     } finally {

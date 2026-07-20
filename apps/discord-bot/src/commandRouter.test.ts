@@ -601,7 +601,7 @@ describe("routeDiscordMessage", () => {
     });
   });
 
-  it("blocks global sync and new-chat actions from session channels", () => {
+  it("blocks global sync actions from session channels", () => {
     expect(
       routeDiscordMessage({
         channelMode: "session-linked",
@@ -614,7 +614,9 @@ describe("routeDiscordMessage", () => {
       reason: "이 명령은 main 채널 전용입니다.",
       guidance: "세션 동기화는 main/admin 채널에서 실행하세요.",
     });
+  });
 
+  it("routes new-chat actions from session and Claude Code channels", () => {
     expect(
       routeDiscordMessage({
         channelMode: "session-linked",
@@ -623,9 +625,27 @@ describe("routeDiscordMessage", () => {
         allowedRoleIds: ["role-operator"],
       }),
     ).toEqual({
-      type: "blocked-command",
-      reason: "이 명령은 main 채널 전용입니다.",
-      guidance: "새 Codex 채팅 채널은 main/admin 채널에서 /chat-new로 만드세요.",
+      type: "admin-new-chat",
+      name: null,
+      cwd: null,
+      useCategory: false,
+      initialPrompt: null,
+    });
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content:
+          "__cdc_new_chat %7B%22name%22%3A%22Claude%20scratch%22%2C%22cwd%22%3A%22.%22%2C%22useCategory%22%3Atrue%2C%22initialPrompt%22%3A%22%EC%8B%9C%EC%9E%91%22%7D",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "admin-new-chat",
+      name: "Claude scratch",
+      cwd: ".",
+      useCategory: true,
+      initialPrompt: "시작",
     });
   });
 
@@ -803,6 +823,78 @@ describe("routeDiscordMessage", () => {
     ).toEqual({
       type: "codex-chat",
       content: "hello there",
+    });
+  });
+
+  it("routes explicit Claude Code prompts in session channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "README 요약해줘",
+    });
+  });
+
+  it("routes Claude Code channel normal text to Claude Code", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "현재 GPU 사용량 봐봐",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "현재 GPU 사용량 봐봐",
+    });
+  });
+
+  it("routes Claude Code channel explicit Claude prompts without keeping the prefix", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: "README 요약해줘",
+    });
+  });
+
+  it("blocks explicit Codex prompts in Claude Code channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "codex README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "blocked-command",
+      reason: "Claude Code 전용 채널입니다.",
+      guidance: "Codex와 대화하려면 Codex 채널이나 session 채널에서 요청하세요.",
+    });
+  });
+
+  it("blocks explicit Claude Code prompts in admin channels", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "claude README 요약해줘",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "blocked-command",
+      reason: "main 채널은 운영 전용입니다.",
+      guidance: "Claude Code와 대화하려면 /chat-new로 session 채널을 만들거나 기존 session 채널에서 `claude ...`를 보내세요.",
     });
   });
 

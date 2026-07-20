@@ -1,0 +1,241 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  discoverClaudeCodeSessions,
+  isExternallyStartedClaudeCodeSession,
+  syncClaudeCodeSessionsToDiscord,
+  type DiscoveredClaudeCodeSession,
+} from "./claudeSessionSync.js";
+import { createDirectSyncStateStore } from "./directState.js";
+
+describe("discoverClaudeCodeSessions", () => {
+  it("discovers Claude Code IDE sessions from Claude project JSONL files", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-sync-"));
+    const projectRoot = path.join(tempRoot, ".claude", "projects", "-repo");
+    const sessionPath = path.join(projectRoot, "session-ide.jsonl");
+
+    try {
+      await mkdir(projectRoot, { recursive: true });
+      await writeFile(
+        sessionPath,
+        [
+          JSON.stringify({
+            type: "user",
+            sessionId: "session-ide",
+            cwd: "/repo",
+            entrypoint: "claude-vscode",
+            timestamp: "2026-07-20T04:31:37.956Z",
+            message: {
+              role: "user",
+              content: [{ type: "text", text: "테스트 대화야" }],
+            },
+          }),
+          JSON.stringify({
+            type: "assistant",
+            sessionId: "session-ide",
+            cwd: "/repo",
+            entrypoint: "claude-vscode",
+            timestamp: "2026-07-20T04:31:45.812Z",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "좋아요" }],
+            },
+          }),
+        ].join("\n"),
+        "utf8",
+      );
+
+      await expect(discoverClaudeCodeSessions({ claudeHome: path.join(tempRoot, ".claude") })).resolves.toEqual([
+        expect.objectContaining({
+          id: "session-ide",
+          cwd: "/repo",
+          entrypoint: "claude-vscode",
+          firstUserMessage: "테스트 대화야",
+          updatedAt: "2026-07-20T04:31:45.812Z",
+          filePath: sessionPath,
+        }),
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips excluded session files before parsing them", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-sync-"));
+    const projectRoot = path.join(tempRoot, ".claude", "projects", "-repo");
+
+    try {
+      await mkdir(projectRoot, { recursive: true });
+      await writeFile(
+        path.join(projectRoot, "known-session.jsonl"),
+        JSON.stringify({
+          type: "user",
+          sessionId: "known-session",
+          cwd: "/repo",
+          entrypoint: "claude-vscode",
+          timestamp: "2026-07-20T04:31:37.956Z",
+          message: { role: "user", content: "이미 연결됨" },
+        }),
+        "utf8",
+      );
+
+      await expect(
+        discoverClaudeCodeSessions({
+          claudeHome: path.join(tempRoot, ".claude"),
+          excludeSessionIds: ["known-session"],
+        }),
+      ).resolves.toEqual([]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isExternallyStartedClaudeCodeSession", () => {
+  it("treats IDE sessions as external and skips connector SDK CLI sessions", () => {
+    expect(isExternallyStartedClaudeCodeSession({ entrypoint: "claude-vscode" })).toBe(true);
+    expect(isExternallyStartedClaudeCodeSession({ entrypoint: "sdk-cli" })).toBe(false);
+    expect(isExternallyStartedClaudeCodeSession({ entrypoint: null })).toBe(false);
+  });
+});
+
+describe("syncClaudeCodeSessionsToDiscord", () => {
+  const recentIdeSession = {
+    id: "session-ide",
+    cwd: "/repo",
+    entrypoint: "claude-vscode",
+    firstUserMessage: "테스트 대화야",
+    updatedAt: "2026-07-20T04:31:45.812Z",
+    filePath: "/tmp/session-ide.jsonl",
+  } satisfies DiscoveredClaudeCodeSession;
+
+  it("creates a Claude Code thread for an unlinked external Claude session", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-sync-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const guild = {
+      createThread: vi.fn().mockResolvedValue({ id: "thread-ide" }),
+      sendTextMessage: vi.fn().mockResolvedValue({ id: "context-message" }),
+    };
+    const controlApi = {
+      createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-thread" }),
+    };
+
+    try {
+      await expect(
+        syncClaudeCodeSessionsToDiscord({
+          guild,
+          controlApi,
+          stateStore,
+          computerId: "mac",
+          computerDisplayName: "Kwon Mac",
+          parentChannelId: "claude-parent",
+          mentionRoleIds: ["role-1"],
+          lookbackMs: 24 * 60 * 60 * 1_000,
+          limit: 10,
+          now: new Date("2026-07-20T05:00:00.000Z"),
+          sessions: [recentIdeSession],
+        }),
+      ).resolves.toMatchObject({
+        checkedSessions: 1,
+        createdThreads: 1,
+        skippedExisting: 0,
+        skippedEntrypoint: 0,
+      });
+
+      expect(guild.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "테스트 대화야",
+          parentChannelId: "claude-parent",
+          autoArchiveDuration: 10_080,
+          reason: expect.stringContaining("Claude Code session: session-ide"),
+        }),
+      );
+      expect(controlApi.createManagedChannel).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discordChannelId: "thread-ide",
+          channelMode: "claude-code",
+          workspaceId: "mac:/repo",
+        }),
+      );
+      expect(guild.sendTextMessage).toHaveBeenCalledWith(
+        "thread-ide",
+        expect.stringContaining("Claude Code 세션 연결됨"),
+        { mentionRoleIds: ["role-1"] },
+      );
+      await expect(stateStore.findSessionChannelByDiscordId("thread-ide")).resolves.toMatchObject({
+        codexSessionId: null,
+        claudeSessionId: "session-ide",
+        channelMode: "claude-code",
+        discordParentChannelId: "claude-parent",
+        discordDeliveryMode: "thread",
+        workspaceRoot: "/repo",
+        cwd: "/repo",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("skips SDK CLI sessions and already linked Claude sessions", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-sync-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const guild = {
+      createThread: vi.fn().mockResolvedValue({ id: "thread-new" }),
+      sendTextMessage: vi.fn().mockResolvedValue({ id: "context-message" }),
+    };
+    const controlApi = {
+      createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-thread" }),
+    };
+
+    try {
+      await syncClaudeCodeSessionsToDiscord({
+        guild,
+        controlApi,
+        stateStore,
+        computerId: "mac",
+        computerDisplayName: "Kwon Mac",
+        parentChannelId: "claude-parent",
+        lookbackMs: 24 * 60 * 60 * 1_000,
+        limit: 10,
+        now: new Date("2026-07-20T05:00:00.000Z"),
+        sessions: [recentIdeSession],
+      });
+      guild.createThread.mockClear();
+
+      await expect(
+        syncClaudeCodeSessionsToDiscord({
+          guild,
+          controlApi,
+          stateStore,
+          computerId: "mac",
+          computerDisplayName: "Kwon Mac",
+          parentChannelId: "claude-parent",
+          lookbackMs: 24 * 60 * 60 * 1_000,
+          limit: 10,
+          now: new Date("2026-07-20T05:00:00.000Z"),
+          sessions: [
+            recentIdeSession,
+            {
+              ...recentIdeSession,
+              id: "session-sdk",
+              entrypoint: "sdk-cli",
+              filePath: "/tmp/session-sdk.jsonl",
+            },
+          ],
+        }),
+      ).resolves.toMatchObject({
+        checkedSessions: 2,
+        createdThreads: 0,
+        skippedExisting: 1,
+        skippedEntrypoint: 1,
+      });
+
+      expect(guild.createThread).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
