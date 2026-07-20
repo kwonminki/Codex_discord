@@ -17,6 +17,7 @@ import {
 } from "./codexSessionSync.js";
 import { syncCodexSessionTranscriptUpdates } from "./codexTranscriptSync.js";
 import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
+import { syncClaudeCodeSessionsToDiscord } from "./claudeSessionSync.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
@@ -35,6 +36,9 @@ import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js"
 export const BOT_RELOAD_EXIT_CODE = 42;
 const DEFAULT_TRANSCRIPT_SYNC_INTERVAL_MS = 5_000;
 const DEFAULT_TASK_NOTIFICATION_INTERVAL_MS = 3_000;
+const DEFAULT_CLAUDE_SESSION_SYNC_INTERVAL_MS = 5_000;
+const DEFAULT_CLAUDE_SESSION_SYNC_LOOKBACK_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_CLAUDE_SESSION_SYNC_LIMIT = 10;
 const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_BACKGROUND_POLL_MAX_INTERVAL_MS = 20_000;
 const DEFAULT_BACKGROUND_MAX_NORMALIZED_LOAD = 0.7;
@@ -61,6 +65,16 @@ export function resolveBackgroundMaxNormalizedLoad(value: string | undefined, fa
   }
 
   return Math.min(Math.max(parsed, 0.1), 4);
+}
+
+function resolveBoundedInteger(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, min), max);
 }
 
 export function shouldSkipBackgroundPolling(input: {
@@ -128,6 +142,22 @@ const TRANSCRIPT_SYNC_INTERVAL_MS = resolveRealtimeIntervalMs(
 const TASK_NOTIFICATION_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_TASK_NOTIFICATION_INTERVAL_MS,
   DEFAULT_TASK_NOTIFICATION_INTERVAL_MS,
+);
+const CLAUDE_SESSION_SYNC_INTERVAL_MS = resolveRealtimeIntervalMs(
+  process.env.CONNECT_CLAUDE_SESSION_SYNC_INTERVAL_MS,
+  DEFAULT_CLAUDE_SESSION_SYNC_INTERVAL_MS,
+);
+const CLAUDE_SESSION_SYNC_LOOKBACK_MS = resolveBoundedInteger(
+  process.env.CONNECT_CLAUDE_SESSION_SYNC_LOOKBACK_MS,
+  DEFAULT_CLAUDE_SESSION_SYNC_LOOKBACK_MS,
+  60_000,
+  7 * 24 * 60 * 60 * 1_000,
+);
+const CLAUDE_SESSION_SYNC_LIMIT = resolveBoundedInteger(
+  process.env.CONNECT_CLAUDE_SESSION_SYNC_LIMIT,
+  DEFAULT_CLAUDE_SESSION_SYNC_LIMIT,
+  1,
+  50,
 );
 const SCHEDULE_POLL_INTERVAL_MS = resolveRealtimeIntervalMs(
   process.env.CONNECT_SCHEDULE_POLL_INTERVAL_MS,
@@ -371,7 +401,22 @@ export async function startBot(): Promise<void> {
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
             ignoredSessionIds: activelyStreamedSessionIds,
           });
-        }
+      }
+      : undefined;
+  const syncClaudeCodeSessions =
+    connectConfig?.mode === "direct" && directStateStore && connectConfig.direct.claudeChannelId?.trim()
+      ? async (input: { guild: DiscordGuildSurface }) =>
+          syncClaudeCodeSessionsToDiscord({
+            guild: input.guild,
+            controlApi: controlApiClient,
+            stateStore: directStateStore,
+            computerId: connectConfig.direct.computerId,
+            computerDisplayName: connectConfig.direct.computerDisplayName,
+            parentChannelId: connectConfig.direct.claudeChannelId?.trim() ?? "",
+            mentionRoleIds: connectConfig.discord.allowedRoleIds,
+            lookbackMs: CLAUDE_SESSION_SYNC_LOOKBACK_MS,
+            limit: CLAUDE_SESSION_SYNC_LIMIT,
+          })
       : undefined;
   const getSyncStatus =
     directStateStore
@@ -665,6 +710,63 @@ export async function startBot(): Promise<void> {
             running = false;
           });
       }, TASK_NOTIFICATION_INTERVAL_MS);
+      timer.unref();
+    }
+
+    if (syncClaudeCodeSessions) {
+      let running = false;
+      const pollState = createBackgroundPollState(Date.now(), CLAUDE_SESSION_SYNC_INTERVAL_MS);
+      const timer = setInterval(() => {
+        const now = Date.now();
+
+        if (!shouldRunBackgroundPoll(pollState, now)) {
+          return;
+        }
+
+        if (running) {
+          return;
+        }
+
+        if (shouldSkipBackgroundPolling(currentBackgroundLoadInput())) {
+          recordBackgroundPollResult(pollState, {
+            now,
+            baseIntervalMs: CLAUDE_SESSION_SYNC_INTERVAL_MS,
+            maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+            changed: false,
+            skippedForLoad: true,
+          });
+          return;
+        }
+
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+
+        if (!guild?.createThread) {
+          return;
+        }
+
+        running = true;
+        void syncClaudeCodeSessions({ guild })
+          .then((result) => {
+            recordBackgroundPollResult(pollState, {
+              now: Date.now(),
+              baseIntervalMs: CLAUDE_SESSION_SYNC_INTERVAL_MS,
+              maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+              changed: result.createdThreads > 0,
+            });
+          })
+          .catch((error) => {
+            console.error("discord-bot failed to sync Claude Code sessions", error);
+            recordBackgroundPollResult(pollState, {
+              now: Date.now(),
+              baseIntervalMs: CLAUDE_SESSION_SYNC_INTERVAL_MS,
+              maxIntervalMs: BACKGROUND_POLL_MAX_INTERVAL_MS,
+              changed: false,
+            });
+          })
+          .finally(() => {
+            running = false;
+          });
+      }, CLAUDE_SESSION_SYNC_INTERVAL_MS);
       timer.unref();
     }
 

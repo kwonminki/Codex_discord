@@ -136,6 +136,16 @@ pnpm connect install --direct \
 
 `--channel-id`는 Codex/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다. Claude 채널에서 `/chat-new` 또는 `chat new`를 실행하면 그 Claude 채널 아래에 Claude Code 전용 Discord thread가 만들어집니다.
 
+`--claude-channel-id`가 있으면 봇은 `~/.claude/projects` 아래의 최근 Claude Code 세션 로그도 봅니다. VS Code, Antigravity 같은 IDE 확장에서 시작한 Claude Code 세션은 자동으로 Claude 채널 아래 Discord thread로 연결됩니다. 봇이 Discord에서 직접 시작한 Claude 세션은 중복 thread가 생기지 않도록 건너뜁니다.
+
+관련 주기는 필요하면 아래 값으로 조절할 수 있습니다.
+
+```bash
+CONNECT_CLAUDE_SESSION_SYNC_INTERVAL_MS=5000
+CONNECT_CLAUDE_SESSION_SYNC_LOOKBACK_MS=86400000
+CONNECT_CLAUDE_SESSION_SYNC_LIMIT=10
+```
+
 ```text
 .connect/config.json
 .env

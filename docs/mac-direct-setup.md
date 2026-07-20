@@ -53,6 +53,10 @@ pnpm connect install --direct \
 
 This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the Codex/admin channel and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
 
+When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session.
+
+The bot also watches recent Claude Code session logs under `~/.claude/projects`. Sessions started by IDE surfaces such as VS Code or Antigravity are detected from their Claude entrypoint and automatically mapped to new Discord threads under `--claude-channel-id`. Connector-started Claude sessions are skipped so they do not create duplicate threads.
+
 ## Start the bot
 
 ```bash
@@ -114,6 +118,9 @@ Completion polling defaults to 3 seconds, transcript polling defaults to 5 secon
 ```bash
 CONNECT_TASK_NOTIFICATION_INTERVAL_MS=3000
 CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=5000
+CONNECT_CLAUDE_SESSION_SYNC_INTERVAL_MS=5000
+CONNECT_CLAUDE_SESSION_SYNC_LOOKBACK_MS=86400000
+CONNECT_CLAUDE_SESSION_SYNC_LIMIT=10
 CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=20000
 CONNECT_BACKGROUND_MAX_LOAD=0.7
 ```
