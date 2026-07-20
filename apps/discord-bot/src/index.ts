@@ -17,7 +17,11 @@ import {
 } from "./codexSessionSync.js";
 import { syncCodexSessionTranscriptUpdates } from "./codexTranscriptSync.js";
 import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
-import { discoverClaudeCodeSessions, syncClaudeCodeSessionsToDiscord } from "./claudeSessionSync.js";
+import {
+  discoverClaudeCodeSessions,
+  syncClaudeCodeSessionsToDiscord,
+  type DiscoveredClaudeCodeSession,
+} from "./claudeSessionSync.js";
 import { notifyClaudeCodeTaskCompletions } from "./claudeTaskNotifications.js";
 import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
@@ -406,7 +410,7 @@ export async function startBot(): Promise<void> {
       : undefined;
   const syncClaudeCodeSessions =
     connectConfig?.mode === "direct" && directStateStore && connectConfig.direct.claudeChannelId?.trim()
-      ? async (input: { guild: DiscordGuildSurface }) =>
+      ? async (input: { guild: DiscordGuildSurface; sessions?: DiscoveredClaudeCodeSession[] }) =>
           syncClaudeCodeSessionsToDiscord({
             guild: input.guild,
             controlApi: controlApiClient,
@@ -417,19 +421,20 @@ export async function startBot(): Promise<void> {
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
             lookbackMs: CLAUDE_SESSION_SYNC_LOOKBACK_MS,
             limit: CLAUDE_SESSION_SYNC_LIMIT,
+            sessions: input.sessions,
           })
       : undefined;
   const notifyClaudeCodeCompletions =
     connectConfig?.mode === "direct" && directStateStore && connectConfig.direct.claudeChannelId?.trim()
-      ? async (input: { guild: DiscordGuildSurface }) => {
-          const sessions = await discoverClaudeCodeSessions({
-            updatedAfter: new Date(Date.now() - CLAUDE_SESSION_SYNC_LOOKBACK_MS),
-          });
-
+      ? async (input: { guild: DiscordGuildSurface; sessions?: DiscoveredClaudeCodeSession[] }) => {
           return notifyClaudeCodeTaskCompletions({
             guild: input.guild,
             stateStore: directStateStore,
-            sessions,
+            sessions:
+              input.sessions ??
+              await discoverClaudeCodeSessions({
+                updatedAfter: new Date(Date.now() - CLAUDE_SESSION_SYNC_LOOKBACK_MS),
+              }),
             mentionRoleIds: connectConfig.discord.allowedRoleIds,
           });
         }
@@ -762,11 +767,14 @@ export async function startBot(): Promise<void> {
 
         running = true;
         void (async () => {
+          const sessions = await discoverClaudeCodeSessions({
+            updatedAfter: new Date(Date.now() - CLAUDE_SESSION_SYNC_LOOKBACK_MS),
+          });
           const syncResult = syncClaudeCodeSessions
-            ? await syncClaudeCodeSessions({ guild })
+            ? await syncClaudeCodeSessions({ guild, sessions })
             : null;
           const notifyResult = notifyClaudeCodeCompletions
-            ? await notifyClaudeCodeCompletions({ guild })
+            ? await notifyClaudeCodeCompletions({ guild, sessions })
             : null;
 
           return { syncResult, notifyResult };

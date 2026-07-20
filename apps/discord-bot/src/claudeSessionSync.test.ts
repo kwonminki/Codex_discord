@@ -94,6 +94,71 @@ describe("discoverClaudeCodeSessions", () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("updates cached Claude session details from appended JSONL records", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-sync-"));
+    const projectRoot = path.join(tempRoot, ".claude", "projects", "-repo");
+    const sessionPath = path.join(projectRoot, "session-cache.jsonl");
+
+    try {
+      await mkdir(projectRoot, { recursive: true });
+      await writeFile(
+        sessionPath,
+        [
+          JSON.stringify({
+            type: "user",
+            sessionId: "session-cache",
+            cwd: "/repo",
+            entrypoint: "claude-vscode",
+            timestamp: "2026-07-20T04:31:37.956Z",
+            message: { role: "user", content: [{ type: "text", text: "캐시 테스트" }] },
+          }),
+          JSON.stringify({
+            type: "assistant",
+            sessionId: "session-cache",
+            cwd: "/repo",
+            entrypoint: "claude-vscode",
+            timestamp: "2026-07-20T04:31:45.812Z",
+            message: { role: "assistant", content: [{ type: "text", text: "첫 답변" }] },
+          }),
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      await expect(discoverClaudeCodeSessions({ claudeHome: path.join(tempRoot, ".claude") })).resolves.toEqual([
+        expect.objectContaining({
+          id: "session-cache",
+          latestAssistantMessage: "첫 답변",
+          latestAssistantMessageKey: "session-cache:2026-07-20T04:31:45.812Z:1",
+        }),
+      ]);
+
+      await writeFile(
+        sessionPath,
+        `${JSON.stringify({
+          type: "assistant",
+          sessionId: "session-cache",
+          cwd: "/repo",
+          entrypoint: "claude-vscode",
+          timestamp: "2026-07-20T04:32:00.000Z",
+          message: { role: "assistant", content: [{ type: "text", text: "둘째 답변" }] },
+        })}\n`,
+        { flag: "a" },
+      );
+
+      await expect(discoverClaudeCodeSessions({ claudeHome: path.join(tempRoot, ".claude") })).resolves.toEqual([
+        expect.objectContaining({
+          id: "session-cache",
+          firstUserMessage: "캐시 테스트",
+          latestAssistantMessage: "둘째 답변",
+          latestAssistantMessageKey: "session-cache:2026-07-20T04:32:00.000Z:2",
+        }),
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("isExternallyStartedClaudeCodeSession", () => {

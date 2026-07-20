@@ -59,6 +59,8 @@ The bot also watches recent Claude Code session logs under `~/.claude/projects`.
 
 After the first baseline scan, new assistant answers from those external Claude Code sessions are posted back to the mapped Discord thread as `Claude Code 작업 완료` notifications with the final answer. Connector-started Claude sessions are not completion-notified separately because their result is already shown in the Discord request message.
 
+Claude Code session scanning uses an in-memory `mtime`/file-size cache. Unchanged `~/.claude/projects/**/*.jsonl` files are not reparsed, and appended session logs are read from the new byte range only. The thread auto-linker and completion notifier share the same discovered session list during each poll.
+
 ## Start the bot
 
 ```bash

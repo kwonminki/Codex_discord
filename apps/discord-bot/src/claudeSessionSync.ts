@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ControlApiClient } from "./controlApiClient.js";
@@ -11,6 +11,7 @@ import {
 import type { DirectSyncState, DirectSyncStateStore, SyncedSessionChannelState } from "./directState.js";
 
 const MAX_CHANNEL_NAME_LENGTH = 90;
+const MAX_SESSION_CACHE_ENTRIES = 1_000;
 
 export interface DiscoveredClaudeCodeSession {
   id: string;
@@ -65,6 +66,22 @@ interface ParsedClaudeRecord {
   timestamp?: unknown;
   type?: unknown;
 }
+
+interface CachedClaudeCodeSession {
+  mtimeMs: number;
+  size: number;
+  lineCount: number;
+  endsWithNewline: boolean;
+  session: DiscoveredClaudeCodeSession | null;
+}
+
+interface ParsedClaudeSessionText {
+  session: DiscoveredClaudeCodeSession | null;
+  lineCount: number;
+  endsWithNewline: boolean;
+}
+
+const claudeSessionCache = new Map<string, CachedClaudeCodeSession>();
 
 function defaultClaudeProjectsRoot(claudeHome = path.join(os.homedir(), ".claude")): string {
   return path.join(claudeHome, "projects");
@@ -139,18 +156,48 @@ function newerIsoTimestamp(current: string | null, next: unknown): string | null
   return current;
 }
 
-async function parseClaudeCodeSessionFile(filePath: string, fallbackUpdatedAt: string): Promise<DiscoveredClaudeCodeSession | null> {
-  const fallbackId = path.basename(filePath, ".jsonl");
-  let sessionId: string | null = fallbackId || null;
-  let cwd: string | null = null;
-  let entrypoint: string | null = null;
-  let firstUserMessage: string | null = null;
-  let latestAssistantMessage: string | null = null;
-  let latestAssistantMessageKey: string | null = null;
-  let updatedAt: string | null = null;
-  const raw = await readFile(filePath, "utf8");
+async function readTextSliceIfExists(filePath: string, position: number, length: number): Promise<string | null> {
+  const handle = await open(filePath, "r").catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
 
-  for (const [lineIndex, line] of raw.split(/\r?\n/).entries()) {
+    throw error;
+  });
+
+  if (!handle) {
+    return null;
+  }
+
+  try {
+    const buffer = Buffer.alloc(length);
+    const result = await handle.read(buffer, 0, length, position);
+    return buffer.subarray(0, result.bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function parseClaudeCodeSessionText(input: {
+  filePath: string;
+  fallbackUpdatedAt: string;
+  text: string;
+  startLineIndex?: number;
+  previous?: DiscoveredClaudeCodeSession | null;
+}): ParsedClaudeSessionText {
+  const fallbackId = path.basename(input.filePath, ".jsonl");
+  let sessionId: string | null = input.previous?.id ?? fallbackId ?? null;
+  let cwd: string | null = input.previous?.cwd ?? null;
+  let entrypoint: string | null = input.previous?.entrypoint ?? null;
+  let firstUserMessage: string | null = input.previous?.firstUserMessage ?? null;
+  let latestAssistantMessage: string | null = input.previous?.latestAssistantMessage ?? null;
+  let latestAssistantMessageKey: string | null = input.previous?.latestAssistantMessageKey ?? null;
+  let updatedAt: string | null = input.previous?.updatedAt ?? null;
+  const lines = input.text.split(/\r?\n/);
+  const lineCount = lines.length - (input.text.endsWith("\n") ? 1 : 0);
+  const startLineIndex = input.startLineIndex ?? 0;
+
+  for (const [lineIndex, line] of lines.entries()) {
     if (!line.trim()) {
       continue;
     }
@@ -178,25 +225,101 @@ async function parseClaudeCodeSessionFile(filePath: string, fallbackUpdatedAt: s
 
       if (assistantMessage) {
         latestAssistantMessage = assistantMessage;
-        latestAssistantMessageKey = `${sessionId}:${asString(record.timestamp) ?? lineIndex}:${lineIndex}`;
+        const absoluteLineIndex = startLineIndex + lineIndex;
+        latestAssistantMessageKey = `${sessionId}:${asString(record.timestamp) ?? absoluteLineIndex}:${absoluteLineIndex}`;
       }
     }
   }
 
   if (!sessionId || !cwd) {
-    return null;
+    return {
+      session: null,
+      lineCount,
+      endsWithNewline: input.text.endsWith("\n"),
+    };
   }
 
   return {
-    id: sessionId,
-    cwd,
-    entrypoint,
-    firstUserMessage,
-    latestAssistantMessage,
-    latestAssistantMessageKey,
-    updatedAt: updatedAt ?? fallbackUpdatedAt,
-    filePath,
+    session: {
+      id: sessionId,
+      cwd,
+      entrypoint,
+      firstUserMessage,
+      latestAssistantMessage,
+      latestAssistantMessageKey,
+      updatedAt: updatedAt ?? input.fallbackUpdatedAt,
+      filePath: input.filePath,
+    },
+    lineCount,
+    endsWithNewline: input.text.endsWith("\n"),
   };
+}
+
+function rememberClaudeSession(filePath: string, value: CachedClaudeCodeSession): void {
+  if (!claudeSessionCache.has(filePath) && claudeSessionCache.size >= MAX_SESSION_CACHE_ENTRIES) {
+    const firstKey = claudeSessionCache.keys().next().value;
+
+    if (firstKey) {
+      claudeSessionCache.delete(firstKey);
+    }
+  }
+
+  claudeSessionCache.set(filePath, value);
+}
+
+async function parseClaudeCodeSessionFile(input: {
+  filePath: string;
+  mtimeMs: number;
+  size: number;
+  fallbackUpdatedAt: string;
+}): Promise<DiscoveredClaudeCodeSession | null> {
+  const cached = claudeSessionCache.get(input.filePath);
+
+  if (cached && cached.mtimeMs === input.mtimeMs && cached.size === input.size) {
+    return cached.session;
+  }
+
+  if (cached && cached.endsWithNewline && input.size > cached.size) {
+    const appendedText = await readTextSliceIfExists(input.filePath, cached.size, input.size - cached.size);
+
+    if (appendedText !== null) {
+      const parsed = parseClaudeCodeSessionText({
+        filePath: input.filePath,
+        fallbackUpdatedAt: input.fallbackUpdatedAt,
+        text: appendedText,
+        startLineIndex: cached.lineCount,
+        previous: cached.session,
+      });
+      const nextLineCount = cached.lineCount + parsed.lineCount;
+
+      rememberClaudeSession(input.filePath, {
+        mtimeMs: input.mtimeMs,
+        size: input.size,
+        lineCount: nextLineCount,
+        endsWithNewline: parsed.endsWithNewline,
+        session: parsed.session,
+      });
+
+      return parsed.session;
+    }
+  }
+
+  const raw = await readFile(input.filePath, "utf8");
+  const parsed = parseClaudeCodeSessionText({
+    filePath: input.filePath,
+    fallbackUpdatedAt: input.fallbackUpdatedAt,
+    text: raw,
+  });
+
+  rememberClaudeSession(input.filePath, {
+    mtimeMs: input.mtimeMs,
+    size: input.size,
+    lineCount: parsed.lineCount,
+    endsWithNewline: parsed.endsWithNewline,
+    session: parsed.session,
+  });
+
+  return parsed.session;
 }
 
 export async function discoverClaudeCodeSessions(
@@ -241,7 +364,12 @@ export async function discoverClaudeCodeSessions(
         continue;
       }
 
-      const session = await parseClaudeCodeSessionFile(filePath, fileStats.mtime.toISOString());
+      const session = await parseClaudeCodeSessionFile({
+        filePath,
+        mtimeMs: fileStats.mtimeMs,
+        size: fileStats.size,
+        fallbackUpdatedAt: fileStats.mtime.toISOString(),
+      });
 
       if (session) {
         sessions.push(session);
@@ -345,6 +473,11 @@ export async function syncClaudeCodeSessionsToDiscord(
         return false;
       }
 
+      if (existingClaudeSessionIds.has(session.id)) {
+        result.skippedExisting += 1;
+        return false;
+      }
+
       return true;
     })
     .slice(0, Math.max(0, input.limit));
@@ -354,11 +487,6 @@ export async function syncClaudeCodeSessionsToDiscord(
   }
 
   for (const session of selectedSessions) {
-    if (existingClaudeSessionIds.has(session.id)) {
-      result.skippedExisting += 1;
-      continue;
-    }
-
     const threadName = claudeThreadName(session);
     const thread = await input.guild.createThread({
       name: threadName,
