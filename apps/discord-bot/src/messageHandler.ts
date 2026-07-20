@@ -356,18 +356,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   >();
   let nextCodexApprovalToken = 1;
 
-  function reasoningEffortForChannel(channelId: string): "low" | "xhigh" | null {
+  function reasoningEffortForChannel(channelId: string): "low" | "xhigh" {
     const mode = codexRunModesByChannel.get(channelId);
 
     if (mode === "fast") {
       return "low";
     }
 
-    if (mode === "task") {
-      return "xhigh";
-    }
-
-    return null;
+    return "xhigh";
   }
 
   async function requestCodexApproval(

@@ -126,6 +126,8 @@ CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
 CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
 ```
 
+Discord Codex prompts use extra high reasoning by default. Use `fast` in a session channel only when you want a quick low-reasoning pass; `task` and `mode default` use `xhigh`.
+
 Use this only on trusted machines and private Discord servers. To narrow permissions, set `CODEX_DISCORD_CODEX_APPROVAL_POLICY=on-request` and `CODEX_DISCORD_CODEX_SANDBOX=workspace-write`. For GPU work, the machine running the connector must already see the GPU outside Codex first. Check `nvidia-smi`, `/dev/nvidia*`, and any container runtime GPU settings before changing Codex sandbox settings.
 
 ## Development loop

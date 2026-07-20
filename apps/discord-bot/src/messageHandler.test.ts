@@ -632,6 +632,44 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("uses extra high reasoning by default for Codex prompts", async () => {
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "기본 reasoning 응답입니다.",
+        sessionId: "codex-session-1",
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "codex 기본 reasoning 확인해줘",
+      roleIds: ["role-operator"],
+      reply: async () => ({
+        edit: async () => undefined,
+      }),
+    });
+
+    expect(submitCodexPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          reasoningEffort: "xhigh",
+        }),
+      }),
+    );
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({

@@ -1506,6 +1506,11 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
       inline: false,
     },
     {
+      name: "Codex reasoning",
+      value: "`default`와 `task`는 extra high reasoning(`xhigh`)으로 실행합니다. 빠른 확인이 필요할 때만 `fast`를 사용하면 low reasoning으로 낮춥니다.",
+      inline: false,
+    },
+    {
       name: "Channel boundary",
       value: "session 채널은 Codex 대화 전용입니다. 세션 동기화, 새 채팅 생성, 봇 재등록/재시작은 main/admin 채널에서 실행하세요.",
       inline: false,
@@ -1704,14 +1709,14 @@ export function formatCodexModelResult(input: { model: string }): DiscordMessage
 
 export function formatCodexRunModeResult(input: {
   mode: "default" | "fast" | "task";
-  reasoningEffort: "low" | "xhigh" | null;
+  reasoningEffort: "low" | "xhigh";
 }): DiscordMessagePayload {
   return messagePayload({
     title: "Codex mode updated",
     color: COLORS.success,
     description:
       input.mode === "default"
-        ? "이 Discord 채널의 Codex 실행 모드를 기본 설정으로 되돌렸습니다."
+        ? "이 Discord 채널의 Codex 실행 모드를 기본 설정으로 되돌렸습니다. 기본 모드는 extra high reasoning입니다."
         : "이 Discord 채널의 이후 Codex 요청에 선택한 실행 모드를 사용합니다. 봇이 재시작되면 기본 모드로 돌아갑니다.",
     fields: [
       {
@@ -1721,7 +1726,7 @@ export function formatCodexRunModeResult(input: {
       },
       {
         name: "Reasoning",
-        value: wrapDiscordText(input.reasoningEffort ?? "config default"),
+        value: wrapDiscordText(input.reasoningEffort),
         inline: true,
       },
     ],
