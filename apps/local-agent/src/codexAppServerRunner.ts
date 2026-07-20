@@ -156,6 +156,10 @@ function spawnFailure(codexCommand: string, error: NodeJS.ErrnoException): RunCo
   };
 }
 
+function resolveCodexCommand(input: { codexCommand?: string | null }): string {
+  return input.codexCommand?.trim() || process.env.CODEX_DISCORD_CODEX_COMMAND?.trim() || "codex";
+}
+
 async function waitForSocket(socketPath: string, timeoutMs: number): Promise<void> {
   const startedAt = Date.now();
 
@@ -189,7 +193,7 @@ async function startAppServer(input: RunCodexAppServerPromptInput, socketPath: s
     return { child: null, stderrChunks: [] };
   }
 
-  const codexCommand = input.codexCommand ?? "codex";
+  const codexCommand = resolveCodexCommand(input);
   const stderrChunks: Buffer[] = [];
   const child = spawn(codexCommand, ["app-server", "--listen", appServerListenUrl(socketPath)], {
     env: {

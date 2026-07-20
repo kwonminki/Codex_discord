@@ -30,6 +30,51 @@ describe("runCodexPrompt", () => {
     }
   });
 
+  it("uses CODEX_DISCORD_CODEX_COMMAND when no command is passed explicitly", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
+    const fakeCodex = path.join(tempRoot, "codex-from-env");
+    const argsFile = path.join(tempRoot, "args.json");
+    const previousCommand = process.env.CODEX_DISCORD_CODEX_COMMAND;
+
+    try {
+      await writeFile(
+        fakeCodex,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const args = process.argv.slice(2);",
+          `fs.writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));`,
+          "const outputIndex = args.indexOf('--output-last-message');",
+          "fs.writeFileSync(args[outputIndex + 1], 'Codex answer from env CLI');",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeCodex, 0o755);
+      process.env.CODEX_DISCORD_CODEX_COMMAND = fakeCodex;
+
+      await expect(
+        runCodexPrompt({
+          workspaceRoot: tempRoot,
+          cwd: tempRoot,
+          prompt: "Explain this",
+          timeoutMs: 5_000,
+        }),
+      ).resolves.toMatchObject({
+        status: "completed",
+        finalMessage: "Codex answer from env CLI",
+        exitCode: 0,
+      });
+      await expect(readFile(argsFile, "utf8")).resolves.toContain('"exec"');
+    } finally {
+      if (previousCommand === undefined) {
+        delete process.env.CODEX_DISCORD_CODEX_COMMAND;
+      } else {
+        process.env.CODEX_DISCORD_CODEX_COMMAND = previousCommand;
+      }
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("runs codex exec and captures the final message plus session id", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-runner-"));
     const fakeCodex = path.join(tempRoot, "codex");

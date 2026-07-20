@@ -122,9 +122,12 @@ Background polling backs off when there are no new Codex events, and it skips ex
 Codex turns run with the widest local permissions by default:
 
 ```bash
+CODEX_DISCORD_CODEX_COMMAND=/Applications/ChatGPT.app/Contents/Resources/codex
 CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
 CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
 ```
+
+On macOS LaunchAgent services, set `CODEX_DISCORD_CODEX_COMMAND` to the absolute Codex CLI path because login services do not inherit the same `PATH` as an interactive terminal.
 
 Discord Codex prompts use extra high reasoning by default. Use `fast` in a session channel only when you want a quick low-reasoning pass; `task` and `mode default` use `xhigh`.
 

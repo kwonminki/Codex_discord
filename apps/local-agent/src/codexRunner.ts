@@ -543,6 +543,10 @@ function defaultCodexHome(): string {
   return path.join(os.homedir(), ".codex");
 }
 
+function resolveCodexCommand(input: { codexCommand?: string | null }): string {
+  return input.codexCommand?.trim() || process.env.CODEX_DISCORD_CODEX_COMMAND?.trim() || "codex";
+}
+
 function spawnFailure(codexCommand: string, error: NodeJS.ErrnoException): RunCodexPromptResult {
   if (error.code === "ENOENT") {
     return {
@@ -630,7 +634,7 @@ export async function runCodexPrompt(input: RunCodexPromptInput): Promise<RunCod
       ? requestedCwd
       : path.join(workspaceRoot, path.relative(originalWorkspaceRoot, requestedCwd));
   const args = createCodexArgs(input, outputPath, cwd);
-  const codexCommand = input.codexCommand ?? "codex";
+  const codexCommand = resolveCodexCommand(input);
   const stdoutChunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
   const progressTasks: Promise<void>[] = [];
