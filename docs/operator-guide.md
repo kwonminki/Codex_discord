@@ -55,7 +55,7 @@ Session-linked commands:
 - `/skill name:<skill> prompt:<요청>` sends an exec-compatible prompt asking Codex to apply the named skill perspective.
 - `/model model:<모델>` stores a per-channel model preference used by later Codex runs until the bot restarts.
 - `/archive` opens a confirmation card for the current generated session channel; use `archive confirm` to archive.
-- `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a forked agent session. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
+- `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a distinct forked agent session. Failed forks, source-session ID reuse, and duplicate Discord links are rejected; unlinked temporary threads are cleaned up. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
 - `/steer prompt:<instruction>` explicitly appends an instruction to the active Codex app-server turn, matching the automatic behavior of ordinary follow-up messages. Claude Code channels return an unsupported notice.
 - `/interrupt` requests interruption of the active Codex app-server turn. Claude Code channels return an unsupported notice.
 - `/queue prompt:<instruction>` explicitly keeps an instruction out of the active turn and appends it to the per-channel FIFO queue. With no prompt, `/queue` shows the active and pending requests.

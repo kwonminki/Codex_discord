@@ -480,7 +480,34 @@ export async function syncCodexSessionsToDiscord(
 
   await mapWithConcurrency(sessionTasks, DISCORD_SYNC_CONCURRENCY, async (task) => processSessionTask(task));
 
-  await input.stateStore.write(state);
+  const selectedSessionIds = new Set(selectedSessions.map((session) => session.id.toLowerCase()));
+  const selectedWorkspaceRoots = new Set(
+    selectedSessions.map((session) => session.cwdHint ?? input.defaultWorkspaceRoot),
+  );
+  const syncedChannels = state.sessionChannels.filter(
+    (channel) => channel.codexSessionId && selectedSessionIds.has(channel.codexSessionId.toLowerCase()),
+  );
+  const syncedWorkspaces = state.workspaces.filter(
+    (workspace) => selectedWorkspaceRoots.has(workspace.workspaceRoot),
+  );
+
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    workspaces: [
+      ...latestState.workspaces.filter(
+        (workspace) => !selectedWorkspaceRoots.has(workspace.workspaceRoot),
+      ),
+      ...syncedWorkspaces,
+    ],
+    sessionChannels: [
+      ...latestState.sessionChannels.filter(
+        (channel) =>
+          !channel.codexSessionId ||
+          !selectedSessionIds.has(channel.codexSessionId.toLowerCase()),
+      ),
+      ...syncedChannels,
+    ],
+  }));
   await emitProgress({ phase: "complete", processedSessions: selectedSessions.length });
   return result;
 }

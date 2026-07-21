@@ -578,7 +578,14 @@ export async function syncClaudeCodeSessionsToDiscord(
 
     state.sessionChannels.push(channel);
     existingClaudeSessionIds.add(session.id);
-    await input.stateStore.write(state);
+    await input.stateStore.update((latestState) => ({
+      ...latestState,
+      sessionChannels: latestState.sessionChannels.some(
+        (candidate) => candidate.discordChannelId === channel.discordChannelId,
+      )
+        ? latestState.sessionChannels
+        : [...latestState.sessionChannels, channel],
+    }));
     result.createdThreads += 1;
 
     if (input.guild.sendTextMessage) {

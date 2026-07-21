@@ -57,11 +57,17 @@ export async function archiveSyncedCodexSession(input: {
       channel.codexSessionId !== codexSessionId && channel.discordChannelId !== targetChannel?.discordChannelId,
   );
 
-  await input.stateStore.write({
-    ...state,
-    archivedCodexSessionIds: [...archivedIds],
-    sessionChannels: nextSessionChannels,
-  });
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    archivedCodexSessionIds: [
+      ...new Set([...latestState.archivedCodexSessionIds, codexSessionId]),
+    ],
+    sessionChannels: latestState.sessionChannels.filter(
+      (channel) =>
+        channel.codexSessionId !== codexSessionId &&
+        channel.discordChannelId !== targetChannel?.discordChannelId,
+    ),
+  }));
 
   return {
     codexSessionId,

@@ -195,7 +195,10 @@ export async function manageScheduledCommand(input: {
 
   if (request.action === "delete") {
     const nextSchedules = state.scheduledCommands.filter((schedule) => schedule.id !== request.id);
-    await input.stateStore.write({ ...state, scheduledCommands: nextSchedules });
+    await input.stateStore.update((latestState) => ({
+      ...latestState,
+      scheduledCommands: latestState.scheduledCommands.filter((schedule) => schedule.id !== request.id),
+    }));
     return {
       status: "deleted",
       id: request.id,
@@ -232,10 +235,10 @@ export async function manageScheduledCommand(input: {
     runCount: 0,
   };
 
-  await input.stateStore.write({
-    ...state,
-    scheduledCommands: [...state.scheduledCommands, schedule],
-  });
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    scheduledCommands: [...latestState.scheduledCommands, schedule],
+  }));
 
   return { status: "created", schedule };
 }
@@ -276,7 +279,14 @@ export async function runDueScheduledCommands(input: {
     });
   }
 
-  await input.stateStore.write({ ...state, scheduledCommands: nextSchedules });
+  const processedScheduleIds = new Set(state.scheduledCommands.map((schedule) => schedule.id));
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    scheduledCommands: [
+      ...latestState.scheduledCommands.filter((schedule) => !processedScheduleIds.has(schedule.id)),
+      ...nextSchedules,
+    ],
+  }));
 
   return { checked: state.scheduledCommands.length, executed, failed };
 }

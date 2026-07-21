@@ -780,6 +780,65 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
+  it("routes a Discord-requested completion to its recorded channel even if legacy state has duplicate links", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [],
+      });
+      const state = await stateStore.read();
+      const linkedChannel = (discordChannelId: string) => ({
+        codexSessionId: "session-1",
+        threadName: discordChannelId,
+        updatedAt: "2026-07-21T00:00:00.000Z",
+        cwd: "/repo",
+        workspaceRoot: "/repo",
+        workspaceDisplayName: "repo",
+        discordCategoryId: null,
+        discordChannelId,
+        discordParentChannelId: "admin-channel",
+        discordDeliveryMode: "thread" as const,
+        channelMode: "session-linked" as const,
+        channelName: discordChannelId,
+        computerId: "local-dev",
+        workspaceId: "local-dev:/repo",
+      });
+      await stateStore.write({
+        ...state,
+        sessionChannels: [linkedChannel("source-thread"), linkedChannel("fork-thread")],
+      });
+      await stateStore.markDiscordRequestedCodexSession("session-1", {
+        discordChannelId: "fork-thread",
+      });
+
+      await notifyCodexTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        adminChannelId: "admin-channel",
+        sessions: [session({ completionKey: "complete-2", assistantAnswer: "Discord fork 답변입니다." })],
+        mentionRoleIds: ["operator-role"],
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage).toHaveBeenCalledWith(
+        "fork-thread",
+        expect.objectContaining({
+          content: expect.stringContaining("Codex 작업 완료"),
+          embeds: [],
+        }),
+        { mentionRoleIds: ["operator-role"] },
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("posts the first completion for a new session after the baseline is initialized", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

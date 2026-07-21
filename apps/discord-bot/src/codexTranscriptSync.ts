@@ -238,6 +238,7 @@ export async function syncCodexSessionTranscriptUpdates(
   let updatedChannels = 0;
   let postedMessages = 0;
   let changed = false;
+  const changedChannels = new Map<string, SyncedSessionChannelState>();
 
   const sessionChannels = [...state.sessionChannels];
 
@@ -302,15 +303,35 @@ export async function syncCodexSessionTranscriptUpdates(
       latestMessage.key,
       channel.lastTranscriptDiscordMessageId,
     );
+    changedChannels.set(channel.discordChannelId, sessionChannels[index]);
     updatedChannels += 1;
     changed = true;
   }
 
   if (changed) {
-    await input.stateStore.write({
-      ...state,
-      sessionChannels,
-    });
+    await input.stateStore.update((latestState) => ({
+      ...latestState,
+      sessionChannels: latestState.sessionChannels.map((channel) => {
+        const changedChannel = changedChannels.get(channel.discordChannelId);
+
+        if (
+          !changedChannel ||
+          changedChannel.codexSessionId?.toLowerCase() !== channel.codexSessionId?.toLowerCase()
+        ) {
+          return channel;
+        }
+
+        return {
+          ...channel,
+          threadName: changedChannel.threadName,
+          updatedAt: changedChannel.updatedAt,
+          cwd: changedChannel.cwd,
+          lastTranscriptMessageKey: changedChannel.lastTranscriptMessageKey,
+          lastTranscriptSyncedAt: changedChannel.lastTranscriptSyncedAt,
+          lastTranscriptDiscordMessageId: changedChannel.lastTranscriptDiscordMessageId,
+        };
+      }),
+    }));
   }
 
   return {

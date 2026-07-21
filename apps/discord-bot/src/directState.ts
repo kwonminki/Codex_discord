@@ -27,6 +27,8 @@ export interface SyncedSessionChannelState {
   discordDeliveryMode?: DiscordSessionDeliveryMode;
   channelMode?: ChannelMode;
   claudeSessionId?: string | null;
+  pendingForkSourceDiscordChannelId?: string | null;
+  pendingForkSourceSessionId?: string | null;
   channelName: string;
   computerId: string;
   workspaceId: string;
@@ -76,6 +78,7 @@ export interface ClaudeCodeCompletionNotificationState {
 export interface DiscordRequestedCodexSessionState {
   sessionId: string;
   requestedAt: string;
+  discordChannelId?: string | null;
   completionMentionSent?: boolean;
 }
 
@@ -122,6 +125,9 @@ export type DirectSyncStateWriteInput = Omit<
 export interface DirectSyncStateStore {
   read(): Promise<DirectSyncState>;
   write(state: DirectSyncStateWriteInput): Promise<void>;
+  update(
+    updater: (state: DirectSyncState) => DirectSyncStateWriteInput | DirectSyncState,
+  ): Promise<DirectSyncState>;
   findSessionChannelByDiscordId(discordChannelId: string): Promise<SyncedSessionChannelState | null>;
   updateChannelCwd(discordChannelId: string, cwd: string): Promise<void>;
   updateSessionChannelCodexSession(
@@ -130,10 +136,11 @@ export interface DirectSyncStateStore {
     threadName?: string,
   ): Promise<void>;
   updateSessionChannelClaudeSession(discordChannelId: string, claudeSessionId: string): Promise<void>;
+  removePendingSessionChannel(discordChannelId: string): Promise<boolean>;
   updateTranscriptSyncMode(mode: TranscriptSyncMode): Promise<void>;
   markDiscordRequestedCodexSession(
     sessionId: string,
-    options?: { completionMentionSent?: boolean },
+    options?: { discordChannelId?: string | null; completionMentionSent?: boolean },
   ): Promise<void>;
 }
 
@@ -239,6 +246,12 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
                 {
                   sessionId: request.sessionId.toLowerCase(),
                   requestedAt: request.requestedAt,
+                  ...(typeof (request as DiscordRequestedCodexSessionState).discordChannelId === "string" &&
+                  (request as DiscordRequestedCodexSessionState).discordChannelId?.trim()
+                    ? {
+                        discordChannelId: (request as DiscordRequestedCodexSessionState).discordChannelId?.trim(),
+                      }
+                    : {}),
                   ...((request as DiscordRequestedCodexSessionState).completionMentionSent === true
                     ? { completionMentionSent: true }
                     : {}),
@@ -264,74 +277,136 @@ async function wait(ms: number): Promise<void> {
 
 export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePath()): DirectSyncStateStore {
   const resolvedStatePath = path.resolve(statePath);
+  let mutationQueue: Promise<void> = Promise.resolve();
 
-  return {
-    async read() {
-      let lastParseError: unknown = null;
+  async function readState(): Promise<DirectSyncState> {
+    let lastParseError: unknown = null;
 
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          return normalizeDirectSyncState(JSON.parse(await readFile(resolvedStatePath, "utf8")) as Partial<DirectSyncState>);
-        } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-            return createEmptyDirectSyncState();
-          }
-
-          if (!isJsonParseError(error)) {
-            throw error;
-          }
-
-          lastParseError = error;
-          await wait(25);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return normalizeDirectSyncState(JSON.parse(await readFile(resolvedStatePath, "utf8")) as Partial<DirectSyncState>);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+          return createEmptyDirectSyncState();
         }
-      }
 
-      throw lastParseError;
+        if (!isJsonParseError(error)) {
+          throw error;
+        }
+
+        lastParseError = error;
+        await wait(25);
+      }
+    }
+
+    throw lastParseError;
+  }
+
+  async function writeState(state: DirectSyncStateWriteInput): Promise<DirectSyncState> {
+    const normalizedState = normalizeDirectSyncState(state);
+    await mkdir(path.dirname(resolvedStatePath), { recursive: true });
+    const tempPath = `${resolvedStatePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+
+    try {
+      await writeFile(tempPath, `${JSON.stringify(normalizedState, null, 2)}\n`, "utf8");
+      await rename(tempPath, resolvedStatePath);
+      return normalizedState;
+    } catch (error) {
+      await rm(tempPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  function mutate<T>(
+    mutator: (state: DirectSyncState) => {
+      state: DirectSyncStateWriteInput | DirectSyncState;
+      result: T;
+    } | Promise<{
+      state: DirectSyncStateWriteInput | DirectSyncState;
+      result: T;
+    }>,
+  ): Promise<T> {
+    const operation = mutationQueue.then(async () => {
+      const currentState = await readState();
+      const next = await mutator(currentState);
+      await writeState(next.state);
+      return next.result;
+    });
+
+    mutationQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  const store: DirectSyncStateStore = {
+    async read() {
+      await mutationQueue;
+      return readState();
     },
     async write(state) {
-      await mkdir(path.dirname(resolvedStatePath), { recursive: true });
-      const tempPath = `${resolvedStatePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-
-      try {
-        await writeFile(tempPath, `${JSON.stringify(normalizeDirectSyncState(state), null, 2)}\n`, "utf8");
-        await rename(tempPath, resolvedStatePath);
-      } catch (error) {
-        await rm(tempPath, { force: true }).catch(() => undefined);
-        throw error;
-      }
+      await mutate(() => ({ state, result: undefined }));
+    },
+    async update(updater) {
+      return mutate((state) => {
+        const nextState = updater(state);
+        return { state: nextState, result: normalizeDirectSyncState(nextState) };
+      });
     },
     async findSessionChannelByDiscordId(discordChannelId) {
-      const state = await this.read();
+      const state = await store.read();
       return state.sessionChannels.find((channel) => channel.discordChannelId === discordChannelId) ?? null;
     },
     async updateChannelCwd(discordChannelId, cwd) {
-      const state = await this.read();
-      const nextState: DirectSyncState = {
+      await store.update((state) => ({
         ...state,
         sessionChannels: state.sessionChannels.map((channel) =>
           channel.discordChannelId === discordChannelId ? { ...channel, cwd } : channel,
         ),
-      };
-
-      await this.write(nextState);
+      }));
     },
     async updateSessionChannelCodexSession(discordChannelId, codexSessionId, threadName) {
-      const state = await this.read();
-      const nextState: DirectSyncState = {
-        ...state,
-        sessionChannels: state.sessionChannels.map((channel) =>
-          channel.discordChannelId === discordChannelId
-            ? {
-                ...channel,
-                codexSessionId,
-                threadName: threadName?.trim() || channel.threadName,
-                updatedAt: new Date().toISOString(),
-              }
-            : channel,
-        ),
-      };
+      const normalizedSessionId = codexSessionId.trim();
 
-      await this.write(nextState);
+      if (!normalizedSessionId) {
+        throw new Error("Codex session ID is required.");
+      }
+
+      await store.update((state) => {
+        const target = state.sessionChannels.find((channel) => channel.discordChannelId === discordChannelId);
+
+        if (!target) {
+          throw new Error(`Discord session channel was not found: ${discordChannelId}`);
+        }
+
+        if (target.pendingForkSourceSessionId?.toLowerCase() === normalizedSessionId.toLowerCase()) {
+          throw new Error("Fork returned the source Codex session ID instead of a new session ID.");
+        }
+
+        const conflictingChannel = state.sessionChannels.find(
+          (channel) =>
+            channel.discordChannelId !== discordChannelId &&
+            channel.codexSessionId?.toLowerCase() === normalizedSessionId.toLowerCase(),
+        );
+
+        if (conflictingChannel) {
+          throw new Error(`Codex session is already linked to Discord channel ${conflictingChannel.discordChannelId}.`);
+        }
+
+        return {
+          ...state,
+          sessionChannels: state.sessionChannels.map((channel) =>
+            channel.discordChannelId === discordChannelId
+              ? {
+                  ...channel,
+                  codexSessionId: normalizedSessionId,
+                  threadName: threadName?.trim() || channel.threadName,
+                  updatedAt: new Date().toISOString(),
+                  pendingForkSourceDiscordChannelId: null,
+                  pendingForkSourceSessionId: null,
+                }
+              : channel,
+          ),
+        };
+      });
     },
     async updateSessionChannelClaudeSession(discordChannelId, claudeSessionId) {
       const normalizedSessionId = claudeSessionId.trim();
@@ -340,28 +415,70 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
         return;
       }
 
-      const state = await this.read();
-      const nextState: DirectSyncState = {
-        ...state,
-        sessionChannels: state.sessionChannels.map((channel) =>
-          channel.discordChannelId === discordChannelId
-            ? {
-                ...channel,
-                claudeSessionId: normalizedSessionId,
-                updatedAt: new Date().toISOString(),
-              }
-            : channel,
-        ),
-      };
+      await store.update((state) => {
+        const target = state.sessionChannels.find((channel) => channel.discordChannelId === discordChannelId);
 
-      await this.write(nextState);
+        if (!target) {
+          throw new Error(`Discord session channel was not found: ${discordChannelId}`);
+        }
+
+        if (target.pendingForkSourceSessionId?.toLowerCase() === normalizedSessionId.toLowerCase()) {
+          throw new Error("Fork returned the source Claude Code session ID instead of a new session ID.");
+        }
+
+        const conflictingChannel = state.sessionChannels.find(
+          (channel) =>
+            channel.discordChannelId !== discordChannelId &&
+            channel.claudeSessionId?.toLowerCase() === normalizedSessionId.toLowerCase(),
+        );
+
+        if (conflictingChannel) {
+          throw new Error(`Claude Code session is already linked to Discord channel ${conflictingChannel.discordChannelId}.`);
+        }
+
+        return {
+          ...state,
+          sessionChannels: state.sessionChannels.map((channel) =>
+            channel.discordChannelId === discordChannelId
+              ? {
+                  ...channel,
+                  claudeSessionId: normalizedSessionId,
+                  updatedAt: new Date().toISOString(),
+                  pendingForkSourceDiscordChannelId: null,
+                  pendingForkSourceSessionId: null,
+                }
+              : channel,
+          ),
+        };
+      });
+    },
+    async removePendingSessionChannel(discordChannelId) {
+      return mutate((state) => {
+        const target = state.sessionChannels.find((channel) => channel.discordChannelId === discordChannelId);
+        const pending = Boolean(
+          target &&
+          !target.codexSessionId &&
+          !target.claudeSessionId,
+        );
+
+        return {
+          state: pending
+            ? {
+                ...state,
+                sessionChannels: state.sessionChannels.filter(
+                  (channel) => channel.discordChannelId !== discordChannelId,
+                ),
+              }
+            : state,
+          result: pending,
+        };
+      });
     },
     async updateTranscriptSyncMode(mode) {
-      const state = await this.read();
-      await this.write({
+      await store.update((state) => ({
         ...state,
         transcriptSyncMode: mode,
-      });
+      }));
     },
     async markDiscordRequestedCodexSession(sessionId, options) {
       const normalizedSessionId = sessionId.trim().toLowerCase();
@@ -370,33 +487,40 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
         return;
       }
 
-      const state = await this.read();
+      await store.update((state) => {
+        const existingRequest = state.discordRequestedCodexSessionRequests.find(
+          (request) => request.sessionId === normalizedSessionId,
+        );
+        const discordChannelId = options?.discordChannelId?.trim() || existingRequest?.discordChannelId || null;
 
-      const existingRequest = state.discordRequestedCodexSessionRequests.find(
-        (request) => request.sessionId === normalizedSessionId,
-      );
+        if (
+          existingRequest &&
+          (!options?.completionMentionSent || existingRequest.completionMentionSent) &&
+          discordChannelId === (existingRequest.discordChannelId ?? null)
+        ) {
+          return state;
+        }
 
-      if (
-        existingRequest &&
-        (!options?.completionMentionSent || existingRequest.completionMentionSent)
-      ) {
-        return;
-      }
-
-      await this.write({
-        ...state,
-        discordRequestedCodexSessionIds: [],
-        discordRequestedCodexSessionRequests: [
-          ...state.discordRequestedCodexSessionRequests.filter(
-            (request) => request.sessionId !== normalizedSessionId,
-          ),
-          {
-            sessionId: normalizedSessionId,
-            requestedAt: existingRequest?.requestedAt ?? new Date().toISOString(),
-            ...(options?.completionMentionSent ? { completionMentionSent: true } : {}),
-          },
-        ],
+        return {
+          ...state,
+          discordRequestedCodexSessionIds: [],
+          discordRequestedCodexSessionRequests: [
+            ...state.discordRequestedCodexSessionRequests.filter(
+              (request) => request.sessionId !== normalizedSessionId,
+            ),
+            {
+              sessionId: normalizedSessionId,
+              requestedAt: existingRequest?.requestedAt ?? new Date().toISOString(),
+              ...(discordChannelId ? { discordChannelId } : {}),
+              ...(options?.completionMentionSent || existingRequest?.completionMentionSent
+                ? { completionMentionSent: true }
+                : {}),
+            },
+          ],
+        };
       });
     },
   };
+
+  return store;
 }

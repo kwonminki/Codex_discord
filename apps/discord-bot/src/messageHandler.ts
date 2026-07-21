@@ -131,8 +131,13 @@ export interface CreateDiscordMessageHandlerInput {
   createForkedSessionThread?: (input: {
     guild: DiscordGuildSurface;
     sourceDiscordChannelId: string;
+    sourceSessionId: string;
     name: string;
   }) => Promise<NewCodexChatResult>;
+  discardForkedSessionThread?: (input: {
+    guild: DiscordGuildSurface;
+    discordChannelId: string;
+  }) => Promise<boolean>;
   linkNewCodexSession?: (input: {
     discordChannelId: string;
     codexSessionId: string;
@@ -165,7 +170,7 @@ export interface CreateDiscordMessageHandlerInput {
   setSessionStreaming?: (sessionId: string, active: boolean) => void;
   markDiscordRequestedCodexSession?: (
     sessionId: string,
-    options?: { completionMentionSent?: boolean },
+    options?: { discordChannelId?: string | null; completionMentionSent?: boolean },
   ) => Promise<void> | void;
   reloadBot?: (input: { mode: "commands" | "restart" }) => Promise<{
     mode: "commands" | "restart";
@@ -404,6 +409,34 @@ function extractCodexResponseFinalMessage(response: { result?: unknown; error?: 
     typeof (response.result as { finalMessage?: unknown }).finalMessage === "string"
     ? (response.result as { finalMessage: string }).finalMessage
     : null;
+}
+
+function forkResponseErrorMessage(
+  response: { result?: unknown; error?: unknown },
+  agentLabel: "Codex" | "Claude Code",
+): string | null {
+  if (!promptResponseFailed(response)) {
+    return null;
+  }
+
+  if (typeof response.error === "object" && response.error !== null) {
+    const message = (response.error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.trim();
+    }
+  }
+
+  if (typeof response.result === "object" && response.result !== null) {
+    const result = response.result as { finalMessage?: unknown; stderr?: unknown };
+    const message = [result.finalMessage, result.stderr].find(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    );
+    if (message) {
+      return message.trim();
+    }
+  }
+
+  return `${agentLabel} fork 실행이 실패했습니다.`;
 }
 
 function withAgentMessageFallback<T extends { result?: unknown; error?: unknown }>(
@@ -1355,9 +1388,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         if (reviewSessionId) {
           if (completionDelivery !== "unavailable") {
-            await input.markDiscordRequestedCodexSession?.(reviewSessionId, { completionMentionSent: true });
+            await input.markDiscordRequestedCodexSession?.(reviewSessionId, {
+              discordChannelId: message.channelId,
+              completionMentionSent: true,
+            });
           } else {
-            await input.markDiscordRequestedCodexSession?.(reviewSessionId);
+            await input.markDiscordRequestedCodexSession?.(reviewSessionId, {
+              discordChannelId: message.channelId,
+            });
           }
         }
       } catch (error) {
@@ -1403,6 +1441,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           sourceSessionId,
         }),
       );
+      let forkThread: NewCodexChatResult | null = null;
+      const activeForkSessionIds = new Set<string>();
+
+      const trackActiveForkSession = (sessionId: string) => {
+        if (!input.setSessionStreaming || activeForkSessionIds.has(sessionId)) {
+          return;
+        }
+
+        activeForkSessionIds.add(sessionId);
+        input.setSessionStreaming(sessionId, true);
+      };
 
       try {
         if (!sourceSessionId) {
@@ -1418,9 +1467,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           throw new Error("Discord guild context is required for session fork.");
         }
 
-        const forkThread = await input.createForkedSessionThread({
+        forkThread = await input.createForkedSessionThread({
           guild: message.guild,
           sourceDiscordChannelId: message.channelId,
+          sourceSessionId,
           name: routed.name,
         });
 
@@ -1444,16 +1494,31 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             },
           });
 
+          const failureMessage = forkResponseErrorMessage(response, "Claude Code");
+          if (failureMessage) {
+            throw new Error(failureMessage);
+          }
+
           forkSessionId = extractCodexResponseSessionId(response);
           finalMessage = extractCodexResponseFinalMessage(response);
 
-          if (forkSessionId) {
-            claudeSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
-            await input.recordClaudeSession?.({
-              discordChannelId: forkThread.discordChannelId,
-              claudeSessionId: forkSessionId,
-            });
+          if (!forkSessionId) {
+            throw new Error("Claude Code fork가 새 session ID를 반환하지 않았습니다.");
           }
+
+          if (forkSessionId.toLowerCase() === sourceSessionId.toLowerCase()) {
+            throw new Error("Claude Code fork가 원본과 같은 session ID를 반환해 연결을 중단했습니다.");
+          }
+
+          if (!input.recordClaudeSession) {
+            throw new Error("Claude Code fork session persistence is not connected for this bot mode.");
+          }
+
+          await input.recordClaudeSession({
+            discordChannelId: forkThread.discordChannelId,
+            claudeSessionId: forkSessionId,
+          });
+          claudeSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
         } else {
           if (!input.submitCodexPrompt) {
             throw new Error("Codex chat is not connected for this bot mode.");
@@ -1472,34 +1537,68 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               reasoningEffort: reasoningEffortForChannel(message.channelId),
               controlKey: forkThread.discordChannelId,
             },
+            onProgress: (event) => {
+              if (event.type === "thread-started") {
+                trackActiveForkSession(event.sessionId);
+              }
+            },
             onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
           });
+
+          const failureMessage = forkResponseErrorMessage(response, "Codex");
+          if (failureMessage) {
+            throw new Error(failureMessage);
+          }
 
           forkSessionId = extractCodexResponseSessionId(response);
           finalMessage = extractCodexResponseFinalMessage(response);
 
-          if (forkSessionId) {
-            codexSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
-            await input.markDiscordRequestedCodexSession?.(forkSessionId);
-            await input.linkNewCodexSession?.({
-              discordChannelId: forkThread.discordChannelId,
-              codexSessionId: forkSessionId,
-              threadName: routed.name,
-            });
+          if (!forkSessionId) {
+            throw new Error("Codex fork가 새 session ID를 반환하지 않았습니다.");
           }
+
+          if (forkSessionId.toLowerCase() === sourceSessionId.toLowerCase()) {
+            throw new Error("Codex fork가 원본과 같은 session ID를 반환해 연결을 중단했습니다.");
+          }
+
+          if (!input.linkNewCodexSession) {
+            throw new Error("Codex fork session persistence is not connected for this bot mode.");
+          }
+
+          await input.linkNewCodexSession({
+            discordChannelId: forkThread.discordChannelId,
+            codexSessionId: forkSessionId,
+            threadName: routed.name,
+          });
+          codexSessionIdsByChannel.set(forkThread.discordChannelId, forkSessionId);
         }
 
-        await message.guild.sendTextMessage?.(
-          forkThread.discordChannelId,
-          formatForkedSessionThreadNotice({
-            channelMode: forkThread.channelMode,
-            sourceChannelId: message.channelId,
-            sourceSessionId,
-            forkSessionId,
-            finalMessage,
-          }),
-          { mentionRoleIds: channelContext.allowedRoleIds },
-        );
+        try {
+          await message.guild.sendTextMessage?.(
+            forkThread.discordChannelId,
+            formatForkedSessionThreadNotice({
+              channelMode: forkThread.channelMode,
+              sourceChannelId: message.channelId,
+              sourceSessionId,
+              forkSessionId,
+              finalMessage,
+            }),
+            { mentionRoleIds: channelContext.allowedRoleIds },
+          );
+        } catch (error) {
+          console.warn("discord-bot failed to post the fork thread notice", error);
+        }
+
+        if (!isClaudeFork && forkSessionId) {
+          try {
+            await input.markDiscordRequestedCodexSession?.(forkSessionId, {
+              discordChannelId: forkThread.discordChannelId,
+              completionMentionSent: true,
+            });
+          } catch (error) {
+            console.warn("discord-bot failed to record the fork completion delivery", error);
+          }
+        }
 
         await updateQueuedReply(
           queuedReply,
@@ -1512,12 +1611,30 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           }),
         );
       } catch (error) {
+        if (forkThread && message.guild && input.discardForkedSessionThread) {
+          codexSessionIdsByChannel.delete(forkThread.discordChannelId);
+          claudeSessionIdsByChannel.delete(forkThread.discordChannelId);
+
+          try {
+            await input.discardForkedSessionThread({
+              guild: message.guild,
+              discordChannelId: forkThread.discordChannelId,
+            });
+          } catch (cleanupError) {
+            console.warn("discord-bot failed to clean up an unlinked fork thread", cleanupError);
+          }
+        }
+
         const messageText = error instanceof Error ? error.message : "Session fork failed";
         await updateQueuedReply(
           queuedReply,
           (replyMessage) => reply(replyMessage),
           formatForkSessionResult({ error: { message: messageText } }),
         );
+      } finally {
+        for (const sessionId of activeForkSessionIds) {
+          input.setSessionStreaming?.(sessionId, false);
+        }
       }
       return;
     }
@@ -1834,9 +1951,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         if (nextSessionId) {
           if (completionDelivery !== "unavailable") {
-            await input.markDiscordRequestedCodexSession?.(nextSessionId, { completionMentionSent: true });
+            await input.markDiscordRequestedCodexSession?.(nextSessionId, {
+              discordChannelId: message.channelId,
+              completionMentionSent: true,
+            });
           } else {
-            await input.markDiscordRequestedCodexSession?.(nextSessionId);
+            await input.markDiscordRequestedCodexSession?.(nextSessionId, {
+              discordChannelId: message.channelId,
+            });
           }
         }
       } catch (error) {

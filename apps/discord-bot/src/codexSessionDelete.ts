@@ -1,4 +1,4 @@
-import { createEmptyDirectSyncState, type DirectSyncStateStore } from "./directState.js";
+import type { DirectSyncStateStore } from "./directState.js";
 import { mapWithConcurrency } from "./concurrency.js";
 
 export type SyncedDeleteMode = "all" | "channels" | "session";
@@ -141,21 +141,19 @@ export async function deleteSyncedDiscordSessions(input: {
     }
   }
 
-  await input.stateStore.write(
-    input.mode === "all"
-      ? {
-          ...createEmptyDirectSyncState(),
-          transcriptSyncMode: state.transcriptSyncMode,
-          archivedCodexSessionIds: state.archivedCodexSessionIds,
-        }
-      : {
-          ...state,
-          sessionChannels:
-            input.mode === "session"
-              ? state.sessionChannels.filter((channel) => channel.codexSessionId !== input.sessionId)
-              : [],
-        },
-  );
+  const targetChannelIds = new Set(targetChannels.map((channel) => channel.discordChannelId));
+  const targetCategoryIds = new Set(state.workspaces.map((workspace) => workspace.discordCategoryId));
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    workspaces: input.mode === "all"
+      ? latestState.workspaces.filter(
+          (workspace) => !targetCategoryIds.has(workspace.discordCategoryId),
+        )
+      : latestState.workspaces,
+    sessionChannels: latestState.sessionChannels.filter(
+      (channel) => !targetChannelIds.has(channel.discordChannelId),
+    ),
+  }));
 
   return result;
 }

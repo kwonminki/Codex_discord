@@ -239,7 +239,10 @@ describe("direct sync state store", () => {
 
       await store.markDiscordRequestedCodexSession("SESSION-1");
       await store.markDiscordRequestedCodexSession("session-1");
-      await store.markDiscordRequestedCodexSession("session-1", { completionMentionSent: true });
+      await store.markDiscordRequestedCodexSession("session-1", {
+        discordChannelId: "thread-1",
+        completionMentionSent: true,
+      });
       await store.markDiscordRequestedCodexSession("session-2");
 
       await expect(store.read()).resolves.toMatchObject({
@@ -248,6 +251,7 @@ describe("direct sync state store", () => {
           {
             sessionId: "session-1",
             requestedAt: expect.any(String),
+            discordChannelId: "thread-1",
             completionMentionSent: true,
           },
           {
@@ -256,6 +260,70 @@ describe("direct sync state store", () => {
           },
         ],
       });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects source or duplicate session IDs when a pending fork is linked", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
+
+    try {
+      const store = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+      const channel = (input: {
+        discordChannelId: string;
+        codexSessionId: string | null;
+        pendingForkSourceSessionId?: string;
+      }) => ({
+        codexSessionId: input.codexSessionId,
+        threadName: input.discordChannelId,
+        updatedAt: "2026-07-21T00:00:00.000Z",
+        cwd: "/repo",
+        workspaceRoot: "/repo",
+        workspaceDisplayName: "repo",
+        discordCategoryId: null,
+        discordChannelId: input.discordChannelId,
+        discordDeliveryMode: "thread" as const,
+        channelMode: "session-linked" as const,
+        channelName: input.discordChannelId,
+        computerId: "local-dev",
+        workspaceId: "local-dev:/repo",
+        pendingForkSourceSessionId: input.pendingForkSourceSessionId ?? null,
+      });
+
+      await store.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [
+          channel({ discordChannelId: "source-thread", codexSessionId: "source-session" }),
+          channel({
+            discordChannelId: "fork-thread",
+            codexSessionId: null,
+            pendingForkSourceSessionId: "source-session",
+          }),
+        ],
+      });
+
+      await expect(
+        store.updateSessionChannelCodexSession("fork-thread", "source-session", "Fork"),
+      ).rejects.toThrow("source Codex session ID");
+
+      await store.updateSessionChannelCodexSession("fork-thread", "fork-session", "Fork");
+
+      await store.update((state) => ({
+        ...state,
+        sessionChannels: [
+          ...state.sessionChannels,
+          channel({ discordChannelId: "second-fork", codexSessionId: null }),
+        ],
+      }));
+
+      await expect(
+        store.updateSessionChannelCodexSession("second-fork", "fork-session", "Second fork"),
+      ).rejects.toThrow("already linked");
+      await expect(store.removePendingSessionChannel("fork-thread")).resolves.toBe(false);
+      await expect(store.removePendingSessionChannel("second-fork")).resolves.toBe(true);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

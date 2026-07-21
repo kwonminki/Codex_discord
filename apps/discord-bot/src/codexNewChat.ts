@@ -49,6 +49,7 @@ export interface ForkDiscordSessionThreadInput {
   controlApi: Pick<ControlApiClient, "createManagedChannel">;
   stateStore: DirectSyncStateStore;
   sourceDiscordChannelId: string;
+  sourceSessionId: string;
   name: string;
   now?: Date;
 }
@@ -301,8 +302,23 @@ export async function createNewCodexChatChannel(
     workspaceId: nextChannel.workspaceId,
     channelMode,
   });
-  state.sessionChannels.push(nextChannel);
-  await input.stateStore.write(state);
+  await input.stateStore.update((latestState) => ({
+    ...latestState,
+    workspaces: workspace
+      ? [
+          ...latestState.workspaces.filter(
+            (candidate) => candidate.workspaceRoot !== workspace.workspaceRoot,
+          ),
+          workspace,
+        ]
+      : latestState.workspaces,
+    sessionChannels: [
+      ...latestState.sessionChannels.filter(
+        (candidate) => candidate.discordChannelId !== nextChannel.discordChannelId,
+      ),
+      nextChannel,
+    ],
+  }));
 
   return {
     discordChannelId: channel.id,
@@ -342,6 +358,19 @@ export async function createForkedDiscordSessionThread(
   }
 
   const channelMode = sourceChannel.channelMode === "claude-code" ? "claude-code" : "session-linked";
+  const sourceSessionId = input.sourceSessionId.trim();
+  const persistedSourceSessionId = channelMode === "claude-code"
+    ? sourceChannel.claudeSessionId?.trim() || null
+    : sourceChannel.codexSessionId?.trim() || null;
+
+  if (!sourceSessionId) {
+    throw new Error("Fork source session ID is required.");
+  }
+
+  if (persistedSourceSessionId && persistedSourceSessionId.toLowerCase() !== sourceSessionId.toLowerCase()) {
+    throw new Error("Discord source thread session changed while the fork was being prepared.");
+  }
+
   const parentChannelId = sourceChannel.discordParentChannelId?.trim();
 
   if (!parentChannelId || sourceChannel.discordDeliveryMode !== "thread") {
@@ -373,6 +402,8 @@ export async function createForkedDiscordSessionThread(
     discordParentChannelId: parentChannelId,
     discordDeliveryMode: "thread",
     channelMode,
+    pendingForkSourceDiscordChannelId: input.sourceDiscordChannelId,
+    pendingForkSourceSessionId: sourceSessionId,
     channelName,
     computerId: sourceChannel.computerId,
     workspaceId: sourceChannel.workspaceId,
@@ -386,8 +417,39 @@ export async function createForkedDiscordSessionThread(
     channelMode,
   });
 
-  state.sessionChannels.push(nextChannel);
-  await input.stateStore.write(state);
+  try {
+    await input.stateStore.update((latestState) => {
+      const latestSourceChannel = latestState.sessionChannels.find(
+        (candidate) => candidate.discordChannelId === input.sourceDiscordChannelId,
+      );
+      const latestSourceSessionId = channelMode === "claude-code"
+        ? latestSourceChannel?.claudeSessionId?.trim() || null
+        : latestSourceChannel?.codexSessionId?.trim() || null;
+
+      if (!latestSourceChannel) {
+        throw new Error("Fork source Discord thread disappeared while the fork was being prepared.");
+      }
+
+      if (latestSourceSessionId && latestSourceSessionId.toLowerCase() !== sourceSessionId.toLowerCase()) {
+        throw new Error("Discord source thread session changed while the fork was being prepared.");
+      }
+
+      return {
+        ...latestState,
+        sessionChannels: [
+          ...latestState.sessionChannels.filter(
+            (candidate) => candidate.discordChannelId !== nextChannel.discordChannelId,
+          ),
+          nextChannel,
+        ],
+      };
+    });
+  } catch (error) {
+    if (input.guild.deleteChannel) {
+      await input.guild.deleteChannel(thread.id).catch(() => undefined);
+    }
+    throw error;
+  }
 
   return {
     discordChannelId: thread.id,
@@ -402,6 +464,20 @@ export async function createForkedDiscordSessionThread(
     discordDeliveryMode: "thread",
     channelMode,
   };
+}
+
+export async function discardPendingDiscordSessionThread(input: {
+  guild: Pick<DiscordGuildSurface, "deleteChannel">;
+  stateStore: DirectSyncStateStore;
+  discordChannelId: string;
+}): Promise<boolean> {
+  const removed = await input.stateStore.removePendingSessionChannel(input.discordChannelId);
+
+  if (removed && input.guild.deleteChannel) {
+    await input.guild.deleteChannel(input.discordChannelId);
+  }
+
+  return removed;
 }
 
 export async function linkPendingNewCodexChatSession(input: {

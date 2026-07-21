@@ -193,6 +193,16 @@ function prepareCodexProgressPayload(messageId: string, message: unknown): unkno
     return message;
   }
 
+  if (message.embeds.length > 0) {
+    const files = message.files ?? codexProgressMessages.get(messageId)?.files;
+
+    if (files && files.length > 0) {
+      message.files = files;
+    }
+
+    return message;
+  }
+
   const expanded = codexProgressMessages.get(messageId)?.expanded ?? view.view.expanded;
   let prepared = formatCodexThoughtView(view, { expanded });
   const mentionRoleIds = message.allowedMentions.roles ?? [];

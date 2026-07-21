@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { createForkedDiscordSessionThread, createNewCodexChatChannel } from "./codexNewChat.js";
+import {
+  createForkedDiscordSessionThread,
+  createNewCodexChatChannel,
+  discardPendingDiscordSessionThread,
+} from "./codexNewChat.js";
 import { createDirectSyncStateStore } from "./directState.js";
 
 describe("createNewCodexChatChannel", () => {
@@ -394,6 +398,7 @@ describe("createForkedDiscordSessionThread", () => {
         controlApi,
         stateStore,
         sourceDiscordChannelId: "source-thread",
+        sourceSessionId: "claude-source-session-1",
         name: "Forked Claude task",
         now: new Date("2026-07-20T05:10:00.000Z"),
       });
@@ -423,7 +428,18 @@ describe("createForkedDiscordSessionThread", () => {
         discordParentChannelId: "claude-parent",
         discordDeliveryMode: "thread",
         channelMode: "claude-code",
+        pendingForkSourceDiscordChannelId: "source-thread",
+        pendingForkSourceSessionId: "claude-source-session-1",
       });
+
+      const deleteChannel = vi.fn().mockResolvedValue(undefined);
+      await expect(discardPendingDiscordSessionThread({
+        guild: { deleteChannel },
+        stateStore,
+        discordChannelId: "fork-thread",
+      })).resolves.toBe(true);
+      expect(deleteChannel).toHaveBeenCalledWith("fork-thread");
+      await expect(stateStore.findSessionChannelByDiscordId("fork-thread")).resolves.toBeNull();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

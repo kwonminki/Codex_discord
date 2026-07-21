@@ -193,10 +193,24 @@ export async function notifyClaudeCodeTaskCompletions(
       notification,
     ]),
   );
+  const channelGroupsByClaudeSession = new Map<string, typeof state.sessionChannels>();
+
+  for (const channel of state.sessionChannels) {
+    if (channel.channelMode !== "claude-code" || !channel.claudeSessionId) {
+      continue;
+    }
+
+    const sessionId = normalizedSessionId(channel.claudeSessionId);
+    channelGroupsByClaudeSession.set(sessionId, [
+      ...(channelGroupsByClaudeSession.get(sessionId) ?? []),
+      channel,
+    ]);
+  }
+
   const channelsByClaudeSession = new Map(
-    state.sessionChannels
-      .filter((channel) => channel.channelMode === "claude-code" && channel.claudeSessionId)
-      .map((channel) => [normalizedSessionId(channel.claudeSessionId ?? ""), channel]),
+    [...channelGroupsByClaudeSession]
+      .filter(([, channels]) => channels.length === 1)
+      .map(([sessionId, channels]) => [sessionId, channels[0]]),
   );
   const initialized =
     Boolean(state.claudeCompletionNotificationsInitializedAt) &&
@@ -207,6 +221,13 @@ export async function notifyClaudeCodeTaskCompletions(
   let completedSessions = 0;
   let notifiedSessions = 0;
   let changed = false;
+  const persistState = async () => {
+    await input.stateStore.update((latestState) => completionState({
+      state: latestState,
+      notificationsBySession,
+      now,
+    }));
+  };
 
   for (const session of input.sessions) {
     if (!isClaudeCompletionCandidate(session, { now: nowDate, idleMs })) {
@@ -234,11 +255,7 @@ export async function notifyClaudeCodeTaskCompletions(
       continue;
     }
 
-    await input.stateStore.write(completionState({
-      state,
-      notificationsBySession,
-      now,
-    }));
+    await persistState();
     changed = false;
 
     const notification = formatClaudeCompleteNotification(session);
@@ -263,11 +280,7 @@ export async function notifyClaudeCodeTaskCompletions(
   }
 
   if (changed) {
-    await input.stateStore.write(completionState({
-      state,
-      notificationsBySession,
-      now,
-    }));
+    await persistState();
   }
 
   return {

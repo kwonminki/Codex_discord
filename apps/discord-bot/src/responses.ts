@@ -3635,7 +3635,8 @@ export function formatCodexResultUpdate(
   const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(messageAfterDiscordSendBlocks);
   const mediaLinkOutputs = failed ? { attachments: [], notices: [] } : extractLocalMediaLinkOutputs(messageAfterDiscordSendBlocks);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
-  const openSessionActions = agentLabel(input) === "Codex" ? codexOpenSessionActions(sessionId) : [];
+  const currentAgentLabel = agentLabel(input);
+  const openSessionActions = currentAgentLabel === "Codex" ? codexOpenSessionActions(sessionId) : [];
 
   if (!failed) {
     const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
@@ -3652,50 +3653,50 @@ export function formatCodexResultUpdate(
       .join("\n") || (attachedFileCount > 0 ? "첨부 파일을 보냈습니다." : finalMessage);
     const finalTextChunks = splitDiscordMessageContent(finalContent);
     const finalTextForDiscord = finalTextChunks[0] ?? finalContent;
-    const continuationPayloads = finalTextChunks.slice(1).map((chunk) => textPayload(chunk));
+    const answerColor = currentAgentLabel === "Claude Code" ? 0x8e44ad : COLORS.codex;
+    const continuationPayloads = finalTextChunks.slice(1).map((chunk) =>
+      messagePayload({
+        title: "답변 (계속)",
+        color: answerColor,
+        description: chunk,
+      }),
+    );
     const finalFiles = deduplicateDiscordFiles([
       ...discordSendOutputs.attachments,
       ...mediaLinkOutputs.attachments,
       ...imageOutputs.attachments,
     ]);
-
-    if (recentEvents.length > 0) {
-      const expanded = options.expanded ?? false;
-      const collapsedContent = [finalTextForDiscord, "_생각과 중간 출력은 버튼으로 열 수 있습니다._"]
-        .filter((line) => line.trim().length > 0)
-        .join("\n\n");
-      const expandedContent = [
-        finalTextForDiscord,
-        "**생각 / 중간 출력**",
-        ...recentEvents.map((event) => renderProgressEvent(event)),
-      ]
-        .filter((line) => line.trim().length > 0)
-        .join("\n\n");
-      const payload = formatCollapsibleThoughtMessage(
-        {
-          collapsedContent,
-          expandedContent,
-        },
-        { expanded, actionRows: openSessionActions },
-      );
-
-      if (finalFiles.length > 0) {
-        payload.files = finalFiles;
-      }
-
-      if (continuationPayloads.length > 0) {
-        codexResultContinuationMessages.set(payload, continuationPayloads);
-      }
-
-      return payload;
-    }
-
-    const payload = textPayload(
-      finalTextForDiscord,
+    const metadataLines = [
+      `**${currentAgentLabel} 작업 완료**`,
+      `위치: ${wrapDiscordText(input.cwd)}`,
+      sessionId
+        ? `${currentAgentLabel === "Claude Code" ? "Claude session" : "세션 ID"}: ${wrapDiscordText(sessionId)}`
+        : null,
+    ].filter((line): line is string => Boolean(line));
+    const processEvents = recentEvents.filter(
+      (event) => event.trim().length > 0 && event.trim() !== finalMessage.trim(),
     );
-    if (openSessionActions.length > 0) {
-      payload.components = openSessionActions;
-    }
+    const processSnapshot = [
+      "**생각 / 중간 출력**",
+      ...(processEvents.length > 0
+        ? processEvents.map((event) => renderProgressEvent(event))
+        : ["표시할 중간 출력이 없습니다."]),
+    ].join("\n\n");
+    const payload: DiscordMessagePayload = {
+      allowedMentions: { parse: [] },
+      content: metadataLines.join("\n"),
+      embeds: [
+        {
+          title: "답변",
+          color: answerColor,
+          description: finalTextForDiscord,
+        },
+      ],
+      components: [
+        ...(processEvents.length > 0 ? [codexVisibleProcessActionRow()] : []),
+        ...openSessionActions,
+      ],
+    };
 
     if (finalFiles.length > 0) {
       payload.files = finalFiles;
@@ -3705,7 +3706,9 @@ export function formatCodexResultUpdate(
       codexResultContinuationMessages.set(payload, continuationPayloads);
     }
 
-    return payload;
+    return processEvents.length > 0
+      ? attachCodexVisibleProcessSnapshot(payload, processSnapshot)
+      : payload;
   }
 
   const payload = messagePayload({

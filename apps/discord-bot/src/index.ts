@@ -6,6 +6,7 @@ import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
 import {
   createForkedDiscordSessionThread,
   createNewCodexChatChannel,
+  discardPendingDiscordSessionThread,
   linkPendingNewCodexChatSession,
 } from "./codexNewChat.js";
 import { archiveSyncedCodexSession } from "./codexSessionArchive.js";
@@ -586,6 +587,7 @@ export async function startBot(): Promise<void> {
       ? async (input: {
           guild: DiscordGuildSurface;
           sourceDiscordChannelId: string;
+          sourceSessionId: string;
           name: string;
         }) =>
           createForkedDiscordSessionThread({
@@ -593,7 +595,17 @@ export async function startBot(): Promise<void> {
             controlApi: controlApiClient,
             stateStore: directStateStore,
             sourceDiscordChannelId: input.sourceDiscordChannelId,
+            sourceSessionId: input.sourceSessionId,
             name: input.name,
+          })
+      : undefined;
+  const discardForkedSessionThread =
+    connectConfig?.mode === "direct" && directStateStore
+      ? (input: { guild: DiscordGuildSurface; discordChannelId: string }) =>
+          discardPendingDiscordSessionThread({
+            guild: input.guild,
+            stateStore: directStateStore,
+            discordChannelId: input.discordChannelId,
           })
       : undefined;
   const linkNewCodexSession =
@@ -616,6 +628,7 @@ export async function startBot(): Promise<void> {
     syncCodexSessions,
     createNewCodexChat,
     createForkedSessionThread,
+    discardForkedSessionThread,
     linkNewCodexSession,
     recordClaudeSession: directStateStore
       ? (input) =>

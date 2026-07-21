@@ -200,7 +200,8 @@ describe("attachDiscordMessageHandler", () => {
     );
     expect(edit.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({
-        content: expect.stringContaining("Claude 최종 답변입니다."),
+        content: expect.stringContaining("**Claude Code 작업 완료**"),
+        embeds: [expect.objectContaining({ description: "Claude 최종 답변입니다." })],
       }),
     );
   });
@@ -869,7 +870,12 @@ describe("attachDiscordInteractionHandler", () => {
       await vi.waitFor(() => expect(sentMessage.edit).toHaveBeenCalled());
       expect(sentMessage.edit).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: expect.stringContaining("우선 판단 가치가 높은 샘플을 보냅니다."),
+          content: expect.stringContaining("**Codex 작업 완료**"),
+          embeds: [
+            expect.objectContaining({
+              description: expect.stringContaining("우선 판단 가치가 높은 샘플을 보냅니다."),
+            }),
+          ],
           files: [{ attachment: videoPath, name: "review.mp4" }],
         }),
       );

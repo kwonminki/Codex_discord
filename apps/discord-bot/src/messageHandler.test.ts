@@ -529,12 +529,18 @@ describe("createDiscordMessageHandler", () => {
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       1,
       "thread-1",
-      expect.objectContaining({ content: expect.stringContaining("첫 번째 요청을 처리했습니다.") }),
+      expect.objectContaining({
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("첫 번째 요청을 처리했습니다.") })],
+      }),
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       2,
       "thread-1",
-      expect.objectContaining({ content: expect.stringContaining("두 번째 요청까지 처리했습니다.") }),
+      expect.objectContaining({
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("두 번째 요청까지 처리했습니다.") })],
+      }),
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       3,
@@ -546,7 +552,7 @@ describe("createDiscordMessageHandler", () => {
     expect(markDiscordRequestedCodexSession).toHaveBeenNthCalledWith(
       1,
       "session-1",
-      { completionMentionSent: true },
+      { discordChannelId: "thread-1", completionMentionSent: true },
     );
   });
 
@@ -791,7 +797,9 @@ describe("createDiscordMessageHandler", () => {
         onProgress: expect.any(Function),
       }),
     );
-    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-session-1");
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-session-1", {
+      discordChannelId: "discord-channel-1",
+    });
     expect(replies).toEqual([
       expect.objectContaining({
         content: expect.stringContaining("**Codex 작업 시작**"),
@@ -800,8 +808,13 @@ describe("createDiscordMessageHandler", () => {
     ]);
     expect(edits).toEqual([
       expect.objectContaining({
-        content: "이 프로젝트는 Discord에서 Codex를 제어하는 브리지입니다.",
-        embeds: [],
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [
+          expect.objectContaining({
+            title: "답변",
+            description: "이 프로젝트는 Discord에서 Codex를 제어하는 브리지입니다.",
+          }),
+        ],
       }),
     ]);
   });
@@ -909,8 +922,8 @@ describe("createDiscordMessageHandler", () => {
     );
     expect(edits.at(-1)).toEqual(
       expect.objectContaining({
-        content: "승인 후 계속 진행했습니다.",
-        embeds: [],
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: "승인 후 계속 진행했습니다." })],
       }),
     );
   });
@@ -1101,7 +1114,8 @@ describe("createDiscordMessageHandler", () => {
     );
     expect(edits.at(-1)).toEqual(
       expect.objectContaining({
-        content: expect.stringContaining("Claude 답변입니다."),
+        content: expect.stringContaining("**Claude Code 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("Claude 답변입니다.") })],
       }),
     );
     expect(submitClaudePrompt).toHaveBeenNthCalledWith(
@@ -1183,7 +1197,8 @@ describe("createDiscordMessageHandler", () => {
     });
     expect(edits.at(-1)).toEqual(
       expect.objectContaining({
-        content: expect.stringContaining("Claude 답변입니다."),
+        content: expect.stringContaining("**Claude Code 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("Claude 답변입니다.") })],
       }),
     );
     expect(replies.at(-1)).toEqual(
@@ -1276,6 +1291,7 @@ describe("createDiscordMessageHandler", () => {
     expect(createForkedSessionThread).toHaveBeenCalledWith({
       guild: expect.any(Object),
       sourceDiscordChannelId: "discord-channel-1",
+      sourceSessionId: "claude-source-session-1",
       name: "GPU experiment",
     });
     expect(submitClaudePrompt).toHaveBeenCalledWith(
@@ -1322,17 +1338,21 @@ describe("createDiscordMessageHandler", () => {
       discordDeliveryMode: "thread",
       channelMode: "session-linked",
     });
-    const submitCodexPrompt = vi.fn().mockResolvedValue({
-      jobId: "job-1",
-      result: {
-        status: "completed",
-        finalMessage: "새 Codex fork 세션이 준비되었습니다.",
-        sessionId: "codex-fork-session-1",
-      },
+    const submitCodexPrompt = vi.fn(async (input) => {
+      await input.onProgress?.({ type: "thread-started", sessionId: "codex-fork-session-1" });
+      return {
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: "새 Codex fork 세션이 준비되었습니다.",
+          sessionId: "codex-fork-session-1",
+        },
+      };
     });
     const submitClaudePrompt = vi.fn();
     const linkNewCodexSession = vi.fn().mockResolvedValue(undefined);
     const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
+    const setSessionStreaming = vi.fn();
     const sendTextMessage = vi.fn().mockResolvedValue({ id: "notice-1" });
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => ({
@@ -1347,6 +1367,7 @@ describe("createDiscordMessageHandler", () => {
       createForkedSessionThread,
       linkNewCodexSession,
       markDiscordRequestedCodexSession,
+      setSessionStreaming,
       syncCodexSessions: vi.fn(),
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
@@ -1376,6 +1397,7 @@ describe("createDiscordMessageHandler", () => {
     expect(createForkedSessionThread).toHaveBeenCalledWith({
       guild: expect.any(Object),
       sourceDiscordChannelId: "discord-channel-1",
+      sourceSessionId: "codex-source-session-1",
       name: "Refactor branch",
     });
     expect(submitCodexPrompt).toHaveBeenCalledWith(
@@ -1389,7 +1411,12 @@ describe("createDiscordMessageHandler", () => {
       }),
     );
     expect(submitClaudePrompt).not.toHaveBeenCalled();
-    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-fork-session-1");
+    expect(setSessionStreaming).toHaveBeenNthCalledWith(1, "codex-fork-session-1", true);
+    expect(setSessionStreaming).toHaveBeenLastCalledWith("codex-fork-session-1", false);
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("codex-fork-session-1", {
+      discordChannelId: "codex-fork-thread-1",
+      completionMentionSent: true,
+    });
     expect(linkNewCodexSession).toHaveBeenCalledWith({
       discordChannelId: "codex-fork-thread-1",
       codexSessionId: "codex-fork-session-1",
@@ -1408,6 +1435,82 @@ describe("createDiscordMessageHandler", () => {
         embeds: [expect.objectContaining({ title: "Codex fork ready" })],
       }),
     );
+  });
+
+  it("discards a failed Codex fork instead of linking the source session to two threads", async () => {
+    const edits: unknown[] = [];
+    const createForkedSessionThread = vi.fn().mockResolvedValue({
+      discordChannelId: "failed-fork-thread",
+      discordCategoryId: null,
+      channelName: "failed-fork",
+      threadName: "Failed fork",
+      cwd: "/repo",
+      workspaceRoot: "/repo",
+      workspaceDisplayName: "repo",
+      pendingSession: true,
+      initialPrompt: null,
+      discordDeliveryMode: "thread",
+      channelMode: "session-linked",
+    });
+    const linkNewCodexSession = vi.fn();
+    const markDiscordRequestedCodexSession = vi.fn();
+    const discardForkedSessionThread = vi.fn().mockResolvedValue(true);
+    const sendTextMessage = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "source-session",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn().mockResolvedValue({
+        jobId: "job-1",
+        result: {
+          status: "failed",
+          finalMessage: "app-server fork failed",
+          sessionId: "source-session",
+        },
+      }),
+      createForkedSessionThread,
+      discardForkedSessionThread,
+      linkNewCodexSession,
+      markDiscordRequestedCodexSession,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const guild = {
+      createCategory: vi.fn(),
+      createTextChannel: vi.fn(),
+      sendTextMessage,
+    };
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "source-thread",
+      content: "__cdc_fork_session %7B%22name%22%3A%22Failed%20fork%22%7D",
+      roleIds: ["role-operator"],
+      guild,
+      reply: async () => ({
+        edit: async (payload) => {
+          edits.push(payload);
+        },
+      }),
+    });
+
+    expect(linkNewCodexSession).not.toHaveBeenCalled();
+    expect(markDiscordRequestedCodexSession).not.toHaveBeenCalled();
+    expect(sendTextMessage).not.toHaveBeenCalled();
+    expect(discardForkedSessionThread).toHaveBeenCalledWith({
+      guild,
+      discordChannelId: "failed-fork-thread",
+    });
+    expect(edits.at(-1)).toEqual(expect.objectContaining({
+      embeds: [expect.objectContaining({
+        title: "Session fork failed",
+        description: expect.stringContaining("app-server fork failed"),
+      })],
+    }));
   });
 
   it("keeps source and fork Discord channels on their own Codex session IDs", async () => {
@@ -1554,7 +1657,9 @@ describe("createDiscordMessageHandler", () => {
         }),
       }),
     );
-    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("review-session-1");
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith("review-session-1", {
+      discordChannelId: "discord-channel-1",
+    });
   });
 
   it("creates a new pending Codex chat channel from the admin channel", async () => {
@@ -1801,7 +1906,7 @@ describe("createDiscordMessageHandler", () => {
     );
     expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith(
       "session-new",
-      { completionMentionSent: true },
+      { discordChannelId: "new-channel-1", completionMentionSent: true },
     );
   });
 
@@ -1885,7 +1990,8 @@ describe("createDiscordMessageHandler", () => {
       2,
       "thread-1",
       expect.objectContaining({
-        content: expect.stringContaining("수정을 완료했습니다."),
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("수정을 완료했습니다.") })],
       }),
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
@@ -1948,7 +2054,8 @@ describe("createDiscordMessageHandler", () => {
       2,
       "claude-thread-1",
       expect.objectContaining({
-        content: expect.stringContaining("로그 확인을 마쳤습니다."),
+        content: expect.stringContaining("**Claude Code 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: expect.stringContaining("로그 확인을 마쳤습니다.") })],
       }),
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
@@ -2007,11 +2114,13 @@ describe("createDiscordMessageHandler", () => {
     expect(edits).toHaveLength(1);
     expect(continuationCalls.length).toBeGreaterThan(1);
     expect(continuationCalls.every(([, payload]) => (
-      typeof payload === "object" && payload !== null && "content" in payload &&
-      typeof payload.content === "string" && payload.content.length <= 1_900
+      typeof payload === "object" && payload !== null && "embeds" in payload &&
+      Array.isArray(payload.embeds) &&
+      typeof payload.embeds[0]?.description === "string" &&
+      payload.embeds[0].description.length <= 1_900
     ))).toBe(true);
     expect(continuationCalls.at(-1)?.[1]).toEqual(expect.objectContaining({
-      content: expect.stringContaining("Codex 결과 180:"),
+      embeds: [expect.objectContaining({ description: expect.stringContaining("Codex 결과 180:") })],
     }));
     expect(sendTextMessage.mock.calls.at(-1)).toEqual([
       "thread-1",
@@ -2266,13 +2375,12 @@ describe("createDiscordMessageHandler", () => {
         embeds: [],
       }),
       expect.objectContaining({
-        content: expect.stringContaining("최종 답변입니다."),
-        embeds: [],
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [expect.objectContaining({ title: "답변", description: "최종 답변입니다." })],
         components: [
           {
             type: 1,
             components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
               { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
             ],
           },

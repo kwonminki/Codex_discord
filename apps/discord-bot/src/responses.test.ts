@@ -556,7 +556,7 @@ describe("responses", () => {
     expect(payload.content).not.toContain("/Users/me/project/src");
   });
 
-  it("formats successful Codex answers as plain Discord messages", () => {
+  it("formats successful Codex answers as completion cards", () => {
     expect(
       formatCodexResultUpdate(
         {
@@ -575,8 +575,15 @@ describe("responses", () => {
       ),
     ).toEqual({
       allowedMentions: { parse: [] },
-      content: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
-      embeds: [],
+      content: "**Codex 작업 완료**\n위치: `/repo`\n세션 ID: `session-1`",
+      embeds: [
+        {
+          title: "답변",
+          color: 0x3498db,
+          description: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
+        },
+      ],
+      components: [],
     });
   });
 
@@ -628,11 +635,14 @@ describe("responses", () => {
     );
     const continuations = getCodexResultContinuationMessages(payload);
     const messages = [payload, ...continuations];
+    const answerText = messages
+      .flatMap((message) => message.embeds.map((embed) => embed.description ?? ""))
+      .join("\n");
 
     expect(continuations.length).toBeGreaterThan(1);
-    expect(messages.every((message) => (message.content?.length ?? 0) <= 1_900)).toBe(true);
-    expect(messages.map((message) => message.content).join("\n")).toContain("긴 답변 1:");
-    expect(messages.map((message) => message.content).join("\n")).toContain("긴 답변 160:");
+    expect(messages.every((message) => (message.embeds[0]?.description?.length ?? 0) <= 1_900)).toBe(true);
+    expect(answerText).toContain("긴 답변 1:");
+    expect(answerText).toContain("긴 답변 160:");
     expect(messages.flatMap((message) => message.files ?? [])).not.toEqual([
       expect.objectContaining({ name: "codex-final-message.txt" }),
     ]);
@@ -676,12 +686,17 @@ describe("responses", () => {
 
     expect(payload).toEqual(
       expect.objectContaining({
-        content: expect.stringContaining("README는 Discord와 Codex를 연결하는 프로젝트입니다."),
+        content: expect.stringContaining("**Codex 작업 완료**"),
+        embeds: [
+          expect.objectContaining({
+            title: "답변",
+            description: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
+          }),
+        ],
         components: [
           {
             type: 1,
             components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
               { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
             ],
           },
@@ -695,45 +710,11 @@ describe("responses", () => {
         ],
       }),
     );
-    expect(payload.content).toContain("_생각과 중간 출력은 버튼으로 열 수 있습니다._");
-
-    const expanded = formatCodexResultUpdate(
-      {
-        computerDisplayName: "Local Dev",
-        workspaceDisplayName: "CodexDiscordConnector",
-        cwd: "/repo",
-        prompt: "README를 요약해줘",
-      },
-      {
-        result: {
-          status: "completed",
-          finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
-          sessionId,
-        },
-      },
-      {
-        recentEvents: ["생각중...", "2개의 파일 탐색중..."],
-        expanded: true,
-      },
-    );
-    expect(expanded.content).toContain("**생각 / 중간 출력**");
-    expect(expanded.content).toContain("2개의 파일 탐색중...");
-    expect(expanded.components).toEqual([
-      {
-        type: 1,
-        components: [
-          { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
-          { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-        ],
-      },
-      {
-        type: 1,
-        components: [
-          { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
-          { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
-        ],
-      },
-    ]);
+    const view = getCodexThoughtView(payload);
+    expect(view).not.toBeNull();
+    const processMessage = formatCodexVisibleProcessMessage(view!);
+    expect(processMessage.content).toContain("**생각 / 중간 출력**");
+    expect(processMessage.content).toContain("2개의 파일 탐색중...");
   });
 
   it("keeps failed Codex answers as diagnostic embeds", () => {
@@ -825,8 +806,8 @@ describe("responses", () => {
         ),
       ).toEqual(
         expect.objectContaining({
-          content: "생성했습니다.",
-          embeds: [],
+          content: expect.stringContaining("**Codex 작업 완료**"),
+          embeds: [expect.objectContaining({ title: "답변", description: "생성했습니다." })],
           files: [{ attachment: imagePath, name: "result.png" }],
         }),
       );
@@ -874,8 +855,13 @@ describe("responses", () => {
         ),
       ).toEqual(
         expect.objectContaining({
-          content: "완료했습니다.\n동영상과 오디오를 첨부합니다.",
-          embeds: [],
+          content: expect.stringContaining("**Codex 작업 완료**"),
+          embeds: [
+            expect.objectContaining({
+              title: "답변",
+              description: "완료했습니다.\n동영상과 오디오를 첨부합니다.",
+            }),
+          ],
           files: [
             { attachment: videoPath, name: "preview.mp4" },
             { attachment: audioPath, name: "tone.wav" },
@@ -912,8 +898,13 @@ describe("responses", () => {
         ),
       ).toEqual(
         expect.objectContaining({
-          content: `확인용 영상입니다: [sample overlay](${videoPath})`,
-          embeds: [],
+          content: expect.stringContaining("**Codex 작업 완료**"),
+          embeds: [
+            expect.objectContaining({
+              title: "답변",
+              description: `확인용 영상입니다: [sample overlay](${videoPath})`,
+            }),
+          ],
           files: [{ attachment: videoPath, name: "sample.mp4" }],
         }),
       );
@@ -956,8 +947,7 @@ describe("responses", () => {
 
       expect(payload).toEqual(
         expect.objectContaining({
-          content: expect.stringContaining("최대 10MiB"),
-          embeds: [],
+          embeds: [expect.objectContaining({ description: expect.stringContaining("최대 10MiB") })],
         }),
       );
       expect(payload.files ?? []).toEqual([]);

@@ -11,7 +11,6 @@ import type {
   CodexTaskCompletionNotificationState,
   DirectSyncState,
   DirectSyncStateStore,
-  DiscordRequestedCodexSessionState,
   SyncedSessionChannelState,
 } from "./directState.js";
 import {
@@ -111,26 +110,6 @@ function taskProcessSnapshotText(session: DiscoveredCodexSession, answer: string
     "**생각 / 중간 출력**",
     ...(processEvents.length > 0 ? processEvents : ["아직 표시할 중간 출력이 없습니다."]),
   ].join("\n");
-}
-
-function taskCompletionState(input: {
-  state: DirectSyncState;
-  notificationsBySession: Map<string, CodexTaskCompletionNotificationState>;
-  discordRequestedSessions?: Map<string, DiscordRequestedCodexSessionState>;
-  now: string;
-}): DirectSyncState {
-  const discordRequestedSessions =
-    input.discordRequestedSessions ??
-    new Map(input.state.discordRequestedCodexSessionRequests.map((request) => [request.sessionId, request]));
-
-  return {
-    ...input.state,
-    taskCompletionNotificationsInitializedAt: input.state.taskCompletionNotificationsInitializedAt ?? input.now,
-    taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
-    taskCompletionNotifications: [...input.notificationsBySession.values()],
-    discordRequestedCodexSessionIds: [],
-    discordRequestedCodexSessionRequests: [...discordRequestedSessions.values()],
-  };
 }
 
 function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
@@ -252,6 +231,27 @@ function formatTaskCompleteNotification(
   return attachCodexVisibleProcessSnapshot(payload, taskProcessSnapshotText(session, latestAnswer));
 }
 
+function uniqueSessionChannel(
+  state: DirectSyncState,
+  sessionId: string,
+  options: { threadOnly?: boolean } = {},
+): SyncedSessionChannelState | null {
+  const normalizedId = normalizedSessionId(sessionId);
+  const matches = state.sessionChannels.filter(
+    (channel) => normalizedSessionId(channel.codexSessionId ?? "") === normalizedId,
+  );
+
+  if (matches.length > 1) {
+    console.error(
+      `discord-bot found multiple Discord channels for Codex session ${sessionId}; completion routing was skipped`,
+    );
+    return null;
+  }
+
+  const match = matches[0] ?? null;
+  return options.threadOnly && match?.discordDeliveryMode !== "thread" ? null : match;
+}
+
 async function ensureSessionThread(input: {
   guild: Pick<DiscordGuildSurface, "createThread">;
   controlApi?: Pick<ControlApiClient, "createManagedChannel" | "linkCodexSession">;
@@ -261,9 +261,7 @@ async function ensureSessionThread(input: {
   defaultWorkspaceRoot?: string;
   session: DiscoveredCodexSession;
 }): Promise<{ channel: SyncedSessionChannelState | null; created: boolean }> {
-  const existingThread = input.state.sessionChannels.find(
-    (channel) => channel.codexSessionId === input.session.id && channel.discordDeliveryMode === "thread",
-  );
+  const existingThread = uniqueSessionChannel(input.state, input.session.id, { threadOnly: true });
 
   if (existingThread) {
     return { channel: existingThread, created: false };
@@ -271,12 +269,12 @@ async function ensureSessionThread(input: {
 
   if (!input.guild.createThread || !input.controlApi || !input.computerId) {
     return {
-      channel: input.state.sessionChannels.find((channel) => channel.codexSessionId === input.session.id) ?? null,
+      channel: uniqueSessionChannel(input.state, input.session.id),
       created: false,
     };
   }
 
-  const previousChannel = input.state.sessionChannels.find((channel) => channel.codexSessionId === input.session.id);
+  const previousChannel = uniqueSessionChannel(input.state, input.session.id);
   const workspaceRoot =
     input.session.cwdHint ??
     previousChannel?.workspaceRoot ??
@@ -352,9 +350,54 @@ export async function notifyCodexTaskCompletions(
     Boolean(state.taskCompletionNotificationsInitializedAt) &&
     state.taskCompletionNotificationScope === TASK_COMPLETION_NOTIFICATION_SCOPE;
   const now = new Date().toISOString();
+  const replacementThreadsBySession = new Map<string, SyncedSessionChannelState>();
+  const updatedNotificationSessionIds = new Set<string>();
+  const consumedDiscordRequestSessionIds = new Set<string>();
   let completedSessions = 0;
   let notifiedSessions = 0;
   let changed = false;
+
+  const persistState = async () => {
+    await input.stateStore.update((latestState) => {
+      const mergedNotifications = new Map(
+        latestState.taskCompletionNotifications.map((notification) => [
+          normalizedSessionId(notification.sessionId),
+          notification,
+        ]),
+      );
+
+      for (const sessionId of updatedNotificationSessionIds) {
+        const notification = notificationsBySession.get(sessionId);
+        if (notification) {
+          mergedNotifications.set(sessionId, notification);
+        }
+      }
+
+      let sessionChannels = latestState.sessionChannels;
+      for (const [sessionId, replacement] of replacementThreadsBySession) {
+        sessionChannels = [
+          ...sessionChannels.filter(
+            (channel) => normalizedSessionId(channel.codexSessionId ?? "") !== sessionId,
+          ),
+          replacement,
+        ];
+      }
+
+      return {
+        ...latestState,
+        sessionChannels,
+        taskCompletionNotificationsInitializedAt:
+          latestState.taskCompletionNotificationsInitializedAt ?? now,
+        taskCompletionNotificationScope: TASK_COMPLETION_NOTIFICATION_SCOPE,
+        taskCompletionNotifications: [...mergedNotifications.values()],
+        discordRequestedCodexSessionIds: [],
+        discordRequestedCodexSessionRequests:
+          latestState.discordRequestedCodexSessionRequests.filter(
+            (request) => !consumedDiscordRequestSessionIds.has(normalizedSessionId(request.sessionId)),
+          ),
+      };
+    });
+  };
 
   for (const session of input.sessions) {
     const sessionKey = normalizedSessionId(session.id);
@@ -380,36 +423,45 @@ export async function notifyCodexTaskCompletions(
     seenCompletionEvents.add(completionEventKey);
 
     const previous = notificationsBySession.get(sessionKey);
+    const discordRequest = discordRequestedSessions.get(sessionKey);
+    const requestedChannel = discordRequest?.discordChannelId
+      ? state.sessionChannels.find(
+          (channel) => channel.discordChannelId === discordRequest.discordChannelId,
+        ) ?? null
+      : null;
     const ensuredThread = initialized
-      ? await ensureSessionThread({
-          guild: input.guild,
-          controlApi: input.controlApi,
-          state,
-          adminChannelId: input.adminChannelId,
-          computerId: input.computerId,
-          defaultWorkspaceRoot: input.defaultWorkspaceRoot,
-          session,
-        })
+      ? discordRequest?.discordChannelId
+        ? { channel: requestedChannel, created: false }
+        : await ensureSessionThread({
+            guild: input.guild,
+            controlApi: input.controlApi,
+            state,
+            adminChannelId: input.adminChannelId,
+            computerId: input.computerId,
+            defaultWorkspaceRoot: input.defaultWorkspaceRoot,
+            session,
+          })
       : {
           channel:
-            state.sessionChannels.find(
-              (channel) => normalizedSessionId(channel.codexSessionId ?? "") === sessionKey,
-            ) ?? null,
+            uniqueSessionChannel(state, session.id),
           created: false,
         };
 
     if (ensuredThread.created) {
+      if (ensuredThread.channel) {
+        replacementThreadsBySession.set(sessionKey, ensuredThread.channel);
+      }
       changed = true;
     }
 
     if (previous?.lastTaskCompleteEventKey === completionEvent.key) {
       if (discordRequestedSessions.delete(sessionKey)) {
+        consumedDiscordRequestSessionIds.add(sessionKey);
         changed = true;
       }
       continue;
     }
 
-    const discordRequest = discordRequestedSessions.get(sessionKey);
     const omitAnswerForDiscordRequest = Boolean(discordRequest);
     const completionMentionAlreadySent = discordRequest?.completionMentionSent === true;
 
@@ -421,19 +473,15 @@ export async function notifyCodexTaskCompletions(
         notifiedAt: completionMentionAlreadySent ? now : null,
       }),
     );
+    updatedNotificationSessionIds.add(sessionKey);
     changed = true;
 
     if (initialized && input.guild.sendTextMessage && !completionMentionAlreadySent) {
-      await input.stateStore.write(taskCompletionState({
-        state,
-        notificationsBySession,
-        discordRequestedSessions,
-        now,
-      }));
+      await persistState();
       changed = false;
 
       const syncedChannel = ensuredThread.channel;
-      const targetChannelId = syncedChannel?.discordChannelId ?? input.adminChannelId;
+      const targetChannelId = discordRequest?.discordChannelId ?? syncedChannel?.discordChannelId ?? input.adminChannelId;
       const notification = formatTaskCompleteNotification(session, {
         includeAnswer: !omitAnswerForDiscordRequest,
       });
@@ -457,11 +505,13 @@ export async function notifyCodexTaskCompletions(
           notifiedAt: now,
         }),
       );
+      updatedNotificationSessionIds.add(sessionKey);
       changed = true;
     }
 
     if (omitAnswerForDiscordRequest) {
       discordRequestedSessions.delete(sessionKey);
+      consumedDiscordRequestSessionIds.add(sessionKey);
       changed = true;
     }
   }
@@ -471,12 +521,7 @@ export async function notifyCodexTaskCompletions(
   }
 
   if (changed) {
-    await input.stateStore.write(taskCompletionState({
-      state,
-      notificationsBySession,
-      discordRequestedSessions,
-      now,
-    }));
+    await persistState();
   }
 
   return {
