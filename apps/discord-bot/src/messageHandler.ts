@@ -309,7 +309,12 @@ async function sendThreadCompletionMention(input: {
   channelContext: ManagedDiscordChannelContext;
   agentLabel: "Codex" | "Claude Code";
   failed: boolean;
-}): Promise<boolean> {
+  deferForPendingRequest?: boolean;
+}): Promise<"sent" | "deferred" | "unavailable"> {
+  if (input.deferForPendingRequest) {
+    return "deferred";
+  }
+
   const mentionRoleIds = input.channelContext.allowedRoleIds.filter(
     (roleId) => roleId.trim().length > 0,
   );
@@ -319,7 +324,7 @@ async function sendThreadCompletionMention(input: {
     mentionRoleIds.length === 0 ||
     !input.message.guild?.sendTextMessage
   ) {
-    return false;
+    return "unavailable";
   }
 
   try {
@@ -328,10 +333,10 @@ async function sendThreadCompletionMention(input: {
       `**${input.agentLabel} 작업 ${input.failed ? "실패" : "완료"}**`,
       { mentionRoleIds },
     );
-    return true;
+    return "sent";
   } catch (error) {
     console.error("discord-bot failed to send thread completion mention", error);
-    return false;
+    return "unavailable";
   }
 }
 
@@ -520,6 +525,26 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     return [...pendingCodexApprovals.values()].some((approval) => approval.channelId === channelId);
   }
 
+  function channelHasPendingAgentRequests(
+    channelId: string,
+    channelContext: ManagedDiscordChannelContext,
+  ): boolean {
+    return channelQueues.get(channelId)?.pending.some((entry) => {
+      const routed = routeDiscordMessage({
+        channelMode: channelContext.channelMode,
+        content: entry.message.content,
+        userRoleIds: entry.message.roleIds,
+        allowedRoleIds: channelContext.allowedRoleIds,
+      });
+
+      return routed.type === "codex-chat" ||
+        routed.type === "codex-continue-session" ||
+        routed.type === "claude-chat" ||
+        routed.type === "codex-review" ||
+        routed.type === "fork-session";
+    }) ?? false;
+  }
+
   function reasoningEffortForChannel(channelId: string): "low" | "xhigh" {
     const mode = codexRunModesByChannel.get(channelId);
 
@@ -621,10 +646,6 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   }
 
   async function processDiscordMessage(message: DiscordMessageLike): Promise<void> {
-    if (message.authorBot) {
-      return;
-    }
-
     const channelContext = await input.resolveChannelContext(message.channelId);
 
     if (!channelContext) {
@@ -1196,15 +1217,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         });
-        const completionMentionSent = await sendThreadCompletionMention({
+        const responseFailed = promptResponseFailed(response);
+        const completionDelivery = await sendThreadCompletionMention({
           message,
           channelContext,
           agentLabel: "Codex",
-          failed: promptResponseFailed(response),
+          failed: responseFailed,
+          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
         });
 
         if (reviewSessionId) {
-          if (completionMentionSent) {
+          if (completionDelivery !== "unavailable") {
             await input.markDiscordRequestedCodexSession?.(reviewSessionId, { completionMentionSent: true });
           } else {
             await input.markDiscordRequestedCodexSession?.(reviewSessionId);
@@ -1461,11 +1484,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
         });
+        const responseFailed = promptResponseFailed(response);
         await sendThreadCompletionMention({
           message,
           channelContext,
           agentLabel: "Claude Code",
-          failed: promptResponseFailed(response),
+          failed: responseFailed,
+          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
         });
       } catch (error) {
         progressReporter.finish();
@@ -1654,15 +1679,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         });
-        const completionMentionSent = await sendThreadCompletionMention({
+        const responseFailed = promptResponseFailed(response);
+        const completionDelivery = await sendThreadCompletionMention({
           message,
           channelContext,
           agentLabel: "Codex",
-          failed: promptResponseFailed(response),
+          failed: responseFailed,
+          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
         });
 
         if (nextSessionId) {
-          if (completionMentionSent) {
+          if (completionDelivery !== "unavailable") {
             await input.markDiscordRequestedCodexSession?.(nextSessionId, { completionMentionSent: true });
           } else {
             await input.markDiscordRequestedCodexSession?.(nextSessionId);
@@ -1774,6 +1801,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   }
 
   return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
+    if (message.authorBot) {
+      return;
+    }
+
     if (parseCodexApprovalResponse(message.content) || isImmediateQueueControl(message.content)) {
       await processDiscordMessage(message);
       return;

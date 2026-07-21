@@ -429,6 +429,116 @@ describe("createDiscordMessageHandler", () => {
     await active;
   });
 
+  it("keeps ordinary follow-ups queued and mentions completion only after the queue drains", async () => {
+    let firstPromptWaiting = false;
+    let finishFirstPrompt: (value: unknown) => void = () => {
+      throw new Error("first prompt completion was not initialized");
+    };
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+    const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
+    const submitCodexPrompt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          finishFirstPrompt = resolve;
+          firstPromptWaiting = true;
+        }),
+      )
+      .mockResolvedValueOnce({
+        jobId: "job-2",
+        result: {
+          status: "completed",
+          finalMessage: "두 번째 요청까지 처리했습니다.",
+          sessionId: "session-1",
+        },
+      });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "session-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      markDiscordRequestedCodexSession,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const guild = {
+      createCategory: vi.fn(),
+      createTextChannel: vi.fn(),
+      sendTextMessage,
+    };
+    const userMessage = (content: string, replies: unknown[] = []) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "thread-1",
+      content,
+      roleIds: ["role-operator"],
+      guild,
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return { edit: async () => undefined };
+      },
+    });
+
+    const first = handleMessage(userMessage("첫 번째 긴 작업"));
+    await vi.waitFor(() => expect(firstPromptWaiting).toBe(true));
+    const second = handleMessage(userMessage("끝나면 이 내용도 이어서 확인해줘"));
+
+    const botReply = vi.fn();
+    await handleMessage({
+      authorBot: true,
+      userId: "bot-user",
+      channelId: "thread-1",
+      content: "Codex 진행 메시지",
+      roleIds: [],
+      guild,
+      reply: botReply,
+    });
+
+    const statusReplies: unknown[] = [];
+    await handleMessage(userMessage("status", statusReplies));
+    expect(statusReplies).toEqual([
+      expect.objectContaining({
+        embeds: [
+          expect.objectContaining({
+            fields: expect.arrayContaining([
+              { name: "Agent state", value: "`Codex running`", inline: true },
+              { name: "Queue", value: "`1 pending`", inline: true },
+            ]),
+          }),
+        ],
+      }),
+    ]);
+    expect(botReply).not.toHaveBeenCalled();
+
+    finishFirstPrompt({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "첫 번째 요청을 처리했습니다.",
+        sessionId: "session-1",
+      },
+    });
+    await first;
+    await second;
+
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(2);
+    expect(sendTextMessage).toHaveBeenCalledTimes(1);
+    expect(sendTextMessage).toHaveBeenCalledWith(
+      "thread-1",
+      "**Codex 작업 완료**",
+      { mentionRoleIds: ["role-operator"] },
+    );
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledTimes(2);
+    expect(markDiscordRequestedCodexSession).toHaveBeenNthCalledWith(
+      1,
+      "session-1",
+      { completionMentionSent: true },
+    );
+  });
+
   it("sends Codex steering and interrupt controls immediately", async () => {
     const replies: unknown[] = [];
     const controlCodexTurn = vi.fn()
