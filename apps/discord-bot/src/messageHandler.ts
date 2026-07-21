@@ -1652,6 +1652,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
               sessionId: sourceSessionId,
               forkSession: true,
+              sessionName: forkThread.threadName,
             },
           });
 

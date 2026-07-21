@@ -117,6 +117,7 @@ describe("runClaudePrompt", () => {
           claudeCommand: fakeClaude,
           sessionId: "claude-source-session-1",
           forkSession: true,
+          sessionName: "GPU experiment",
         }),
       ).resolves.toMatchObject({
         status: "completed",
@@ -129,6 +130,8 @@ describe("runClaudePrompt", () => {
           "--resume",
           "claude-source-session-1",
           "--fork-session",
+          "--name",
+          "GPU experiment",
         ]),
       );
     } finally {

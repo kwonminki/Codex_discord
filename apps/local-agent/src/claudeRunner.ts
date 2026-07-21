@@ -12,6 +12,7 @@ export interface RunClaudePromptInput {
   timeoutMs: number;
   sessionId?: string | null;
   forkSession?: boolean;
+  sessionName?: string | null;
   claudeCommand?: string | null;
   permissionMode?: string | null;
   onProgress?: (event: ClaudeRunnerProgressEvent) => Promise<void> | void;
@@ -52,6 +53,10 @@ function claudeArgs(input: RunClaudePromptInput): string[] {
 
   if (input.forkSession && input.sessionId?.trim()) {
     args.push("--fork-session");
+  }
+
+  if (input.sessionName?.trim()) {
+    args.push("--name", input.sessionName.trim());
   }
 
   if (permissionMode) {

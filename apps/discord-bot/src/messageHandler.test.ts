@@ -1535,6 +1535,7 @@ describe("createDiscordMessageHandler", () => {
         payload: expect.objectContaining({
           sessionId: "claude-source-session-1",
           forkSession: true,
+          sessionName: "GPU experiment",
           cwd: "/repo",
         }),
       }),
