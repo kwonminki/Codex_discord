@@ -14,26 +14,50 @@ import {
 
 export const BOT_RELOAD_EXIT_CODE = 42;
 
-export function shouldRestartManagedProcess(input: { script: string; code: number | null }): boolean {
-  return input.script === "dev:bot" && input.code === BOT_RELOAD_EXIT_CODE;
+export function shouldRestartManagedProcess(input: {
+  script: string;
+  code: number | null;
+  mode?: ConnectMode;
+}): boolean {
+  if (input.script === "dev:bot" && input.code === BOT_RELOAD_EXIT_CODE) {
+    return true;
+  }
+
+  return input.mode === "direct" &&
+    (input.script === "dev:bot" || input.script === "direct-worker");
 }
 
 type ManagedProcessCommand = [command: string, args: string[], script: string];
+export type ManagedDirectComponent = "all" | "bot" | "worker";
 
-export function buildManagedProcessCommands(mode: ConnectMode): ManagedProcessCommand[] {
+export function buildManagedProcessCommands(
+  mode: ConnectMode,
+  component: ManagedDirectComponent = "all",
+): ManagedProcessCommand[] {
   const runTs = (entrypoint: string, script: string): ManagedProcessCommand => [
     "node",
     ["--import", "tsx", entrypoint],
     script,
   ];
 
-  return mode === "hub"
-    ? [
-        runTs("apps/control-api/src/index.ts", "dev:control"),
-        runTs("apps/local-agent/src/index.ts", "dev:agent"),
-        runTs("apps/discord-bot/src/index.ts", "dev:bot"),
-      ]
-    : [runTs("apps/discord-bot/src/index.ts", "dev:bot")];
+  if (mode === "hub") {
+    return [
+      runTs("apps/control-api/src/index.ts", "dev:control"),
+      runTs("apps/local-agent/src/index.ts", "dev:agent"),
+      runTs("apps/discord-bot/src/index.ts", "dev:bot"),
+    ];
+  }
+
+  const directCommands = [
+    runTs("apps/local-agent/src/directWorker.ts", "direct-worker"),
+    runTs("apps/discord-bot/src/index.ts", "dev:bot"),
+  ];
+
+  return directCommands.filter(([, , script]) =>
+    component === "all" ||
+    (component === "bot" && script === "dev:bot") ||
+    (component === "worker" && script === "direct-worker"),
+  );
 }
 
 export function buildManagedProcessEnv(
@@ -45,6 +69,8 @@ export function buildManagedProcessEnv(
     ...baseEnv,
     CONNECT_CONFIG_PATH: path.join(launchDirectory, ".connect", "config.json"),
     CONNECT_STATE_PATH: path.join(launchDirectory, ".connect", "state.json"),
+    CONNECT_WORKER_ROOT: path.join(launchDirectory, ".connect", "worker"),
+    CONNECT_DISCORD_QUEUE_ROOT: path.join(launchDirectory, ".connect", "discord-queue"),
     CONNECT_MODE: mode,
   };
 }
@@ -157,8 +183,16 @@ async function status() {
 
 async function start(flags: Map<string, string | boolean>) {
   const mode = (flag(flags, "mode") ?? (flags.has("hub") ? "hub" : "direct")) as ConnectMode;
+  const requestedComponent = flag(flags, "component") ?? "all";
+  if (mode === "hub" && requestedComponent !== "all") {
+    throw new Error("--component is supported only in direct mode.");
+  }
+  if (requestedComponent !== "all" && requestedComponent !== "bot" && requestedComponent !== "worker") {
+    throw new Error("--component must be all, bot, or worker.");
+  }
+  const component = requestedComponent as ManagedDirectComponent;
   const env = buildManagedProcessEnv(mode, process.cwd());
-  const commands = buildManagedProcessCommands(mode);
+  const commands = buildManagedProcessCommands(mode, component);
   const commandCwd = packageRoot();
 
   await new Promise<void>((resolve, reject) => {
@@ -213,8 +247,8 @@ async function start(flags: Map<string, string | boolean>) {
           return;
         }
 
-        if (shouldRestartManagedProcess({ script, code })) {
-          console.info("Discord requested bot reload; restarting dev:bot...");
+        if (shouldRestartManagedProcess({ script, code, mode })) {
+          console.info(`${script} exited; restarting managed process...`);
           launch([cmd, args, script]);
           return;
         }
@@ -252,6 +286,8 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   console.info("  cdc setup --direct");
   console.info("  cdc setup --hub");
   console.info("  cdc start --direct");
+  console.info("  cdc start --direct --component bot");
+  console.info("  cdc start --direct --component worker");
   console.info("  cdc status");
 }
 

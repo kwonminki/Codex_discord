@@ -366,6 +366,111 @@ describe("createDiscordMessageHandler", () => {
     expect(submitCommandJob.mock.calls[1][0].payload.command).toBe("ls");
   });
 
+  it("persists active and pending agent requests and reuses their IDs for worker jobs", async () => {
+    let finishFirst: (value: unknown) => void = () => {
+      throw new Error("first durable command was not started");
+    };
+    const submitCommandJob = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          finishFirst = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        jobId: "request-2",
+        result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+      });
+    const persisted: string[] = [];
+    const completed: string[] = [];
+    const persistDurableRequest = vi.fn().mockImplementation(async (input: { content: string }) => {
+      const requestId = input.content === "pwd" ? "request-1" : "request-2";
+      persisted.push(requestId);
+      return { requestId, createdAt: `2026-07-21T00:00:0${persisted.length}.000Z` };
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt: vi.fn(),
+      persistDurableRequest,
+      completeDurableRequest: async (requestId) => {
+        completed.push(requestId);
+      },
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const message = (content: string) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    const first = handleMessage(message("pwd"));
+    await vi.waitFor(() => expect(submitCommandJob).toHaveBeenCalledTimes(1));
+    const second = handleMessage(message("ls"));
+    await vi.waitFor(() => expect(persistDurableRequest).toHaveBeenCalledTimes(2));
+
+    expect(persisted).toEqual(["request-1", "request-2"]);
+    expect(submitCommandJob).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      requestId: "request-1",
+      queueKey: "discord-channel-1",
+    }));
+    expect(completed).toEqual([]);
+
+    finishFirst({
+      jobId: "request-1",
+      result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+    });
+    await first;
+    await second;
+
+    expect(submitCommandJob).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      requestId: "request-2",
+      queueKey: "discord-channel-1",
+    }));
+    expect(completed).toEqual(["request-1", "request-2"]);
+  });
+
+  it("restores durable requests in timestamp order before draining their channel", async () => {
+    const submitCommandJob = vi.fn().mockImplementation(async (input) => ({
+      jobId: input.requestId,
+      result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+    }));
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt: vi.fn(),
+      completeDurableRequest: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const restoredMessage = (requestId: string, content: string, createdAt: string) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      requestId,
+      durableQueuedAt: createdAt,
+      restoreOnly: true,
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    await handleMessage(restoredMessage("request-2", "ls", "2026-07-21T00:00:02.000Z"));
+    await handleMessage(restoredMessage("request-1", "pwd", "2026-07-21T00:00:01.000Z"));
+    expect(submitCommandJob).not.toHaveBeenCalled();
+
+    handleMessage.drainRestoredMessages();
+    await vi.waitFor(() => expect(submitCommandJob).toHaveBeenCalledTimes(2));
+    expect(submitCommandJob.mock.calls.map(([call]) => call.requestId)).toEqual([
+      "request-1",
+      "request-2",
+    ]);
+  });
+
   it("shows and clears pending messages while preserving the active job", async () => {
     const activeJob = { resolve: null as ((value: unknown) => void) | null };
     const submitCommandJob = vi.fn().mockImplementation(

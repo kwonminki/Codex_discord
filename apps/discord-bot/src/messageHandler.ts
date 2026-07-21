@@ -110,6 +110,9 @@ export interface DiscordMessageLike {
   channelId: string;
   content: string;
   roleIds: string[];
+  requestId?: string;
+  durableQueuedAt?: string;
+  restoreOnly?: boolean;
   guild?: DiscordGuildSurface | null;
   clearMessages?(input: { mode: "all" | "count"; count?: number }): Promise<{ deletedCount: number; requestedCount?: number | null }>;
   reply(message: DiscordOutgoingMessage): Promise<DiscordReplyLike | void>;
@@ -214,6 +217,20 @@ export interface CreateDiscordMessageHandlerInput {
   }) => Promise<ScheduleCommandResult>;
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
   recordCommandAudit: ControlApiClient["recordCommandAudit"];
+  persistDurableRequest?: (input: {
+    requestId?: string;
+    channelId: string;
+    userId: string;
+    content: string;
+    roleIds: string[];
+    createdAt?: string;
+  }) => Promise<{ requestId: string; createdAt: string }>;
+  completeDurableRequest?: (requestId: string) => Promise<void>;
+}
+
+export interface DiscordMessageHandler {
+  (message: DiscordMessageLike): Promise<void>;
+  drainRestoredMessages(): void;
 }
 
 function extractUpdatedCwd(response: Awaited<ReturnType<ControlApiClient["submitCommandJob"]>>): string | null {
@@ -594,7 +611,7 @@ function codexPermissionSettings(): CodexPermissionSettings {
   };
 }
 
-export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
+export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput): DiscordMessageHandler {
   interface QueuedMessage {
     message: DiscordMessageLike;
     resolve(): void;
@@ -699,6 +716,18 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     if (queue?.activeMessage) {
       queue.activeLastActivityAt = Date.now();
+    }
+  }
+
+  async function completeDurableMessage(message: DiscordMessageLike): Promise<void> {
+    if (!message.requestId || !input.completeDurableRequest) {
+      return;
+    }
+
+    try {
+      await input.completeDurableRequest(message.requestId);
+    } catch (error) {
+      console.error(`discord-bot failed to complete durable request ${message.requestId}`, error);
     }
   }
 
@@ -961,6 +990,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         } catch (error) {
           console.warn("discord-bot failed to acknowledge a cleared queue entry", error);
         } finally {
+          await completeDurableMessage(entry.message);
           entry.resolve();
         }
       }
@@ -1436,6 +1466,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       try {
         const response = await input.submitCodexPrompt({
           computerId: channelContext.computerId,
+          ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
           payload: {
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
@@ -1586,6 +1617,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
           const response = await input.submitClaudePrompt({
             computerId: channelContext.computerId,
+            ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
             payload: {
               workspaceRoot: forkThread.workspaceRoot,
               cwd: forkThread.cwd,
@@ -1628,6 +1660,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
           const response = await input.submitCodexPrompt({
             computerId: channelContext.computerId,
+            ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
             payload: {
               workspaceRoot: forkThread.workspaceRoot,
               cwd: forkThread.cwd,
@@ -1770,6 +1803,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       try {
         const response = await input.submitClaudePrompt({
           computerId: channelContext.computerId,
+          ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
           payload: {
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
@@ -1918,6 +1952,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         const response = await input.submitCodexPrompt({
           computerId: channelContext.computerId,
+          ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
           payload: {
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
@@ -2123,6 +2158,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     try {
       const response = await input.submitCommandJob({
         computerId: channelContext.computerId,
+        ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
         payload: {
           workspaceRoot: channelContext.workspaceRoot,
           cwd: channelContext.cwd,
@@ -2170,7 +2206,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
   }
 
-  return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
+  const handleDiscordMessage = async (message: DiscordMessageLike): Promise<void> => {
     if (message.authorBot) {
       return;
     }
@@ -2208,6 +2244,30 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       }
     }
 
+    if (!queuedMessage.requestId && input.persistDurableRequest) {
+      const channelContext = await input.resolveChannelContext(queuedMessage.channelId);
+
+      if (!channelContext) {
+        return;
+      }
+
+      const routed = routeMessage(queuedMessage, channelContext);
+      if (isDurableAgentRequest(routed.type)) {
+        const persisted = await input.persistDurableRequest({
+          channelId: queuedMessage.channelId,
+          userId: queuedMessage.userId,
+          content: queuedMessage.content,
+          roleIds: queuedMessage.roleIds,
+          createdAt: queuedMessage.durableQueuedAt,
+        });
+        queuedMessage = {
+          ...queuedMessage,
+          requestId: persisted.requestId,
+          durableQueuedAt: persisted.createdAt,
+        };
+      }
+    }
+
     if (!queue) {
       queue = {
         running: false,
@@ -2219,11 +2279,37 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       channelQueues.set(message.channelId, queue);
     }
 
+    if (queuedMessage.restoreOnly) {
+      queue.pending.push({
+        message: queuedMessage,
+        resolve: () => undefined,
+        reject: (error) => console.error(
+          `discord-bot failed to run restored request ${queuedMessage.requestId ?? "unknown"}`,
+          error,
+        ),
+      });
+      queue.pending.sort((left, right) =>
+        (left.message.durableQueuedAt ?? "").localeCompare(right.message.durableQueuedAt ?? ""),
+      );
+      return;
+    }
+
     await new Promise<void>((resolve, reject) => {
       queue?.pending.push({ message: queuedMessage, resolve, reject });
+      queue?.pending.sort((left, right) =>
+        (left.message.durableQueuedAt ?? "").localeCompare(right.message.durableQueuedAt ?? ""),
+      );
       void drainChannelQueue(message.channelId, queue as ChannelQueue);
     });
   };
+
+  handleDiscordMessage.drainRestoredMessages = () => {
+    for (const [channelId, queue] of channelQueues) {
+      void drainChannelQueue(channelId, queue);
+    }
+  };
+
+  return handleDiscordMessage;
 
   async function drainChannelQueue(channelId: string, queue: ChannelQueue): Promise<void> {
     if (queue.running) {
@@ -2244,12 +2330,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         queue.activeStartedAt = Date.now();
         queue.activeLastActivityAt = queue.activeStartedAt;
 
+        let completed = false;
         try {
           await processDiscordMessage(entry.message);
+          completed = true;
           entry.resolve();
         } catch (error) {
           entry.reject(error);
         } finally {
+          if (completed) {
+            await completeDurableMessage(entry.message);
+          }
           queue.activeMessage = null;
           queue.activeStartedAt = null;
           queue.activeLastActivityAt = null;
@@ -2281,4 +2372,12 @@ function isImmediateQueueControl(content: string): boolean {
 
 function isExplicitQueuePrompt(content: string): boolean {
   return /^\/*queue\s+prompt\s*:\s*\S/i.test(content.trim());
+}
+
+function isDurableAgentRequest(type: string): boolean {
+  return type === "execute-command" ||
+    type === "codex-chat" ||
+    type === "codex-continue-session" ||
+    type === "codex-review" ||
+    type === "claude-chat";
 }

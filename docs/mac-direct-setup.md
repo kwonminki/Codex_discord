@@ -63,11 +63,20 @@ Claude Code completion notifications wait until the latest session activity is a
 
 Claude Code session scanning uses an in-memory `mtime`/file-size cache. Unchanged `~/.claude/projects/**/*.jsonl` files are not reparsed, and appended session logs are read from the new byte range only. The thread auto-linker and completion notifier share the same discovered session list during each poll.
 
-## Start the bot
+## Start the bot and worker
 
 ```bash
 pnpm connect start --direct
 ```
+
+The combined command is convenient for foreground development. For an always-on setup, run the two Direct components independently so restarting Discord does not terminate an active Codex or Claude Code process:
+
+```bash
+pnpm connect start --direct --component worker
+pnpm connect start --direct --component bot
+```
+
+Direct requests are persisted under `.connect/discord-queue`, and worker jobs, progress, approvals, and results under `.connect/worker`. A restarted bot reconnects to the same request ID. A worker that receives `SIGTERM` stops accepting new jobs and waits for active jobs to finish before exiting; queued jobs stay on disk.
 
 In Discord, run:
 
@@ -80,32 +89,40 @@ sync
 
 ## Auto-start on Mac login
 
-This Mac uses a user LaunchAgent:
+Use two user LaunchAgents:
 
 ```text
-~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.mac-direct.plist
+~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.bot.plist
+~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.worker.plist
 ```
 
-The LaunchAgent calls a wrapper outside `Documents` so macOS privacy checks do not block the script:
+Both LaunchAgents can call the wrapper outside `Documents` so macOS privacy checks do not block the script. Pass `bot` or `worker` as the final argument:
 
 ```text
 ~/Library/Application Support/CodexDiscordConnector/start-mac-direct.sh
 ```
 
+The repo wrapper accepts `all`, `bot`, or `worker`. For the worker LaunchAgent, set `ExitTimeOut` to at least the maximum expected Codex run time, for example `21600` seconds, so launchd does not force-kill a draining worker after its short default timeout.
+
 Logs:
 
 ```text
-~/Library/Logs/codex-discord-connector/mac-direct.out.log
-~/Library/Logs/codex-discord-connector/mac-direct.err.log
+~/Library/Logs/codex-discord-connector/bot.out.log
+~/Library/Logs/codex-discord-connector/bot.err.log
+~/Library/Logs/codex-discord-connector/worker.out.log
+~/Library/Logs/codex-discord-connector/worker.err.log
 ```
 
 Useful commands:
 
 ```bash
-launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.mac-direct"
-launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.mac-direct"
-tail -f "$HOME/Library/Logs/codex-discord-connector/mac-direct.out.log"
+launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.bot"
+launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.worker"
+launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.bot"
+tail -f "$HOME/Library/Logs/codex-discord-connector/bot.out.log"
 ```
+
+Restarting only the bot LaunchAgent is safe for active worker jobs. Stopping the worker LaunchAgent drains active jobs when launchd honors `ExitTimeOut`; a host reboot or forced kill still interrupts them.
 
 ## Task completion notifications
 

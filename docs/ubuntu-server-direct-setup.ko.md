@@ -186,7 +186,7 @@ SSH IDE, VS Code Remote SSH, Antigravity Remote에서 실행한 Codex도 같은 
 
 ## systemd 자동 실행
 
-수동 실행이 확인되면 systemd service로 등록합니다.
+수동 실행이 확인되면 Discord bot과 실행 worker를 별도 systemd service로 등록합니다. 이 구성이면 bot 업데이트나 Discord 연결 장애가 실행 중인 Codex/Claude Code 프로세스를 종료하지 않습니다.
 
 아래에서 `USER_NAME`과 `REPO_DIR`를 실제 값으로 바꿉니다.
 
@@ -198,9 +198,9 @@ pwd
 예를 들어 user가 `ubuntu`, repo가 `/home/ubuntu/Codes/Codex_discord`라면:
 
 ```bash
-sudo tee /etc/systemd/system/codex-discord-connector.service >/dev/null <<'EOF'
+sudo tee /etc/systemd/system/codex-discord-worker.service >/dev/null <<'EOF'
 [Unit]
-Description=Codex Discord Connector for Ubuntu Codex notifications
+Description=Codex Discord durable execution worker
 After=network-online.target
 Wants=network-online.target
 
@@ -209,11 +209,36 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/Codes/Codex_discord
 Environment=NODE_ENV=production
+Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
+Environment=CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
+Environment=CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
+ExecStart=/usr/bin/env node --import tsx apps/local-agent/src/directWorker.ts
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo tee /etc/systemd/system/codex-discord-bot.service >/dev/null <<'EOF'
+[Unit]
+Description=Codex Discord gateway and notifications
+After=network-online.target codex-discord-worker.service
+Wants=network-online.target codex-discord-worker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Codes/Codex_discord
+Environment=NODE_ENV=production
+Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
 Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=3000
 Environment=CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS=5000
 Environment=CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS=20000
 Environment=CONNECT_BACKGROUND_MAX_LOAD=0.7
-ExecStart=/usr/bin/env pnpm connect start --direct
+ExecStart=/usr/bin/env node --import tsx apps/discord-bot/src/index.ts
 Restart=always
 RestartSec=5
 
@@ -222,18 +247,20 @@ WantedBy=multi-user.target
 EOF
 ```
 
+`node`와 `tsx`가 systemd의 PATH에서 보이지 않으면 `command -v node`로 확인한 절대 Node 경로를 `ExecStart`에 사용하세요. repo의 `node_modules`가 설치돼 있어야 합니다.
+
 서비스를 활성화합니다.
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now codex-discord-connector
-sudo systemctl status codex-discord-connector --no-pager
+sudo systemctl enable --now codex-discord-worker codex-discord-bot
+sudo systemctl status codex-discord-worker codex-discord-bot --no-pager
 ```
 
 로그 확인:
 
 ```bash
-journalctl -u codex-discord-connector -f
+journalctl -u codex-discord-worker -u codex-discord-bot -f
 ```
 
 ## GPU와 sandbox
@@ -257,13 +284,20 @@ Environment=CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
 
 connector를 Docker 안에서 돌린다면 host에서 GPU가 보여도 container에 자동으로 전달되지 않습니다. NVIDIA Container Toolkit을 설치하고 `docker run --gpus all ...` 또는 compose의 GPU device 설정으로 `/dev/nvidia*`를 container 안에 노출해야 합니다.
 
-재시작:
+bot만 재시작:
 
 ```bash
-sudo systemctl restart codex-discord-connector
+sudo systemctl restart codex-discord-bot
 ```
 
-이 명령은 Discord 봇의 drain 보호를 우회하고 systemd service cgroup의 Codex/Claude 및 하위 프로세스를 종료할 수 있습니다. 작업이 없음을 확인했거나 강제 중단이 필요한 경우에만 직접 사용하세요.
+실행 중 Codex/Claude는 worker service에 남아 있고 새 bot이 durable job에 재연결합니다. worker를 재시작하면 `SIGTERM` drain으로 활성 작업이 끝난 뒤 종료되며, 대기 job은 디스크에 유지됩니다.
+
+즉시 worker를 강제 종료하면 실행 중 작업도 중단됩니다. 정말 중단이 필요한 경우에만 사용하세요.
+
+```bash
+sudo systemctl kill --kill-who=all --signal=SIGKILL codex-discord-worker
+sudo systemctl restart codex-discord-worker
+```
 
 ## 업데이트
 
@@ -276,16 +310,22 @@ pnpm install
 pnpm typecheck
 ```
 
-코드를 받은 뒤 Ubuntu admin channel에서 안전 재시작을 요청합니다. 실행 중 작업이나 대기열이 있으면 새 작업을 막고 모두 끝난 뒤 자동으로 재시작합니다.
+코드를 받은 뒤 bot 코드는 Ubuntu admin channel에서 재시작합니다. 기본 명령은 실행 중 작업이나 대기열이 끝날 때까지 기다리고, 강제 옵션은 bot gateway만 즉시 재시작합니다. 분리 worker의 활성 job은 두 경우 모두 계속 실행됩니다.
 
 ```text
 reload restart confirm
 ```
 
-작업 손실을 감수하고 즉시 적용해야 할 때만 강제 재시작을 사용합니다.
+활성 작업을 기다리지 않고 bot gateway 코드만 즉시 적용하려면 강제 재시작을 사용합니다. 분리 worker의 실행은 유지됩니다.
 
 ```text
 reload restart force confirm
+```
+
+worker 코드도 변경됐다면 별도로 재시작합니다. worker는 활성 job을 drain한 뒤 새 코드로 다시 올라오고, 시작 전 대기 job은 그대로 이어집니다.
+
+```bash
+sudo systemctl restart codex-discord-worker
 ```
 
 단, 같은 bot token을 여러 서버가 공유 중이면 반드시 Ubuntu 전용 admin channel에서 실행하세요.
@@ -330,7 +370,7 @@ ls -la "$HOME/.codex/sessions"
 
 ```bash
 whoami
-systemctl cat codex-discord-connector
+systemctl cat codex-discord-worker codex-discord-bot
 ```
 
 ### Mac과 Ubuntu가 둘 다 답변함
@@ -343,7 +383,7 @@ systemctl cat codex-discord-connector
 
 ```bash
 cat .connect/config.json | grep channelId
-sudo systemctl restart codex-discord-connector
+sudo systemctl restart codex-discord-bot
 ```
 
 ### SSH IDE Codex가 다른 위치에 기록됨

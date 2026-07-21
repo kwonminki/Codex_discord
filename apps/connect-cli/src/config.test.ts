@@ -111,17 +111,39 @@ describe("connect setup config", () => {
       shouldRestartManagedProcess({
         script: "dev:bot",
         code: 1,
+        mode: "hub",
       }),
     ).toBe(false);
+    expect(
+      shouldRestartManagedProcess({
+        script: "dev:bot",
+        code: 1,
+        mode: "direct",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRestartManagedProcess({
+        script: "direct-worker",
+        code: 1,
+        mode: "direct",
+      }),
+    ).toBe(true);
   });
 
   it("builds package-local process commands for installed CLI execution", () => {
     expect(buildManagedProcessCommands("direct")).toEqual([
+      ["node", ["--import", "tsx", "apps/local-agent/src/directWorker.ts"], "direct-worker"],
       ["node", ["--import", "tsx", "apps/discord-bot/src/index.ts"], "dev:bot"],
     ]);
     expect(buildManagedProcessCommands("hub")).toEqual([
       ["node", ["--import", "tsx", "apps/control-api/src/index.ts"], "dev:control"],
       ["node", ["--import", "tsx", "apps/local-agent/src/index.ts"], "dev:agent"],
+      ["node", ["--import", "tsx", "apps/discord-bot/src/index.ts"], "dev:bot"],
+    ]);
+    expect(buildManagedProcessCommands("direct", "worker")).toEqual([
+      ["node", ["--import", "tsx", "apps/local-agent/src/directWorker.ts"], "direct-worker"],
+    ]);
+    expect(buildManagedProcessCommands("direct", "bot")).toEqual([
       ["node", ["--import", "tsx", "apps/discord-bot/src/index.ts"], "dev:bot"],
     ]);
   });
@@ -132,6 +154,8 @@ describe("connect setup config", () => {
       CONNECT_MODE: "direct",
       CONNECT_CONFIG_PATH: "/operator/project/.connect/config.json",
       CONNECT_STATE_PATH: "/operator/project/.connect/state.json",
+      CONNECT_WORKER_ROOT: "/operator/project/.connect/worker",
+      CONNECT_DISCORD_QUEUE_ROOT: "/operator/project/.connect/discord-queue",
     });
   });
 });

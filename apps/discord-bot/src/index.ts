@@ -35,6 +35,8 @@ import { loadConnectConfig } from "./connectConfig.js";
 import { createControlApiClient } from "./controlApiClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
 import { createDirectControlClient } from "./directControlClient.js";
+import { createDirectWorkerClient } from "./directWorkerClient.js";
+import { createDurableDiscordRequestStore } from "./durableRequestStore.js";
 import {
   attachDiscordInteractionHandler,
   attachDiscordMessageHandler,
@@ -225,7 +227,10 @@ function resolveReadyGuildSurface(
   client: ReturnType<typeof createDiscordClient>,
   guildId?: string,
 ): DiscordGuildSurface | null {
-  const cache = client.guilds.cache;
+  const cache = client.guilds?.cache;
+  if (!cache) {
+    return null;
+  }
   const guild = guildId ? cache.get(guildId) : cache.first();
 
   return createDiscordGuildSurface(guild ?? null);
@@ -243,6 +248,8 @@ export async function startBot(): Promise<void> {
   const startedAt = new Date().toISOString();
   const requestedMode = connectConfig?.mode ?? process.env.CONNECT_MODE;
   const directStateStore = connectConfig?.mode === "direct" ? createDirectSyncStateStore() : null;
+  const directWorkerClient = connectConfig?.mode === "direct" ? createDirectWorkerClient() : null;
+  const durableRequestStore = connectConfig?.mode === "direct" ? createDurableDiscordRequestStore() : null;
   const activelyStreamedSessionIds = new Set<string>();
 
   if (requestedMode === "direct" && connectConfig?.mode !== "direct") {
@@ -251,7 +258,10 @@ export async function startBot(): Promise<void> {
 
   const controlApiClient =
     connectConfig?.mode === "direct"
-      ? createDirectControlClient(connectConfig, { stateStore: directStateStore ?? undefined })
+      ? createDirectControlClient(connectConfig, {
+          stateStore: directStateStore ?? undefined,
+          workerClient: directWorkerClient,
+        })
       : createControlApiClient({
             baseUrl:
             connectConfig?.mode === "hub"
@@ -488,7 +498,14 @@ export async function startBot(): Promise<void> {
     force: boolean;
   }) => {
     await registerDiscordApplicationCommands(client, connectConfig?.discord.guildId);
-    const deferred = input.mode === "restart" && !input.force && shouldDeferBotRestart(input.execution);
+    const workerExecution = await directWorkerClient?.executionState();
+    const execution = workerExecution
+      ? {
+          activeCount: Math.max(input.execution.activeCount, workerExecution.activeCount),
+          pendingCount: Math.max(input.execution.pendingCount, workerExecution.pendingCount),
+        }
+      : input.execution;
+    const deferred = input.mode === "restart" && !input.force && shouldDeferBotRestart(execution);
 
     if (input.mode === "restart" && !deferred) {
       setTimeout(() => {
@@ -502,8 +519,8 @@ export async function startBot(): Promise<void> {
       restarting: input.mode === "restart" && !deferred,
       deferred,
       forced: input.mode === "restart" && input.force,
-      activeCount: input.execution.activeCount,
-      pendingCount: input.execution.pendingCount,
+      activeCount: execution.activeCount,
+      pendingCount: execution.pendingCount,
       startedAt,
     };
   };
@@ -632,7 +649,7 @@ export async function startBot(): Promise<void> {
             threadName: input.threadName,
           })
       : undefined;
-  const handleMessage = createDiscordMessageHandler({
+  const processMessage = createDiscordMessageHandler({
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
@@ -669,13 +686,74 @@ export async function startBot(): Promise<void> {
     scheduleCommand,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
+    persistDurableRequest: durableRequestStore
+      ? (request) => durableRequestStore.enqueue(request)
+      : undefined,
+    completeDurableRequest: durableRequestStore
+      ? async (requestId) => {
+          await durableRequestStore.remove(requestId);
+          await directWorkerClient?.markDelivered(requestId);
+        }
+      : undefined,
   });
+  let releaseDurableRecovery: () => void = () => undefined;
+  const durableRecoveryReady = durableRequestStore
+    ? new Promise<void>((resolve) => {
+        releaseDurableRecovery = resolve;
+      })
+    : Promise.resolve();
+  const handleMessage = async (message: Parameters<typeof processMessage>[0]): Promise<void> => {
+    await durableRecoveryReady;
+    await processMessage(message);
+  };
 
   client.once("ready", () => {
     console.info(`Discord bot ready as ${client.user?.tag ?? "unknown"}`);
     void registerDiscordApplicationCommands(client, connectConfig?.discord.guildId).catch((error) => {
       console.error("discord-bot failed to register slash commands", error);
     });
+
+    if (durableRequestStore) {
+      const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+      if (guild?.sendTextMessage) {
+        void (async () => {
+          const requests = await durableRequestStore.list();
+          for (const request of requests) {
+            try {
+              await processMessage({
+                authorBot: false,
+                userId: request.userId,
+                channelId: request.channelId,
+                content: request.content,
+                roleIds: request.roleIds,
+                requestId: request.requestId,
+                durableQueuedAt: request.createdAt,
+                restoreOnly: true,
+                guild,
+                reply: async (replyMessage) => {
+                  const sent = await guild.sendTextMessage?.(request.channelId, replyMessage);
+                  const messageId = sent?.id;
+                  const editTextMessage = guild.editTextMessage;
+                  if (!messageId || !editTextMessage) {
+                    return undefined;
+                  }
+                  return {
+                    edit: (nextMessage) => editTextMessage(request.channelId, messageId, nextMessage),
+                  };
+                },
+              });
+            } catch (error) {
+              console.error(`discord-bot failed to recover durable request ${request.requestId}`, error);
+            }
+          }
+          processMessage.drainRestoredMessages();
+        })()
+          .catch((error) => console.error("discord-bot failed to load durable Discord requests", error))
+          .finally(releaseDurableRecovery);
+      } else {
+        releaseDurableRecovery();
+      }
+    }
 
     if (syncTranscriptUpdates) {
       let running = false;

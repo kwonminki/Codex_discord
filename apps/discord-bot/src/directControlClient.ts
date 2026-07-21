@@ -12,10 +12,11 @@ import { assertInsideWorkspace } from "../../local-agent/src/workspace.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type { DirectConnectConfig } from "./connectConfig.js";
 import type { DirectSyncStateStore } from "./directState.js";
+import type { DirectWorkerClient } from "./directWorkerClient.js";
 
 export function createDirectControlClient(
   config: DirectConnectConfig,
-  options: { stateStore?: DirectSyncStateStore } = {},
+  options: { stateStore?: DirectSyncStateStore; workerClient?: DirectWorkerClient | null } = {},
 ): ControlApiClient {
   const codexRunner = process.env.CODEX_DISCORD_CODEX_RUNNER === "app-server" ? "app-server" : "exec";
   const claudeChannelId = config.direct.claudeChannelId?.trim() || null;
@@ -195,6 +196,21 @@ export function createDirectControlClient(
         return { jobId: randomUUID(), error: { message: "Computer is offline" } };
       }
 
+      if (options.workerClient) {
+        const response = await options.workerClient.submit({
+          jobId: input.requestId,
+          type: "run-command",
+          queueKey: input.queueKey ?? input.requestId ?? randomUUID(),
+          payload: input.payload,
+        });
+        if (!input.requestId) {
+          await options.workerClient.markDelivered(response.jobId);
+        }
+        return "error" in response
+          ? { jobId: response.jobId, error: response.error }
+          : { jobId: response.jobId, result: response.result };
+      }
+
       const result = await runWorkspaceCommand(input.payload);
       return { jobId: randomUUID(), result };
     },
@@ -222,6 +238,28 @@ export function createDirectControlClient(
           },
         };
       }
+      if (options.workerClient) {
+        const response = await options.workerClient.submit({
+          jobId: input.requestId,
+          type: "run-codex-prompt",
+          queueKey: input.queueKey ?? input.payload.controlKey ?? input.requestId ?? randomUUID(),
+          payload: {
+            runner: codexRunner,
+            input: {
+              ...input.payload,
+              codexHome: config.direct.codexHome,
+            },
+          },
+          onProgress: input.onProgress,
+          onApprovalRequest: input.onApprovalRequest,
+        });
+        if (!input.requestId) {
+          await options.workerClient.markDelivered(response.jobId);
+        }
+        return "error" in response
+          ? { jobId: response.jobId, error: response.error }
+          : { jobId: response.jobId, result: response.result };
+      }
       const result =
         codexRunner === "app-server" && input.payload.mode !== "review"
           ? await runCodexAppServerPrompt(runnerInput)
@@ -243,6 +281,14 @@ export function createDirectControlClient(
         };
       }
 
+      if (options.workerClient) {
+        return options.workerClient.control({
+          controlKey: input.controlKey,
+          action: input.action,
+          content: input.content,
+        });
+      }
+
       return input.action === "steer"
         ? steerActiveCodexAppServerTurn(input.controlKey, input.content ?? "")
         : interruptActiveCodexAppServerTurn(input.controlKey);
@@ -250,6 +296,22 @@ export function createDirectControlClient(
     async submitClaudePrompt(input) {
       if (input.computerId !== config.direct.computerId) {
         return { jobId: randomUUID(), error: { message: "Computer is offline" } };
+      }
+
+      if (options.workerClient) {
+        const response = await options.workerClient.submit({
+          jobId: input.requestId,
+          type: "run-claude-prompt",
+          queueKey: input.queueKey ?? input.requestId ?? randomUUID(),
+          payload: input.payload,
+          onProgress: input.onProgress,
+        });
+        if (!input.requestId) {
+          await options.workerClient.markDelivered(response.jobId);
+        }
+        return "error" in response
+          ? { jobId: response.jobId, error: response.error }
+          : { jobId: response.jobId, result: response.result };
       }
 
       const result = await runClaudePrompt({

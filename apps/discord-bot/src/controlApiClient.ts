@@ -64,11 +64,15 @@ export type ControlApiJobResponse =
 export interface SubmitCommandJobInput {
   computerId: string;
   payload: RunCommandJobPayload;
+  requestId?: string;
+  queueKey?: string;
 }
 
 export interface SubmitCodexPromptInput {
   computerId: string;
   payload: RunCodexPromptJobPayload;
+  requestId?: string;
+  queueKey?: string;
   onProgress?: (event: CodexPromptProgressEvent) => Promise<void> | void;
   onApprovalRequest?: (request: CodexPromptApprovalRequest) => Promise<CodexPromptApprovalDecision> | CodexPromptApprovalDecision;
 }
@@ -76,6 +80,8 @@ export interface SubmitCodexPromptInput {
 export interface SubmitClaudePromptInput {
   computerId: string;
   payload: RunClaudePromptJobPayload;
+  requestId?: string;
+  queueKey?: string;
   onProgress?: (event: ClaudePromptProgressEvent) => Promise<void> | void;
 }
 
