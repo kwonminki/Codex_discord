@@ -406,8 +406,10 @@ sync mode realtime
 ```
 
 - `on-chat`: 실시간 폴링은 하지 않고, 동기화된 세션 채널에서 다시 채팅을 시작할 때 Codex 데스크탑의 최신 대화 내용을 먼저 반영합니다.
-- `realtime`: 봇이 기본 약 5초 주기로 동기화된 세션을 확인해 Codex 데스크탑에서 생긴 새 대화 내용을 Discord 채널에 반영합니다.
-- `realtime`은 최근 세션 이벤트를 따라가므로, Desktop에서 먼저 보낸 사용자 메시지, Codex commentary, 도구 실행 상태도 Discord에서 이어서 볼 수 있습니다.
+- `realtime`: 봇이 기본 약 5초 주기로 동기화된 세션을 확인해 Codex Desktop이나 IDE에서 생긴 새 대화 내용을 Discord 채널에 반영합니다.
+- Desktop/IDE에서 보낸 사용자 메시지와 Codex가 외부에 공개한 commentary는 각각 별도의 새 Discord 메시지로 올라옵니다. 진행 메시지에는 operator role을 멘션하지 않습니다.
+- `생각 중`, 명령 실행 상태, 파일 변경 상태 같은 내부 상태 이벤트는 보내지 않습니다. `final_answer`도 진행 피드에서는 제외하고, 기존 작업 완료 알림에서 답변과 operator role 멘션을 한 번만 보냅니다.
+- Discord에서 직접 실행 중인 세션은 기존 스트리밍 메시지와 중복되지 않도록 transcript 기준점만 갱신합니다.
 - `realtime`은 새 Discord 채널을 자동 생성하지 않습니다. 열려 있지 않은 Codex 세션을 Discord로 가져오려면 admin 채널에서 `sync` 또는 `/sync`를 명시적으로 실행합니다.
 - 폴링 간격은 `CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS`로 조정할 수 있습니다. 변화가 없거나 시스템 부하가 높으면 백그라운드 스캔은 자동으로 최대 `CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS`까지 늦춰집니다.
 - `CONNECT_BACKGROUND_MAX_LOAD`는 CPU core 수로 나눈 1분 load average 기준입니다. 기본값은 `0.7`이고, `0`으로 설정하면 부하 기반 스킵을 끕니다.

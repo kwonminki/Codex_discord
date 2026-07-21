@@ -257,6 +257,15 @@ describe("codex parser", () => {
             content: [{ type: "output_text", text: "파일을 살펴보는 중입니다." }],
           },
         }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "assistant",
+            phase: "final_answer",
+            content: [{ type: "output_text", text: "작업을 마쳤습니다." }],
+          },
+        }),
       ].join("\n") + "\n",
       "utf8",
     );
@@ -273,7 +282,16 @@ describe("codex parser", () => {
           expect.objectContaining({ kind: "status", text: "작업 시작" }),
           expect.objectContaining({ kind: "user", text: "먼저 작업 시작해줘" }),
           expect.objectContaining({ kind: "status", text: expect.stringContaining("파일 탐색 중") }),
-          expect.objectContaining({ kind: "assistant", text: "파일을 살펴보는 중입니다." }),
+          expect.objectContaining({
+            kind: "assistant",
+            phase: "commentary",
+            text: "파일을 살펴보는 중입니다.",
+          }),
+          expect.objectContaining({
+            kind: "assistant",
+            phase: "final_answer",
+            text: "작업을 마쳤습니다.",
+          }),
         ],
       }),
     ]);

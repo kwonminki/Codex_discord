@@ -193,7 +193,7 @@ export function createDirectControlClient(
           includeRealtimeEvents: true,
           contextMessageLimit: 25,
           contextMessageMaxChars: 8_000,
-          realtimeEventLimit: 40,
+          realtimeEventLimit: 200,
         }),
       };
     },

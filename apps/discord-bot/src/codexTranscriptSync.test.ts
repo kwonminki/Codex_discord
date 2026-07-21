@@ -81,7 +81,7 @@ describe("syncCodexSessionTranscriptUpdates", () => {
     }
   });
 
-  it("posts only transcript messages that appear after the stored marker", async () => {
+  it("posts IDE commentary that appears after the stored marker", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-transcript-sync-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue(undefined);
@@ -98,7 +98,7 @@ describe("syncCodexSessionTranscriptUpdates", () => {
             threadName: "Build bridge",
             updatedAt: "2026-04-23T00:02:00.000Z",
             cwdHint: "/repo",
-            contextPreview: [{ role: "user", text: "첫 질문" }],
+            realtimeEvents: [{ key: "event-1", kind: "user", text: "첫 질문" }],
           },
         ],
       });
@@ -114,9 +114,14 @@ describe("syncCodexSessionTranscriptUpdates", () => {
               threadName: "Build bridge",
               updatedAt: "2026-04-23T00:03:00.000Z",
               cwdHint: "/repo",
-              contextPreview: [
-                { role: "user", text: "첫 질문" },
-                { role: "assistant", text: "새 답변" },
+              realtimeEvents: [
+                { key: "event-1", kind: "user", text: "첫 질문" },
+                {
+                  key: "event-2",
+                  kind: "assistant",
+                  phase: "commentary",
+                  text: "새 설명입니다.",
+                },
               ],
             },
           ],
@@ -129,9 +134,9 @@ describe("syncCodexSessionTranscriptUpdates", () => {
       expect(sendTextMessage).toHaveBeenCalledTimes(1);
       expect(sendTextMessage).toHaveBeenCalledWith(
         "channel-1",
-        expect.stringContaining("새 답변"),
+        expect.stringContaining("새 설명입니다."),
       );
-      expect(sendTextMessage.mock.calls[0]?.[1]).toContain("새 답변");
+      expect(sendTextMessage.mock.calls[0]?.[1]).toContain("새 설명입니다.");
       expect(sendTextMessage.mock.calls[0]?.[1]).not.toContain("**Codex 답변**");
       expect(sendTextMessage.mock.calls[0]?.[1]).not.toContain("Codex 데스크탑 변경사항 동기화");
       expect(sendTextMessage.mock.calls[0]?.[1]).not.toContain("세션:");
@@ -142,16 +147,15 @@ describe("syncCodexSessionTranscriptUpdates", () => {
     }
   });
 
-  it("keeps desktop transcript sync in one rolling Discord message per channel", async () => {
+  it("posts each public IDE update separately while skipping tool status and final answers", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-transcript-sync-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue({ id: "sync-message-1" });
-    const editTextMessage = vi.fn().mockResolvedValue({ id: "sync-message-1" });
 
     try {
       await stateStore.write(syncedSessionState());
       await syncCodexSessionTranscriptUpdates({
-        guild: { sendTextMessage, editTextMessage },
+        guild: { sendTextMessage },
         stateStore,
         trigger: "realtime",
         sessions: [
@@ -167,52 +171,64 @@ describe("syncCodexSessionTranscriptUpdates", () => {
 
       sendTextMessage.mockClear();
 
-      await syncCodexSessionTranscriptUpdates({
-        guild: { sendTextMessage, editTextMessage },
-        stateStore,
-        trigger: "realtime",
-        sessions: [
-          {
-            id: "session-1",
-            threadName: "Build bridge",
-            updatedAt: "2026-04-23T00:03:00.000Z",
-            cwdHint: "/repo",
-            realtimeEvents: [
-              { key: "event-1", kind: "user", text: "첫 질문" },
-              { key: "event-2", kind: "status", text: "파일 탐색 중 · rg --files" },
-              { key: "event-3", kind: "assistant", text: "파일을 보는 중입니다." },
-              { key: "event-4", kind: "user", text: "추가 요청\n두 번째 줄" },
-            ],
-          },
-        ],
-      });
-
-      expect(sendTextMessage).toHaveBeenCalledTimes(1);
-      expect(editTextMessage).not.toHaveBeenCalled();
-      expect(sendTextMessage).toHaveBeenCalledWith(
-        "channel-1",
-        expect.objectContaining({
-          content: expect.stringContaining("### 추가 요청"),
-          components: [
+      await expect(
+        syncCodexSessionTranscriptUpdates({
+          guild: { sendTextMessage },
+          stateStore,
+          trigger: "realtime",
+          sessions: [
             {
-              type: 1,
-              components: [
-                { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
-                { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
+              id: "session-1",
+              threadName: "Build bridge",
+              updatedAt: "2026-04-23T00:03:00.000Z",
+              cwdHint: "/repo",
+              realtimeEvents: [
+                { key: "event-1", kind: "user", text: "첫 질문" },
+                { key: "event-2", kind: "status", text: "파일 탐색 중 · rg --files" },
+                {
+                  key: "event-3",
+                  kind: "assistant",
+                  phase: "commentary",
+                  text: "파일을 보는 중입니다.",
+                },
+                { key: "event-4", kind: "user", text: "추가 요청\n두 번째 줄" },
+                {
+                  key: "event-5",
+                  kind: "assistant",
+                  phase: "final_answer",
+                  text: "최종 답변은 완료 알림에서 보냅니다.",
+                },
+                {
+                  key: "event-6",
+                  kind: "assistant",
+                  text: "phase가 없는 이전 형식의 답변도 진행 피드에서는 제외합니다.",
+                },
               ],
             },
           ],
         }),
+      ).resolves.toMatchObject({ postedMessages: 2 });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        1,
+        "channel-1",
+        "파일을 보는 중입니다.",
       );
-      expect(JSON.stringify(sendTextMessage.mock.calls[0]?.[1])).not.toContain("파일 탐색 중 · rg --files");
-      await expect(stateStore.findSessionChannelByDiscordId("channel-1")).resolves.toMatchObject({
-        lastTranscriptDiscordMessageId: "sync-message-1",
-      });
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        2,
+        "channel-1",
+        expect.stringContaining("### 추가 요청"),
+      );
+      const postedContent = JSON.stringify(sendTextMessage.mock.calls);
+      expect(postedContent).not.toContain("파일 탐색 중 · rg --files");
+      expect(postedContent).not.toContain("최종 답변은 완료 알림에서 보냅니다.");
+      expect(postedContent).not.toContain("phase가 없는 이전 형식의 답변도 진행 피드에서는 제외합니다.");
 
       sendTextMessage.mockClear();
 
       await syncCodexSessionTranscriptUpdates({
-        guild: { sendTextMessage, editTextMessage },
+        guild: { sendTextMessage },
         stateStore,
         trigger: "realtime",
         sessions: [
@@ -224,28 +240,87 @@ describe("syncCodexSessionTranscriptUpdates", () => {
             realtimeEvents: [
               { key: "event-1", kind: "user", text: "첫 질문" },
               { key: "event-2", kind: "status", text: "파일 탐색 중 · rg --files" },
-              { key: "event-3", kind: "assistant", text: "파일을 보는 중입니다." },
+              {
+                key: "event-3",
+                kind: "assistant",
+                phase: "commentary",
+                text: "파일을 보는 중입니다.",
+              },
               { key: "event-4", kind: "user", text: "추가 요청\n두 번째 줄" },
-              { key: "event-5", kind: "assistant", text: "추가 답변입니다." },
+              {
+                key: "event-5",
+                kind: "assistant",
+                phase: "final_answer",
+                text: "최종 답변은 완료 알림에서 보냅니다.",
+              },
+              {
+                key: "event-6",
+                kind: "assistant",
+                text: "phase가 없는 이전 형식의 답변도 진행 피드에서는 제외합니다.",
+              },
+              {
+                key: "event-7",
+                kind: "assistant",
+                phase: "commentary",
+                text: "다음 turn의 추가 설명입니다.",
+              },
             ],
           },
         ],
       });
 
-      expect(sendTextMessage).not.toHaveBeenCalled();
-      expect(editTextMessage).toHaveBeenCalledTimes(1);
-      expect(editTextMessage).toHaveBeenCalledWith(
+      expect(sendTextMessage).toHaveBeenCalledTimes(1);
+      expect(sendTextMessage).toHaveBeenCalledWith(
         "channel-1",
-        "sync-message-1",
-        expect.objectContaining({
-          content: expect.stringContaining("추가 답변입니다."),
-        }),
+        "다음 turn의 추가 설명입니다.",
       );
-      const postedMessages = JSON.stringify(editTextMessage.mock.calls[0]?.[2]);
-      expect(postedMessages).not.toContain("---");
-      expect(postedMessages).not.toContain("진행 상황");
-      expect(postedMessages).not.toContain("사용자 요청");
-      expect(postedMessages).not.toContain("Codex 답변");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("baselines instead of replaying old events when the marker fell outside the realtime window", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-transcript-sync-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await stateStore.write(syncedSessionState());
+      await syncCodexSessionTranscriptUpdates({
+        guild: { sendTextMessage },
+        stateStore,
+        trigger: "realtime",
+        sessions: [{
+          id: "session-1",
+          threadName: "Build bridge",
+          updatedAt: "2026-04-23T00:02:00.000Z",
+          cwdHint: "/repo",
+          realtimeEvents: [{ key: "event-1", kind: "user", text: "첫 질문" }],
+        }],
+      });
+
+      await expect(syncCodexSessionTranscriptUpdates({
+        guild: { sendTextMessage },
+        stateStore,
+        trigger: "realtime",
+        sessions: [{
+          id: "session-1",
+          threadName: "Build bridge",
+          updatedAt: "2026-04-23T00:10:00.000Z",
+          cwdHint: "/repo",
+          realtimeEvents: [{
+            key: "event-200",
+            kind: "assistant",
+            phase: "commentary",
+            text: "오래된 구간의 마지막 설명",
+          }],
+        }],
+      })).resolves.toMatchObject({ postedMessages: 0, updatedChannels: 1 });
+
+      expect(sendTextMessage).not.toHaveBeenCalled();
+      await expect(stateStore.findSessionChannelByDiscordId("channel-1")).resolves.toMatchObject({
+        lastTranscriptMessageKey: "event-200",
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -289,7 +364,7 @@ describe("syncCodexSessionTranscriptUpdates", () => {
     }
   });
 
-  it("mirrors desktop-side status events but suppresses duplicates for actively streamed Discord sessions", async () => {
+  it("advances desktop markers but suppresses duplicates for actively streamed Discord sessions", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-transcript-sync-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue(undefined);
@@ -329,7 +404,7 @@ describe("syncCodexSessionTranscriptUpdates", () => {
               realtimeEvents: [
                 { key: "event-1", kind: "user", text: "첫 질문" },
                 { key: "event-2", kind: "status", text: "파일 탐색 중 · rg --files" },
-                { key: "event-3", kind: "assistant", text: "파일을 보는 중입니다." },
+                { key: "event-3", kind: "assistant", phase: "commentary", text: "파일을 보는 중입니다." },
               ],
             },
           ],
@@ -355,7 +430,7 @@ describe("syncCodexSessionTranscriptUpdates", () => {
               realtimeEvents: [
                 { key: "event-1", kind: "user", text: "첫 질문" },
                 { key: "event-2", kind: "status", text: "파일 탐색 중 · rg --files" },
-                { key: "event-3", kind: "assistant", text: "파일을 보는 중입니다." },
+                { key: "event-3", kind: "assistant", phase: "commentary", text: "파일을 보는 중입니다." },
               ],
             },
           ],

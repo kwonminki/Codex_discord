@@ -544,7 +544,7 @@ describe("syncCodexSessionsToDiscord", () => {
         "channel-a",
         expect.stringContaining("### 데스크탑에서 새로 보낸 질문"),
       );
-      expect(guild.sendTextMessage.mock.calls[0]?.[1]).toContain("이전 질문");
+      expect(guild.sendTextMessage.mock.calls[0]?.[1]).not.toContain("이전 질문");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

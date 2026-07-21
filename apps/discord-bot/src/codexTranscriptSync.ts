@@ -10,20 +10,17 @@ import type {
   SyncedSessionChannelState,
   TranscriptSyncMode,
 } from "./directState.js";
-import { formatCollapsibleThoughtMessage, type DiscordMessagePayload } from "./responses.js";
 
 const MAX_DISCORD_TEXT_LENGTH = 1_900;
-const MAX_ROLLING_TRANSCRIPT_MESSAGES = 12;
 
 export interface SyncCodexSessionTranscriptUpdatesInput {
-  guild: Pick<DiscordGuildSurface, "sendTextMessage" | "editTextMessage">;
+  guild: Pick<DiscordGuildSurface, "sendTextMessage">;
   stateStore: DirectSyncStateStore;
   sessions: DiscoveredCodexSession[];
   trigger: "on-chat" | "realtime";
   discordChannelId?: string;
   postUpdates?: boolean;
   ignoredSessionIds?: Iterable<string>;
-  mentionRoleIds?: string[];
 }
 
 export interface SyncCodexSessionTranscriptUpdatesResult {
@@ -39,6 +36,7 @@ interface TranscriptMessage {
   key: string;
   role: CodexSessionContextMessage["role"] | "status";
   text: string;
+  phase?: CodexSessionRealtimeEvent["phase"];
 }
 
 function transcriptMessageKey(message: CodexSessionContextMessage, occurrence: number): string {
@@ -55,6 +53,7 @@ function extractTranscriptMessages(session: DiscoveredCodexSession): TranscriptM
         key: event.key,
         role: realtimeEventRole(event),
         text: event.text.trim(),
+        ...(event.phase ? { phase: event.phase } : {}),
       }));
   }
 
@@ -71,6 +70,7 @@ function extractTranscriptMessages(session: DiscoveredCodexSession): TranscriptM
       key: transcriptMessageKey({ role: message.role, text: normalizedText }, occurrence),
       role: message.role,
       text: normalizedText,
+      ...(message.role === "assistant" ? { phase: "final_answer" as const } : {}),
     };
   });
 }
@@ -103,16 +103,9 @@ function truncateDiscordText(value: string): string {
   return `${value.slice(0, MAX_DISCORD_TEXT_LENGTH - suffix.length)}${suffix}`;
 }
 
-function quoteStatusText(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((line) => `> ${line}`)
-    .join("\n");
-}
-
 function formatTranscriptUpdateMessage(input: {
   message: TranscriptMessage;
-}): string | DiscordMessagePayload {
+}): string {
   const text = sanitizeDiscordText(input.message.text);
 
   if (input.message.role === "user") {
@@ -125,84 +118,29 @@ function formatTranscriptUpdateMessage(input: {
     return truncateDiscordText(text);
   }
 
-  return formatCollapsibleThoughtMessage({
-    collapsedContent: "> 생각중...",
-    expandedContent: truncateDiscordText(quoteStatusText(text)),
-  });
+  return truncateDiscordText(text);
 }
 
-function formatRollingTranscriptUpdateMessage(messages: TranscriptMessage[]): string | DiscordMessagePayload {
-  const recentMessages = messages.slice(-MAX_ROLLING_TRANSCRIPT_MESSAGES);
-  const visibleParts = recentMessages
-    .filter((message) => message.role !== "status")
-    .map((message) => formatTranscriptUpdateMessage({ message }))
-    .filter((message): message is string => typeof message === "string" && message.trim().length > 0);
-  const expandedParts = recentMessages
-    .map((message) =>
-      message.role === "status"
-        ? truncateDiscordText(quoteStatusText(sanitizeDiscordText(message.text)))
-        : formatTranscriptUpdateMessage({ message }),
-    )
-    .map((message) => (typeof message === "string" ? message : message.content))
-    .filter((message): message is string => typeof message === "string" && message.trim().length > 0);
-  const hasThoughts = recentMessages.some((message) => message.role === "status");
-  const collapsedContent = truncateDiscordText(visibleParts.join("\n\n").trim() || "> 생각중...");
-  const expandedContent = truncateDiscordText(expandedParts.join("\n\n").trim() || collapsedContent);
-
-  return hasThoughts
-    ? formatCollapsibleThoughtMessage({
-        collapsedContent,
-        expandedContent,
-      })
-    : collapsedContent;
+function shouldMirrorTranscriptMessage(message: TranscriptMessage): boolean {
+  return message.role === "user" ||
+    (message.role === "assistant" && message.phase === "commentary");
 }
 
-function responseMessageId(response: { id?: string } | void): string | null {
-  return typeof response?.id === "string" && response.id.length > 0 ? response.id : null;
-}
-
-async function upsertTranscriptDiscordMessage(input: {
-  guild: Pick<DiscordGuildSurface, "sendTextMessage" | "editTextMessage">;
+async function postTranscriptDiscordMessage(input: {
+  guild: Pick<DiscordGuildSurface, "sendTextMessage">;
   channel: SyncedSessionChannelState;
-  content: string | DiscordMessagePayload;
-  mentionRoleIds?: string[];
-}): Promise<string | null> {
-  const existingMessageId = input.channel.lastTranscriptDiscordMessageId ?? null;
-
-  if (existingMessageId && input.guild.editTextMessage) {
-    try {
-      const editedMessageId = responseMessageId(
-        await input.guild.editTextMessage(input.channel.discordChannelId, existingMessageId, input.content),
-      );
-      return editedMessageId ?? existingMessageId;
-    } catch (error) {
-      console.warn("discord-bot failed to edit transcript sync message; sending a replacement", error);
-    }
-  }
-
-  if (!input.guild.sendTextMessage) {
-    return existingMessageId;
-  }
-
-  const mentionRoleIds =
-    input.channel.discordDeliveryMode === "thread"
-      ? input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0)
-      : [];
-
-  if (mentionRoleIds && mentionRoleIds.length > 0) {
-    return responseMessageId(
-      await input.guild.sendTextMessage(input.channel.discordChannelId, input.content, { mentionRoleIds }),
-    );
-  }
-
-  return responseMessageId(await input.guild.sendTextMessage(input.channel.discordChannelId, input.content));
+  message: TranscriptMessage;
+}): Promise<void> {
+  await input.guild.sendTextMessage?.(
+    input.channel.discordChannelId,
+    formatTranscriptUpdateMessage({ message: input.message }),
+  );
 }
 
 function nextChannelState(
   channel: SyncedSessionChannelState,
   session: DiscoveredCodexSession,
   latestMessageKey: string,
-  transcriptDiscordMessageId?: string | null,
 ): SyncedSessionChannelState {
   return {
     ...channel,
@@ -211,7 +149,6 @@ function nextChannelState(
     cwd: session.cwdHint ?? channel.cwd,
     lastTranscriptMessageKey: latestMessageKey,
     lastTranscriptSyncedAt: new Date().toISOString(),
-    lastTranscriptDiscordMessageId: transcriptDiscordMessageId ?? channel.lastTranscriptDiscordMessageId ?? null,
   };
 }
 
@@ -278,31 +215,22 @@ export async function syncCodexSessionTranscriptUpdates(
     const newMessages = channel.lastTranscriptMessageKey
       ? markerIndex >= 0
         ? transcriptMessages.slice(markerIndex + 1)
-        : transcriptMessages
+        : []
       : [];
 
     if (
       newMessages.length > 0 &&
-      (input.guild.sendTextMessage || (channel.lastTranscriptDiscordMessageId && input.guild.editTextMessage)) &&
+      input.guild.sendTextMessage &&
       input.postUpdates !== false &&
       !ignoredSessionIds.has(session.id)
     ) {
-      const transcriptDiscordMessageId = await upsertTranscriptDiscordMessage({
-        guild: input.guild,
-        channel,
-        content: formatRollingTranscriptUpdateMessage(transcriptMessages),
-        mentionRoleIds: input.mentionRoleIds,
-      });
-      channel.lastTranscriptDiscordMessageId = transcriptDiscordMessageId;
-      postedMessages += newMessages.length;
+      for (const message of newMessages.filter(shouldMirrorTranscriptMessage)) {
+        await postTranscriptDiscordMessage({ guild: input.guild, channel, message });
+        postedMessages += 1;
+      }
     }
 
-    sessionChannels[index] = nextChannelState(
-      channel,
-      session,
-      latestMessage.key,
-      channel.lastTranscriptDiscordMessageId,
-    );
+    sessionChannels[index] = nextChannelState(channel, session, latestMessage.key);
     changedChannels.set(channel.discordChannelId, sessionChannels[index]);
     updatedChannels += 1;
     changed = true;
@@ -328,7 +256,6 @@ export async function syncCodexSessionTranscriptUpdates(
           cwd: changedChannel.cwd,
           lastTranscriptMessageKey: changedChannel.lastTranscriptMessageKey,
           lastTranscriptSyncedAt: changedChannel.lastTranscriptSyncedAt,
-          lastTranscriptDiscordMessageId: changedChannel.lastTranscriptDiscordMessageId,
         };
       }),
     }));

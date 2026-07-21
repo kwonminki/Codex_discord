@@ -407,7 +407,6 @@ export async function startBot(): Promise<void> {
             discordChannelId: input.discordChannelId,
             postUpdates: input.postUpdates,
             ignoredSessionIds: activelyStreamedSessionIds,
-            mentionRoleIds: connectConfig.discord.allowedRoleIds,
           });
         }
       : undefined;

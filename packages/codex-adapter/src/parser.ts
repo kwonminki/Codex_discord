@@ -46,6 +46,7 @@ export interface CodexSessionRealtimeEvent {
   key: string;
   kind: "user" | "assistant" | "status";
   text: string;
+  phase?: "commentary" | "final_answer";
 }
 
 interface CodexThreadState {
@@ -877,12 +878,16 @@ function parseRealtimeEventLine(line: string, messageMaxChars: number): CodexSes
 
     if (parsed.payload.role === "assistant") {
       const text = normalizeContextText(extractContentText(parsed.payload.content));
+      const phase = parsed.payload.phase === "commentary" || parsed.payload.phase === "final_answer"
+        ? parsed.payload.phase
+        : null;
 
       return text
         ? {
             key: hashSessionEventLine(line),
             kind: "assistant",
             text: truncateContextText(text, messageMaxChars),
+            ...(phase ? { phase } : {}),
           }
         : null;
     }
