@@ -852,6 +852,7 @@ async function runPromptAgainstAppServer(input: {
   const agentMessageOrder: string[] = [];
   const reasoningSummaryById = new Map<string, string>();
   const commandOutputById = new Map<string, string>();
+  let notificationQueue = Promise.resolve();
   const pendingRequests = new Map<
     number,
     {
@@ -863,6 +864,14 @@ async function runPromptAgainstAppServer(input: {
 
   function stderr(): string {
     return Buffer.concat(input.stderrChunks).toString("utf8");
+  }
+
+  async function emitProgress(event: CodexRunnerProgressEvent): Promise<void> {
+    try {
+      await Promise.resolve(input.input.onProgress?.(event));
+    } catch (error) {
+      console.error("failed to deliver Codex app-server progress", error);
+    }
   }
 
   function clearActiveTurn(): void {
@@ -957,7 +966,7 @@ async function runPromptAgainstAppServer(input: {
     }
 
     announcedSessionIds.add(threadId);
-    await Promise.resolve(input.input.onProgress?.({ type: "thread-started", sessionId: threadId }));
+    await emitProgress({ type: "thread-started", sessionId: threadId });
   }
 
   async function handleItemCompleted(params: ItemNotificationParams): Promise<void> {
@@ -976,7 +985,7 @@ async function runPromptAgainstAppServer(input: {
     agentMessageTextById.set(item.id, text);
 
     if (text.trim().length > 0) {
-      await Promise.resolve(input.input.onProgress?.({ type: "agent-message", text }));
+      await emitProgress({ type: "agent-message", text });
     }
   }
 
@@ -996,7 +1005,7 @@ async function runPromptAgainstAppServer(input: {
     socket.close();
   }
 
-  function handleNotification(message: JsonRpcNotification): void {
+  async function handleNotification(message: JsonRpcNotification): Promise<void> {
     const method = typeof message.method === "string" ? message.method : "";
     const params = typeof message.params === "object" && message.params !== null
       ? (message.params as Record<string, unknown>)
@@ -1009,7 +1018,7 @@ async function runPromptAgainstAppServer(input: {
       const threadId = typeof thread?.id === "string" ? thread.id : null;
 
       if (threadId) {
-        void emitThreadStarted(threadId);
+        await emitThreadStarted(threadId);
       }
       return;
     }
@@ -1018,7 +1027,7 @@ async function runPromptAgainstAppServer(input: {
       const progress = itemProgressEvent(params as ItemNotificationParams, "started");
 
       if (progress) {
-        void Promise.resolve(input.input.onProgress?.(progress));
+        await emitProgress(progress);
       }
       return;
     }
@@ -1039,12 +1048,12 @@ async function runPromptAgainstAppServer(input: {
     }
 
     if (method === "item/mcpToolCall/progress" && typeof params.message === "string") {
-      void Promise.resolve(input.input.onProgress?.({
+      await emitProgress({
         type: "operation-progress",
         label: "도구 진행 중",
         detail: compactDetail(params.message),
         eventType: method,
-      }));
+      });
       return;
     }
 
@@ -1056,24 +1065,24 @@ async function runPromptAgainstAppServer(input: {
         const record = step as { step: string; status?: unknown };
         return [`${index + 1}. ${record.step} (${String(record.status ?? "pending")})`];
       });
-      void Promise.resolve(input.input.onProgress?.({
+      await emitProgress({
         type: "operation-progress",
         label: "계획 업데이트",
         detail: compactDetail(plan.join(" · ")),
         eventType: method,
-      }));
+      });
       return;
     }
 
     if (method === "item/fileChange/patchUpdated") {
       const detail = fileChangeDetail(params.changes);
       if (detail) {
-        void Promise.resolve(input.input.onProgress?.({
+        await emitProgress({
           type: "operation-progress",
           label: "파일 수정 중",
           detail,
           eventType: method,
-        }));
+        });
       }
       return;
     }
@@ -1083,9 +1092,9 @@ async function runPromptAgainstAppServer(input: {
       const progress = itemProgressEvent(enrichedParams, "completed");
 
       if (progress) {
-        void Promise.resolve(input.input.onProgress?.(progress));
+        await emitProgress(progress);
       }
-      void handleItemCompleted(enrichedParams);
+      await handleItemCompleted(enrichedParams);
 
       const itemId = typeof enrichedParams.item?.id === "string" ? enrichedParams.item.id : null;
       if (itemId) {
@@ -1273,7 +1282,11 @@ async function runPromptAgainstAppServer(input: {
         return;
       }
 
-      handleNotification(message);
+      notificationQueue = notificationQueue
+        .then(() => handleNotification(message))
+        .catch((error) => {
+          console.error("failed to handle Codex app-server notification", error);
+        });
     });
 
     socket.on("error", (error) => {
@@ -1291,22 +1304,24 @@ async function runPromptAgainstAppServer(input: {
     });
 
     socket.on("close", () => {
-      clearActiveTurn();
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      void notificationQueue.finally(() => {
+        clearActiveTurn();
+        if (timeout) {
+          clearTimeout(timeout);
+        }
 
-      for (const pending of pendingRequests.values()) {
-        clearTimeout(pending.timer);
-      }
-      pendingRequests.clear();
+        for (const pending of pendingRequests.values()) {
+          clearTimeout(pending.timer);
+        }
+        pendingRequests.clear();
 
-      resolve({
-        status: completed && finalMessage.trim().length > 0 ? "completed" : "failed",
-        finalMessage: finalMessage.trimEnd(),
-        sessionId,
-        stderr: stderr(),
-        exitCode: completed ? 0 : null,
+        resolve({
+          status: completed && finalMessage.trim().length > 0 ? "completed" : "failed",
+          finalMessage: finalMessage.trimEnd(),
+          sessionId,
+          stderr: stderr(),
+          exitCode: completed ? 0 : null,
+        });
       });
     });
   });

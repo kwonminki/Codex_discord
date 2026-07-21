@@ -314,13 +314,18 @@ describe("runCodexAppServerPrompt", () => {
       });
 
       const events: unknown[] = [];
+      let finalProgressDelivered = false;
       const result = await runCodexAppServerPrompt({
         workspaceRoot,
         cwd: workspaceRoot,
         prompt: "테스트",
         timeoutMs: 5_000,
         appServerSocketPath: socketPath,
-        onProgress: (event) => {
+        onProgress: async (event) => {
+          if (event.type === "agent-message") {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            finalProgressDelivered = true;
+          }
           events.push(event);
         },
       });
@@ -331,6 +336,8 @@ describe("runCodexAppServerPrompt", () => {
         sessionId: "thread-1",
         exitCode: 0,
       });
+      expect(finalProgressDelivered).toBe(true);
+      expect(events.at(-1)).toEqual({ type: "agent-message", text: "완료했습니다." });
       expect(events).toEqual(
         expect.arrayContaining([
           { type: "thread-started", sessionId: "thread-1" },
