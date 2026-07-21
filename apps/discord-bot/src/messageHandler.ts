@@ -68,6 +68,8 @@ import {
 import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
 export const DEFAULT_CODEX_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
+const AUTO_STEER_READY_RETRY_ATTEMPTS = 8;
+const DEFAULT_AUTO_STEER_RETRY_DELAY_MS = 250;
 
 export interface BotReloadExecutionState {
   activeCount: number;
@@ -129,6 +131,7 @@ export interface CreateDiscordMessageHandlerInput {
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
   controlCodexTurn?: ControlApiClient["controlCodexTurn"];
+  autoSteerRetryDelayMs?: number;
   submitClaudePrompt?: ControlApiClient["submitClaudePrompt"];
   syncCodexSessions?: (input: {
     guild: DiscordGuildSurface;
@@ -790,6 +793,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return false;
     }
 
+    const activeMessage = queue.activeMessage;
+    const retryDelayMs = input.autoSteerRetryDelayMs ?? DEFAULT_AUTO_STEER_RETRY_DELAY_MS;
     let result: Awaited<ReturnType<NonNullable<CreateDiscordMessageHandlerInput["controlCodexTurn"]>>>;
 
     try {
@@ -799,12 +804,34 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         action: "steer",
         content: routed.content,
       });
+
+      for (
+        let attempt = 1;
+        result.status === "no-active-turn" &&
+          attempt < AUTO_STEER_READY_RETRY_ATTEMPTS &&
+          queue.activeMessage === activeMessage;
+        attempt += 1
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        result = await input.controlCodexTurn({
+          computerId: channelContext.computerId,
+          controlKey: message.channelId,
+          action: "steer",
+          content: routed.content,
+        });
+      }
     } catch (error) {
-      console.warn("discord-bot failed to auto-steer the active Codex turn; queueing the message", error);
-      return false;
+      console.warn("discord-bot failed to auto-steer the active Codex turn", error);
+      if (queue.activeMessage !== activeMessage) {
+        return false;
+      }
+      result = {
+        status: "failed",
+        message: error instanceof Error ? error.message : "Codex steering 요청에 실패했습니다.",
+      };
     }
 
-    if (result.status !== "accepted") {
+    if (result.status !== "accepted" && queue.activeMessage !== activeMessage) {
       return false;
     }
 
@@ -813,7 +840,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     try {
       await message.reply(formatCodexTurnControlResult({ action: "steer", ...result }));
     } catch (error) {
-      console.warn("discord-bot failed to acknowledge an accepted automatic steering message", error);
+      console.warn("discord-bot failed to acknowledge an automatic steering message", error);
     }
 
     return true;

@@ -14,11 +14,17 @@ import type { DirectConnectConfig } from "./connectConfig.js";
 import type { DirectSyncStateStore } from "./directState.js";
 import type { DirectWorkerClient } from "./directWorkerClient.js";
 
+export function resolveDirectCodexRunner(
+  configuredValue = process.env.CODEX_DISCORD_CODEX_RUNNER,
+): "app-server" | "exec" {
+  return configuredValue === "exec" ? "exec" : "app-server";
+}
+
 export function createDirectControlClient(
   config: DirectConnectConfig,
   options: { stateStore?: DirectSyncStateStore; workerClient?: DirectWorkerClient | null } = {},
 ): ControlApiClient {
-  const codexRunner = process.env.CODEX_DISCORD_CODEX_RUNNER === "app-server" ? "app-server" : "exec";
+  const codexRunner = resolveDirectCodexRunner();
   const claudeChannelId = config.direct.claudeChannelId?.trim() || null;
   let cwd = config.direct.initialCwd
     ? assertInsideWorkspace(config.direct.workspaceRoot, config.direct.initialCwd)

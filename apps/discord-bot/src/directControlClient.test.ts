@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { createDirectControlClient } from "./directControlClient.js";
+import { createDirectControlClient, resolveDirectCodexRunner } from "./directControlClient.js";
 import { createDirectSyncStateStore } from "./directState.js";
 
 const execFileAsync = promisify(execFile);
@@ -14,6 +14,12 @@ async function createCodexStateDatabase(codexHome: string, sql: string) {
 }
 
 describe("createDirectControlClient", () => {
+  it("uses app-server by default and keeps exec as an explicit compatibility mode", () => {
+    expect(resolveDirectCodexRunner(undefined)).toBe("app-server");
+    expect(resolveDirectCodexRunner("app-server")).toBe("app-server");
+    expect(resolveDirectCodexRunner("exec")).toBe("exec");
+  });
+
   it("runs commands directly against the configured local workspace", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "direct-control-"));
 

@@ -729,6 +729,137 @@ describe("createDiscordMessageHandler", () => {
     await first;
   });
 
+  it("retries automatic steering while a new app-server turn is becoming active", async () => {
+    let firstPromptWaiting = false;
+    let finishFirstPrompt: (value: unknown) => void = () => {
+      throw new Error("first prompt completion was not initialized");
+    };
+    const submitCodexPrompt = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        finishFirstPrompt = resolve;
+        firstPromptWaiting = true;
+      }),
+    );
+    const controlCodexTurn = vi.fn()
+      .mockResolvedValueOnce({
+        status: "no-active-turn",
+        message: "turn is still starting",
+      })
+      .mockResolvedValueOnce({
+        status: "accepted",
+        message: "steered",
+        threadId: "session-1",
+        turnId: "turn-1",
+      });
+    const steerReplies: unknown[] = [];
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "session-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      controlCodexTurn,
+      autoSteerRetryDelayMs: 0,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const userMessage = (content: string, replies: unknown[] = []) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "thread-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return { edit: async () => undefined };
+      },
+    });
+
+    const first = handleMessage(userMessage("첫 번째 긴 작업"));
+    await vi.waitFor(() => expect(firstPromptWaiting).toBe(true));
+    await handleMessage(userMessage("방금 지시를 바로 반영해줘", steerReplies));
+
+    expect(controlCodexTurn).toHaveBeenCalledTimes(2);
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(1);
+    expect(steerReplies).toEqual([
+      expect.objectContaining({ embeds: [expect.objectContaining({ title: "Codex steering" })] }),
+    ]);
+
+    finishFirstPrompt({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "수정 지시까지 반영했습니다.",
+        sessionId: "session-1",
+      },
+    });
+    await first;
+  });
+
+  it("does not silently queue an ordinary follow-up when active-turn steering is unsupported", async () => {
+    let firstPromptWaiting = false;
+    let finishFirstPrompt: (value: unknown) => void = () => {
+      throw new Error("first prompt completion was not initialized");
+    };
+    const submitCodexPrompt = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        finishFirstPrompt = resolve;
+        firstPromptWaiting = true;
+      }),
+    );
+    const controlCodexTurn = vi.fn().mockResolvedValue({
+      status: "unsupported",
+      message: "Codex steering requires app-server.",
+    });
+    const steerReplies: unknown[] = [];
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "session-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      controlCodexTurn,
+      autoSteerRetryDelayMs: 0,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const userMessage = (content: string, replies: unknown[] = []) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "thread-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return { edit: async () => undefined };
+      },
+    });
+
+    const first = handleMessage(userMessage("첫 번째 긴 작업"));
+    await vi.waitFor(() => expect(firstPromptWaiting).toBe(true));
+    await handleMessage(userMessage("이 메시지는 큐로 보내지 마", steerReplies));
+
+    expect(controlCodexTurn).toHaveBeenCalledTimes(1);
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(1);
+    expect(steerReplies).toEqual([
+      expect.objectContaining({ embeds: [expect.objectContaining({ title: "Steering not supported" })] }),
+    ]);
+
+    finishFirstPrompt({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "첫 작업 완료",
+        sessionId: "session-1",
+      },
+    });
+    await first;
+  });
+
   it("sends Codex steering and interrupt controls immediately", async () => {
     const replies: unknown[] = [];
     const controlCodexTurn = vi.fn()
