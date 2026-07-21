@@ -5,8 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatCodexAck,
-  formatCodexVisibleProcessMessage,
-  formatCollapsibleThoughtMessage,
   formatCodexProgressUpdate,
   formatCodexResultUpdate,
   formatBlockedCommand,
@@ -28,7 +26,6 @@ import {
   formatScheduleResult,
   formatMaintenancePanel,
   getCodexResultContinuationMessages,
-  getCodexThoughtView,
   splitDiscordMessageContent,
 } from "./responses.js";
 
@@ -370,16 +367,13 @@ describe("responses", () => {
       allowedMentions: { parse: [] },
       content: expect.stringContaining("**Codex 작업 시작**"),
       embeds: [],
-      components: [
-        {
-          type: 1,
-          components: [
-            { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
-            { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-          ],
-        },
-      ],
     }));
+    expect(formatCodexAck({
+      computerDisplayName: "Local Dev",
+      workspaceDisplayName: "CodexDiscordConnector",
+      cwd: "/repo",
+      prompt: "README를 요약해줘",
+    }).components).toBeUndefined();
   });
 
   it("formats Codex progress as Korean plain text instead of raw event names", () => {
@@ -395,144 +389,20 @@ describe("responses", () => {
         sessionId: "session-1",
         latestMessage: "중간 답변을 작성 중입니다.",
       },
-      { expanded: true },
     );
 
     expect(payload).toEqual(expect.objectContaining({
       allowedMentions: { parse: [] },
       content: expect.stringContaining("진행: 작업 단계 실행 중"),
       embeds: [],
-      components: [
-        {
-          type: 1,
-          components: [
-            { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
-            { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-          ],
-        },
-      ],
     }));
     expect(payload.content).toContain("**요청**");
-    expect(payload.content).toContain("**생각 / 중간 출력**");
-    expect(payload.content).toContain("중간 답변을 작성 중입니다.");
+    expect(payload.content).not.toContain("생각과 중간 출력은 버튼으로 열 수 있습니다.");
+    expect(payload.components).toBeUndefined();
     expect(payload.content).not.toContain("대상:");
     expect(payload.content).not.toContain("위치:");
     expect(payload.content).not.toContain("세션:");
     expect(payload.content).not.toContain("item.started");
-  });
-
-  it("keeps Codex thought output collapsed until the progress toggle is opened", () => {
-    const input = {
-      computerDisplayName: "Local Dev",
-      workspaceDisplayName: "CodexDiscordConnector",
-      cwd: "/repo",
-      prompt: "UI 진행 표시 개선해줘",
-    };
-    const progress = {
-      status: "파일 탐색 중",
-      latestMessage: "이제 두 가지를 바로 바꾸겠습니다.",
-      recentEvents: ["생각중...", "12개의 파일 탐색중...", "탐색마침"],
-    };
-
-    const collapsed = formatCodexProgressUpdate(input, progress);
-    const expanded = formatCodexProgressUpdate(input, progress, { expanded: true });
-
-    expect(collapsed.content).toContain("진행: 파일 탐색 중");
-    expect(collapsed.content).not.toContain("이제 두 가지를 바로 바꾸겠습니다.");
-    expect(collapsed.components?.[0]?.components).toContainEqual({
-      type: 2,
-      custom_id: "cdc:codex:thoughts:open",
-      label: "생각 열기",
-      style: 2,
-    });
-    expect(collapsed.components?.[0]?.components).toContainEqual({
-      type: 2,
-      custom_id: "cdc:codex:thoughts:send-process",
-      label: "과정 보내기",
-      style: 2,
-    });
-
-    expect(expanded.content).toContain("**생각 / 중간 출력**");
-    expect(expanded.content).toContain("이제 두 가지를 바로 바꾸겠습니다.");
-    expect(expanded.content).toContain("12개의 파일 탐색중...");
-    expect(expanded.components?.[0]?.components).toContainEqual({
-      type: 2,
-      custom_id: "cdc:codex:thoughts:close",
-      label: "생각 닫기",
-      style: 2,
-    });
-  });
-
-  it("formats standalone thought messages collapsed by default with a toggle", () => {
-    const collapsed = formatCollapsibleThoughtMessage({
-      collapsedContent: "> 생각중...",
-      expandedContent: "> 파일 탐색 중 · rg --files",
-    });
-    const expanded = formatCollapsibleThoughtMessage(
-      {
-        collapsedContent: "> 생각중...",
-        expandedContent: "> 파일 탐색 중 · rg --files",
-      },
-      { expanded: true },
-    );
-
-    expect(collapsed).toEqual(
-      expect.objectContaining({
-        content: "> 생각중...",
-        components: [
-          {
-            type: 1,
-            components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:open", label: "생각 열기", style: 2 },
-              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-            ],
-          },
-        ],
-      }),
-    );
-    expect(expanded).toEqual(
-      expect.objectContaining({
-        content: "> 파일 탐색 중 · rg --files",
-        components: [
-          {
-            type: 1,
-            components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:close", label: "생각 닫기", style: 2 },
-              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-            ],
-          },
-        ],
-      }),
-    );
-  });
-
-  it("sends detailed recent process events while dropping older events first", () => {
-    const payload = formatCodexProgressUpdate(
-      {
-        computerDisplayName: "Local Dev",
-        workspaceDisplayName: "repo",
-        cwd: "/repo",
-        prompt: "검사해줘",
-        agentLabel: "Claude Code",
-      },
-      {
-        status: "Claude 도구 실행 완료",
-        recentEvents: [
-          `오래된 과정 · ${"x".repeat(1_850)}`,
-          "Claude 도구 실행 중 · Read · 입력: {file_path:/repo/README.md}",
-          "Claude 도구 실행 완료 · README title and setup steps",
-        ],
-      },
-    );
-    const view = getCodexThoughtView(payload);
-    const processMessage = formatCodexVisibleProcessMessage(view!);
-
-    expect(processMessage.content).toContain("**Claude Code 과정**");
-    expect(processMessage.content).toContain("Claude 도구 실행 중");
-    expect(processMessage.content).toContain("Claude 도구 실행 완료");
-    expect(processMessage.content).toContain("이전 과정 일부 생략");
-    expect(processMessage.content).not.toContain("오래된 과정");
-    expect(processMessage.content?.length).toBeLessThanOrEqual(1_900);
   });
 
   it("renders file edit progress with filename-only diff stats", () => {
@@ -548,7 +418,6 @@ describe("responses", () => {
         latestMessage: "편집함 /Users/me/project/src/n.ts +12 -3",
         recentEvents: ["편집함 /Users/me/project/src/n.ts +12 -3"],
       },
-      { expanded: true },
     );
 
     expect(payload.content).toContain("편집함 `n.ts`");
@@ -583,7 +452,6 @@ describe("responses", () => {
           description: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
         },
       ],
-      components: [],
     });
   });
 
@@ -663,7 +531,7 @@ describe("responses", () => {
     expect(chunks.at(-1)).toContain("설명이 끝났습니다.");
   });
 
-  it("keeps Codex thoughts available after the final answer is rendered", () => {
+  it("keeps only useful session actions after the final answer is rendered", () => {
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
     const payload = formatCodexResultUpdate(
       {
@@ -678,9 +546,6 @@ describe("responses", () => {
           finalMessage: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
           sessionId,
         },
-      },
-      {
-        recentEvents: ["생각중...", "2개의 파일 탐색중..."],
       },
     );
 
@@ -697,12 +562,6 @@ describe("responses", () => {
           {
             type: 1,
             components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-            ],
-          },
-          {
-            type: 1,
-            components: [
               { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
               { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
             ],
@@ -710,11 +569,6 @@ describe("responses", () => {
         ],
       }),
     );
-    const view = getCodexThoughtView(payload);
-    expect(view).not.toBeNull();
-    const processMessage = formatCodexVisibleProcessMessage(view!);
-    expect(processMessage.content).toContain("**생각 / 중간 출력**");
-    expect(processMessage.content).toContain("2개의 파일 탐색중...");
   });
 
   it("keeps failed Codex answers as diagnostic embeds", () => {

@@ -14,9 +14,6 @@ import type {
   SyncedSessionChannelState,
 } from "./directState.js";
 import {
-  attachCodexVisibleProcessSnapshot,
-  CODEX_PROGRESS_EVENT_LIMIT,
-  codexVisibleProcessActionRow,
   extractCodexDiscordSendOutputs,
   extractLocalMediaLinkOutputs,
   type DiscordFilePayload,
@@ -87,29 +84,6 @@ function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
     .at(-1)?.text;
 
   return realtimeAnswer?.trim() || null;
-}
-
-function latestTaskProcessEvents(session: DiscoveredCodexSession, answer: string | null): string[] {
-  const answerText = answer?.trim();
-
-  return (
-    session.realtimeEvents
-      ?.filter((event) => event.kind !== "user")
-      .filter((event) => !(event.kind === "status" && event.text === "작업 완료"))
-      .map((event) => event.text.trim())
-      .filter((text) => text.length > 0)
-      .filter((text) => !answerText || text !== answerText)
-      .slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? []
-  );
-}
-
-function taskProcessSnapshotText(session: DiscoveredCodexSession, answer: string | null): string {
-  const processEvents = latestTaskProcessEvents(session, answer);
-
-  return [
-    "**생각 / 중간 출력**",
-    ...(processEvents.length > 0 ? processEvents : ["아직 표시할 중간 출력이 없습니다."]),
-  ].join("\n");
 }
 
 function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
@@ -214,7 +188,6 @@ function formatTaskCompleteNotification(
             label: "이어 작업 요청",
             style: 1,
           },
-          ...codexVisibleProcessActionRow().components,
         ],
       },
     ],
@@ -228,7 +201,7 @@ function formatTaskCompleteNotification(
       : {}),
   };
 
-  return attachCodexVisibleProcessSnapshot(payload, taskProcessSnapshotText(session, latestAnswer));
+  return payload;
 }
 
 function uniqueSessionChannel(

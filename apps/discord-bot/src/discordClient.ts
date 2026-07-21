@@ -4,8 +4,6 @@ import {
   GatewayIntentBits,
   type Guild,
   type Message,
-  type MessageEditOptions,
-  type MessagePayload,
 } from "discord.js";
 import {
   DISCORD_APPLICATION_COMMANDS,
@@ -16,11 +14,7 @@ import type { DiscordGuildSurface } from "./codexSessionSync.js";
 import type { DiscordMessageLike } from "./messageHandler.js";
 import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
 import {
-  formatCodexThoughtView,
-  formatCodexVisibleProcessMessage,
-  getCodexThoughtView,
   withRoleMentions,
-  type CodexThoughtView,
   type DiscordMessagePayload,
 } from "./responses.js";
 
@@ -106,15 +100,6 @@ interface ThreadParentDiscordChannelLike {
   };
 }
 
-interface StoredCodexProgressMessage {
-  view: CodexThoughtView;
-  expanded: boolean;
-  files?: DiscordMessagePayload["files"];
-  message?: EditableDiscordMessageLike;
-}
-
-const codexProgressMessages = new Map<string, StoredCodexProgressMessage>();
-
 async function clearChannelMessages(input: {
   guild: Guild | null;
   channelId: string;
@@ -161,16 +146,6 @@ async function clearChannelMessages(input: {
   };
 }
 
-function isDiscordMessagePayload(message: unknown): message is DiscordMessagePayload {
-  return (
-    typeof message === "object" &&
-    message !== null &&
-    "allowedMentions" in message &&
-    "embeds" in message &&
-    Array.isArray((message as { embeds?: unknown }).embeds)
-  );
-}
-
 function isEditableDiscordMessage(message: unknown): message is EditableDiscordMessageLike {
   return (
     typeof message === "object" &&
@@ -180,73 +155,12 @@ function isEditableDiscordMessage(message: unknown): message is EditableDiscordM
   );
 }
 
-function prepareCodexProgressPayload(messageId: string, message: unknown): unknown {
-  if (!isDiscordMessagePayload(message)) {
-    codexProgressMessages.delete(messageId);
-    return message;
-  }
-
-  const view = getCodexThoughtView(message);
-
-  if (!view) {
-    codexProgressMessages.delete(messageId);
-    return message;
-  }
-
-  if (message.embeds.length > 0) {
-    const files = message.files ?? codexProgressMessages.get(messageId)?.files;
-
-    if (files && files.length > 0) {
-      message.files = files;
-    }
-
-    return message;
-  }
-
-  const expanded = codexProgressMessages.get(messageId)?.expanded ?? view.view.expanded;
-  let prepared = formatCodexThoughtView(view, { expanded });
-  const mentionRoleIds = message.allowedMentions.roles ?? [];
-
-  if (mentionRoleIds.length > 0) {
-    prepared = withRoleMentions(prepared, mentionRoleIds) as DiscordMessagePayload;
-  }
-
-  const files = message.files ?? codexProgressMessages.get(messageId)?.files;
-
-  if (files && files.length > 0) {
-    prepared.files = files;
-  }
-
-  return prepared;
-}
-
 function prepareOutgoingMessage(
   content: string | DiscordMessagePayload,
   options?: { mentionRoleIds?: string[] },
 ): string | DiscordMessagePayload {
   const mentionRoleIds = options?.mentionRoleIds?.filter(Boolean) ?? [];
   return mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
-}
-
-function rememberCodexProgressMessage(message: unknown, payload: unknown): void {
-  if (!isEditableDiscordMessage(message) || !isDiscordMessagePayload(payload)) {
-    return;
-  }
-
-  const view = getCodexThoughtView(payload);
-
-  if (!view) {
-    codexProgressMessages.delete(message.id);
-    return;
-  }
-
-  const previous = codexProgressMessages.get(message.id);
-  codexProgressMessages.set(message.id, {
-    view,
-    expanded: previous?.expanded ?? view.view.expanded,
-    files: payload.files ?? previous?.files,
-    message,
-  });
 }
 
 export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurface | null {
@@ -297,7 +211,6 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
 
       const preparedContent = prepareOutgoingMessage(content, options);
       const sentMessage = await sender.send(preparedContent);
-      rememberCodexProgressMessage(sentMessage, preparedContent);
       return isEditableDiscordMessage(sentMessage) ? { id: sentMessage.id } : undefined;
     },
     async editTextMessage(channelId, messageId, content) {
@@ -313,7 +226,6 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
       }
 
       const editedMessage = await message.edit(content);
-      rememberCodexProgressMessage(editedMessage ?? message, content);
       return isEditableDiscordMessage(editedMessage) ? { id: editedMessage.id } : { id: message.id };
     },
     async deleteChannel(id) {
@@ -360,7 +272,6 @@ export function attachDiscordMessageHandler(
         }),
       reply: async (replyMessage) => {
         const sentMessage = await discordMessage.reply(replyMessage);
-        rememberCodexProgressMessage(sentMessage, replyMessage);
 
         if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
           return sentMessage;
@@ -368,10 +279,7 @@ export function attachDiscordMessageHandler(
 
         return {
           edit: async (nextMessage) => {
-            const preparedMessage = prepareCodexProgressPayload(sentMessage.id, nextMessage);
-            const editedMessage = await sentMessage.edit(preparedMessage as string | MessagePayload | MessageEditOptions);
-            rememberCodexProgressMessage(editedMessage ?? sentMessage, preparedMessage);
-            return editedMessage;
+            return sentMessage.edit(nextMessage);
           },
         };
       },
@@ -674,7 +582,6 @@ function interactionReplyAdapter(
       const initialMessage = isEditableDiscordMessage(editedInitialMessage)
         ? editedInitialMessage
         : await fetchInteractionReply(interaction);
-      rememberCodexProgressMessage(initialMessage, replyMessage);
 
       if (!isEditableDiscordMessage(initialMessage) || typeof interaction.editReply !== "function") {
         return undefined;
@@ -682,10 +589,7 @@ function interactionReplyAdapter(
 
       return {
         edit: async (nextMessage: unknown) => {
-          const preparedMessage = prepareCodexProgressPayload(initialMessage.id, nextMessage);
-          const editedMessage = await interaction.editReply?.(preparedMessage);
-          rememberCodexProgressMessage(editedMessage ?? initialMessage, preparedMessage);
-          return editedMessage;
+          return interaction.editReply?.(nextMessage);
         },
       };
     }
@@ -698,18 +602,13 @@ function interactionReplyAdapter(
             ? await interaction.followUp(replyMessage)
             : null;
 
-      rememberCodexProgressMessage(sentMessage, replyMessage);
-
       if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
         return undefined;
       }
 
       return {
         edit: async (nextMessage: unknown) => {
-          const preparedMessage = prepareCodexProgressPayload(sentMessage.id, nextMessage);
-          const editedMessage = await sentMessage.edit?.(preparedMessage);
-          rememberCodexProgressMessage(editedMessage ?? sentMessage, preparedMessage);
-          return editedMessage;
+          return sentMessage.edit?.(nextMessage);
         },
       };
     }
@@ -717,7 +616,6 @@ function interactionReplyAdapter(
     await interaction.reply(replyMessage);
     hasInitialReply = true;
     const initialMessage = await fetchInteractionReply(interaction);
-    rememberCodexProgressMessage(initialMessage, replyMessage);
 
     if (!isEditableDiscordMessage(initialMessage) || typeof interaction.editReply !== "function") {
       return undefined;
@@ -725,83 +623,10 @@ function interactionReplyAdapter(
 
     return {
       edit: async (nextMessage: unknown) => {
-        const preparedMessage = prepareCodexProgressPayload(initialMessage.id, nextMessage);
-        const editedMessage = await interaction.editReply?.(preparedMessage);
-        rememberCodexProgressMessage(editedMessage ?? initialMessage, preparedMessage);
-        return editedMessage;
+        return interaction.editReply?.(nextMessage);
       },
     };
   };
-}
-
-function isCodexThoughtsToggle(customId: string): customId is
-  | typeof COMPONENT_IDS.codexThoughtsOpen
-  | typeof COMPONENT_IDS.codexThoughtsClose {
-  return customId === COMPONENT_IDS.codexThoughtsOpen || customId === COMPONENT_IDS.codexThoughtsClose;
-}
-
-async function handleCodexProcessSend(interaction: {
-  message?: EditableDiscordMessageLike;
-  reply(message: unknown): Promise<unknown>;
-}): Promise<void> {
-  const messageId = interaction.message?.id;
-  const stored = messageId ? codexProgressMessages.get(messageId) : null;
-
-  if (!messageId || !stored) {
-    await interaction.reply({
-      allowedMentions: { parse: [] },
-      ephemeral: true,
-      content: "이 진행 메시지의 과정은 더 이상 보낼 수 없습니다. 새 요청에서 다시 시도해주세요.",
-    });
-    return;
-  }
-
-  await interaction.reply(formatCodexVisibleProcessMessage(stored.view));
-}
-
-async function handleCodexThoughtsToggle(interaction: {
-  customId: string;
-  message?: EditableDiscordMessageLike;
-  update?(message: unknown): Promise<unknown>;
-  reply(message: unknown): Promise<unknown>;
-}): Promise<void> {
-  const messageId = interaction.message?.id;
-  const stored = messageId ? codexProgressMessages.get(messageId) : null;
-
-  if (!messageId || !stored) {
-    await interaction.reply({
-      allowedMentions: { parse: [] },
-      ephemeral: true,
-      content: "이 진행 메시지는 더 이상 펼칠 수 없습니다. 새 요청에서 다시 열어주세요.",
-    });
-    return;
-  }
-
-  const expanded = interaction.customId === COMPONENT_IDS.codexThoughtsOpen;
-  const payload = formatCodexThoughtView(stored.view, { expanded });
-  if (stored.files && stored.files.length > 0) {
-    payload.files = stored.files;
-  }
-  codexProgressMessages.set(messageId, {
-    ...stored,
-    expanded,
-  });
-
-  if (typeof interaction.update === "function") {
-    await interaction.update(payload);
-    return;
-  }
-
-  if (typeof stored.message?.edit === "function") {
-    await stored.message.edit(payload);
-    return;
-  }
-
-  await interaction.reply({
-    allowedMentions: { parse: [] },
-    ephemeral: true,
-    content: "이 Discord 클라이언트에서는 진행 메시지를 수정할 수 없습니다.",
-  });
 }
 
 async function shouldHandleInteractionChannel(
@@ -1063,16 +888,6 @@ export function attachDiscordInteractionHandler(
           await componentInteraction.showModal(codexContinueModal(continueSessionId));
           return;
         }
-      }
-
-      if (componentInteraction.isButton() && isCodexThoughtsToggle(componentInteraction.customId)) {
-        await handleCodexThoughtsToggle(componentInteraction);
-        return;
-      }
-
-      if (componentInteraction.isButton() && componentInteraction.customId === COMPONENT_IDS.codexThoughtsSendProcess) {
-        await handleCodexProcessSend(componentInteraction);
-        return;
       }
 
       if (componentInteraction.isButton() && componentInteraction.customId === COMPONENT_IDS.codexAsk) {

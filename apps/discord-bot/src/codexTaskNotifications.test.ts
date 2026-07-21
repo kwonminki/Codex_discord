@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
 import { notifyCodexTaskCompletions } from "./codexTaskNotifications.js";
 import { createDirectSyncStateStore } from "./directState.js";
-import { formatCodexVisibleProcessMessage, getCodexThoughtView } from "./responses.js";
 
 function session(input: {
   id?: string;
@@ -129,12 +128,6 @@ describe("notifyCodexTaskCompletions", () => {
                   label: "이어 작업 요청",
                   style: 1,
                 },
-                {
-                  type: 2,
-                  custom_id: "cdc:codex:thoughts:send-process",
-                  label: "과정 보내기",
-                  style: 2,
-                },
               ],
             },
           ],
@@ -150,54 +143,6 @@ describe("notifyCodexTaskCompletions", () => {
           },
         ],
       });
-    } finally {
-      await rm(tempRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("keeps a visible process snapshot on completion notifications after the answer arrives", async () => {
-    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
-    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
-    const sendTextMessage = vi.fn().mockResolvedValue(undefined);
-    const finalAnswer = "최종 답변입니다.";
-
-    try {
-      await notifyCodexTaskCompletions({
-        guild: { sendTextMessage },
-        stateStore,
-        adminChannelId: "admin-channel",
-        sessions: [session({ completionKey: "complete-1" })],
-      });
-
-      await notifyCodexTaskCompletions({
-        guild: { sendTextMessage },
-        stateStore,
-        adminChannelId: "admin-channel",
-        sessions: [
-          session({
-            completionKey: "complete-2",
-            assistantAnswer: finalAnswer,
-            realtimeEvents: [
-              { key: "started", kind: "status", text: "작업 시작" },
-              { key: "tool", kind: "status", text: "명령 실행 중 · pnpm test" },
-              { key: "commentary", kind: "assistant", text: `테스트를 돌리는 중입니다. ${"긴 과정 ".repeat(400)}` },
-              { key: "final", kind: "assistant", text: finalAnswer },
-            ],
-          }),
-        ],
-      });
-
-      const payload = sendTextMessage.mock.calls[0]?.[1];
-      const view = getCodexThoughtView(payload);
-
-      expect(view).not.toBeNull();
-      const processMessage = formatCodexVisibleProcessMessage(view!);
-      expect(processMessage.content).toContain("명령 실행 중 · pnpm test");
-      expect(processMessage.content).toContain("테스트를 돌리는 중입니다.");
-      expect(processMessage.content).not.toContain(finalAnswer);
-      expect(processMessage.content).not.toContain("작업 완료");
-      expect(processMessage.content).toContain("... (일부만 표시)");
-      expect(processMessage.content?.length).toBeLessThanOrEqual(1_900);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

@@ -2736,20 +2736,12 @@ describe("createDiscordMessageHandler", () => {
         embeds: [],
       }),
       expect.objectContaining({
-        content: expect.stringContaining("생각과 중간 출력은 버튼으로 열 수 있습니다."),
+        content: expect.stringContaining("중간 답변을 작성 중입니다."),
         embeds: [],
       }),
       expect.objectContaining({
         content: expect.stringContaining("**Codex 작업 완료**"),
         embeds: [expect.objectContaining({ title: "답변", description: "최종 답변입니다." })],
-        components: [
-          {
-            type: 1,
-            components: [
-              { type: 2, custom_id: "cdc:codex:thoughts:send-process", label: "과정 보내기", style: 2 },
-            ],
-          },
-        ],
       }),
     ]);
   });

@@ -92,30 +92,6 @@ export interface CodexProgressState {
   recentEvents?: string[];
 }
 
-export interface CodexProgressRenderOptions {
-  expanded?: boolean;
-  actionRows?: DiscordActionRowPayload[];
-}
-
-export interface CodexProgressView {
-  input: CodexProgressMessageInput;
-  progress: CodexProgressState;
-  expanded: boolean;
-}
-
-export interface CollapsibleThoughtView {
-  collapsedContent: string;
-  expandedContent: string;
-  expanded: boolean;
-  actionRows?: DiscordActionRowPayload[];
-}
-
-export type CodexThoughtView =
-  | { kind: "progress"; view: CodexProgressView }
-  | { kind: "collapsible"; view: CollapsibleThoughtView };
-
-const codexProgressViews = new WeakMap<DiscordMessagePayload, CodexProgressView>();
-const collapsibleThoughtViews = new WeakMap<DiscordMessagePayload, CollapsibleThoughtView>();
 const codexResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
 
 export interface DiscordFilePayload {
@@ -3082,10 +3058,7 @@ export function formatCodexAck(input: {
   agentLabel?: string;
 }): DiscordMessagePayload {
   const progress = { status: "thinking" };
-  const payload = textPayload(codexProgressText(input, progress, {}, `${agentLabel(input)} 작업 시작`));
-  payload.components = codexProgressActions(false);
-  codexProgressViews.set(payload, { input, progress, expanded: false });
-  return payload;
+  return textPayload(codexProgressText(input, progress, `${agentLabel(input)} 작업 시작`));
 }
 
 function agentLabel(input: { agentLabel?: string }): string {
@@ -3162,33 +3135,6 @@ function renderProgressEvent(event: string): string {
   return trimmedEvent;
 }
 
-function codexProgressActions(expanded: boolean): DiscordActionRowPayload[] {
-  return [
-    actionRow([
-      button({
-        customId: expanded ? COMPONENT_IDS.codexThoughtsClose : COMPONENT_IDS.codexThoughtsOpen,
-        label: expanded ? "생각 닫기" : "생각 열기",
-        style: BUTTON_STYLES.secondary,
-      }),
-      button({
-        customId: COMPONENT_IDS.codexThoughtsSendProcess,
-        label: "과정 보내기",
-        style: BUTTON_STYLES.secondary,
-      }),
-    ]),
-  ];
-}
-
-export function codexVisibleProcessActionRow(): DiscordActionRowPayload {
-  return actionRow([
-    button({
-      customId: COMPONENT_IDS.codexThoughtsSendProcess,
-      label: "과정 보내기",
-      style: BUTTON_STYLES.secondary,
-    }),
-  ]);
-}
-
 function isOpenableCodexSessionId(sessionId: string | null): sessionId is string {
   return typeof sessionId === "string" && /^[0-9a-f-]{32,36}$/i.test(sessionId);
 }
@@ -3217,10 +3163,8 @@ function codexOpenSessionActions(sessionId: string | null): DiscordActionRowPayl
 function codexProgressText(
   input: CodexProgressMessageInput,
   progress: CodexProgressState,
-  options: CodexProgressRenderOptions,
   title = "Codex 작업 중",
 ): string {
-  const latestMessage = progress.latestMessage ? compactMultiline(progress.latestMessage) : "";
   const prompt = compactMultiline(input.prompt);
   const lines = [`**${title}**`, `진행: ${codexStatusLabel(progress.status)}`];
 
@@ -3239,32 +3183,13 @@ function codexProgressText(
   const recentEvents =
     progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
 
-  if (!options.expanded) {
-    const latestEvent = recentEvents.at(-1);
-    lines.push("", codexActivitySummary(progress.status));
-    if (
-      latestEvent &&
-      latestEvent !== latestMessage &&
-      latestEvent !== codexActivitySummary(progress.status)
-    ) {
-      lines.push(renderProgressEvent(latestEvent));
-    }
-    lines.push("", "_생각과 중간 출력은 버튼으로 열 수 있습니다._");
-    return lines.join("\n");
-  }
-
-  lines.push("", "**생각 / 중간 출력**");
-
-  if (recentEvents.length > 0) {
-    lines.push(...recentEvents.map((event) => renderProgressEvent(event)));
-  }
-
-  if (latestMessage.length > 0) {
-    lines.push(renderProgressEvent(latestMessage));
-  }
-
-  if (recentEvents.length === 0 && latestMessage.length === 0) {
-    lines.push("아직 표시할 중간 출력이 없습니다.");
+  const latestEvent = recentEvents.at(-1);
+  lines.push("", codexActivitySummary(progress.status));
+  if (
+    latestEvent &&
+    latestEvent !== codexActivitySummary(progress.status)
+  ) {
+    lines.push(renderProgressEvent(latestEvent));
   }
 
   return lines.join("\n");
@@ -3273,13 +3198,8 @@ function codexProgressText(
 export function formatCodexProgressUpdate(
   input: CodexProgressMessageInput,
   progress: CodexProgressState,
-  options: CodexProgressRenderOptions = {},
 ): DiscordMessagePayload {
-  const expanded = options.expanded ?? false;
-  const payload = textPayload(codexProgressText(input, progress, { expanded }, `${agentLabel(input)} 작업 중`));
-  payload.components = codexProgressActions(expanded);
-  codexProgressViews.set(payload, { input, progress, expanded });
-  return payload;
+  return textPayload(codexProgressText(input, progress, `${agentLabel(input)} 작업 중`));
 }
 
 export function formatLiveAgentProgress(input: {
@@ -3297,127 +3217,6 @@ export function formatAgentResultPosted(input: {
     `**${input.agentLabel} 요청 처리 ${input.failed ? "실패" : "완료"}**`,
     input.failed ? "오류 내용을 아래 새 메시지에 표시했습니다." : "최종 답변을 아래 새 메시지에 표시했습니다.",
   ].join("\n"));
-}
-
-export function getCodexProgressView(payload: DiscordMessagePayload): CodexProgressView | null {
-  return codexProgressViews.get(payload) ?? null;
-}
-
-export function formatCodexProgressView(view: CodexProgressView, options: CodexProgressRenderOptions): DiscordMessagePayload {
-  return formatCodexProgressUpdate(view.input, view.progress, {
-    expanded: options.expanded ?? view.expanded,
-  });
-}
-
-export function formatCollapsibleThoughtMessage(
-  input: {
-    collapsedContent: string;
-    expandedContent: string;
-  },
-  options: CodexProgressRenderOptions = {},
-): DiscordMessagePayload {
-  const expanded = options.expanded ?? false;
-  const payload = textPayload(expanded ? input.expandedContent : input.collapsedContent);
-  payload.components = [...codexProgressActions(expanded), ...(options.actionRows ?? [])];
-  collapsibleThoughtViews.set(payload, {
-    ...input,
-    expanded,
-    actionRows: options.actionRows,
-  });
-  return payload;
-}
-
-export function attachCodexVisibleProcessSnapshot(
-  payload: DiscordMessagePayload,
-  expandedContent: string,
-): DiscordMessagePayload {
-  collapsibleThoughtViews.set(payload, {
-    collapsedContent: payload.content ?? "",
-    expandedContent: expandedContent.trim() || "아직 표시할 중간 출력이 없습니다.",
-    expanded: false,
-  });
-
-  return payload;
-}
-
-export function getCodexThoughtView(payload: DiscordMessagePayload): CodexThoughtView | null {
-  const progressView = codexProgressViews.get(payload);
-
-  if (progressView) {
-    return { kind: "progress", view: progressView };
-  }
-
-  const collapsibleView = collapsibleThoughtViews.get(payload);
-
-  return collapsibleView ? { kind: "collapsible", view: collapsibleView } : null;
-}
-
-export function formatCodexThoughtView(view: CodexThoughtView, options: CodexProgressRenderOptions): DiscordMessagePayload {
-  if (view.kind === "progress") {
-    return formatCodexProgressView(view.view, options);
-  }
-
-  return formatCollapsibleThoughtMessage(view.view, {
-    expanded: options.expanded ?? view.view.expanded,
-    actionRows: view.view.actionRows,
-  });
-}
-
-export function formatCodexVisibleProcessMessage(view: CodexThoughtView): DiscordMessagePayload {
-  if (view.kind === "progress") {
-    const recentEvents =
-      view.view.progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
-    const latestMessage = view.view.progress.latestMessage ? compactMultiline(view.view.progress.latestMessage) : "";
-    const processLines = [...recentEvents.map((event) => renderProgressEvent(event))];
-
-    if (latestMessage.length > 0) {
-      processLines.push(renderProgressEvent(latestMessage));
-    }
-
-    const title = `**${agentLabel(view.view.input)} 과정**`;
-    const selectedLines: string[] = [];
-    let selectedLength = title.length + 1;
-    let omitted = false;
-
-    for (const line of [...processLines].reverse()) {
-      const nextLength = selectedLength + line.length + 1;
-      if (nextLength > MAX_MESSAGE_CONTENT_LENGTH - 80) {
-        omitted = true;
-        break;
-      }
-      selectedLines.unshift(line);
-      selectedLength = nextLength;
-    }
-
-    return textPayload([
-      title,
-      omitted ? "... (일부만 표시)\n이전 과정 일부 생략" : null,
-      selectedLines.length > 0 ? selectedLines.join("\n") : "아직 표시할 중간 출력이 없습니다.",
-    ].filter((line): line is string => Boolean(line)).join("\n"));
-  }
-
-  const marker = "**생각 / 중간 출력**";
-  const expandedContent = view.view.expandedContent.trim();
-  const markerIndex = expandedContent.indexOf(marker);
-  let visibleProcess = markerIndex >= 0 ? expandedContent.slice(markerIndex).trim() : expandedContent;
-
-  if (visibleProcess.length > MAX_MESSAGE_CONTENT_LENGTH - 40) {
-    const markerLine = markerIndex >= 0 ? marker : "**생각 / 중간 출력**";
-    const processBody = markerIndex >= 0
-      ? visibleProcess.slice(marker.length).trimStart()
-      : visibleProcess;
-    const omissionNotice = "... (일부만 표시)\n이전 과정 일부 생략";
-    const prefixLength = Math.min(320, Math.floor((MAX_MESSAGE_CONTENT_LENGTH - 100) / 3));
-    const suffixLength = MAX_MESSAGE_CONTENT_LENGTH - markerLine.length - omissionNotice.length - prefixLength - 8;
-    visibleProcess = [
-      markerLine,
-      processBody.slice(0, prefixLength).trimEnd(),
-      omissionNotice,
-      processBody.slice(-suffixLength).trimStart(),
-    ].join("\n");
-  }
-
-  return textPayload(visibleProcess.length > 0 ? visibleProcess : "아직 표시할 중간 출력이 없습니다.");
 }
 
 function getResultDetails(response: {
@@ -3629,10 +3428,6 @@ export function formatCodexResultUpdate(
     result?: unknown;
     error?: { message: string };
   },
-  options: {
-    recentEvents?: string[];
-    expanded?: boolean;
-  } = {},
 ): DiscordMessagePayload {
   const result = response.result as {
     status?: unknown;
@@ -3709,7 +3504,6 @@ export function formatCodexResultUpdate(
   const openSessionActions = currentAgentLabel === "Codex" ? codexOpenSessionActions(sessionId) : [];
 
   if (!failed) {
-    const recentEvents = options.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
     const attachedFileCount =
       imageOutputs.attachments.length + discordSendOutputs.attachments.length + mediaLinkOutputs.attachments.length;
     const finalContent = [
@@ -3743,15 +3537,6 @@ export function formatCodexResultUpdate(
         ? `${currentAgentLabel === "Claude Code" ? "Claude session" : "세션 ID"}: ${wrapDiscordText(sessionId)}`
         : null,
     ].filter((line): line is string => Boolean(line));
-    const processEvents = recentEvents.filter(
-      (event) => event.trim().length > 0 && event.trim() !== finalMessage.trim(),
-    );
-    const processSnapshot = [
-      "**생각 / 중간 출력**",
-      ...(processEvents.length > 0
-        ? processEvents.map((event) => renderProgressEvent(event))
-        : ["표시할 중간 출력이 없습니다."]),
-    ].join("\n\n");
     const payload: DiscordMessagePayload = {
       allowedMentions: { parse: [] },
       content: metadataLines.join("\n"),
@@ -3762,10 +3547,7 @@ export function formatCodexResultUpdate(
           description: finalTextForDiscord,
         },
       ],
-      components: [
-        ...(processEvents.length > 0 ? [codexVisibleProcessActionRow()] : []),
-        ...openSessionActions,
-      ],
+      ...(openSessionActions.length > 0 ? { components: openSessionActions } : {}),
     };
 
     if (finalFiles.length > 0) {
@@ -3776,9 +3558,7 @@ export function formatCodexResultUpdate(
       codexResultContinuationMessages.set(payload, continuationPayloads);
     }
 
-    return processEvents.length > 0
-      ? attachCodexVisibleProcessSnapshot(payload, processSnapshot)
-      : payload;
+    return payload;
   }
 
   const payload = messagePayload({

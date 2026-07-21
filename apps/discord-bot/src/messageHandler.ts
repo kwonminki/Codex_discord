@@ -1543,7 +1543,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
+          payload: formatCodexResultUpdate(codexMessage, response),
         });
         const responseFailed = promptResponseFailed(response);
         const completionDelivery = await sendThreadCompletionMention({
@@ -1573,7 +1573,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }),
         });
         await sendThreadCompletionMention({
           message,
@@ -1906,7 +1906,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(claudeMessage, responseForDisplay, { recentEvents }),
+          payload: formatCodexResultUpdate(claudeMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: responseFailed }),
         });
@@ -1924,7 +1924,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
+          payload: formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: true }),
         });
@@ -2111,7 +2111,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, responseForDisplay, { recentEvents }),
+          payload: formatCodexResultUpdate(codexMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: responseFailed }),
         });
@@ -2155,7 +2155,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: true }),
         });
