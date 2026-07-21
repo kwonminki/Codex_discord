@@ -133,6 +133,33 @@ cdc start --direct
 
 세션 채널이 많다면 전용 카테고리를 만들고 같은 알림 정책을 적용하면 관리하기 편합니다. operator role은 실제 알림을 받을 사용자에게만 부여하고, 각 컴퓨터의 봇 인스턴스에는 서로 겹치지 않는 관리자/세션 부모 채널 ID를 설정하세요.
 
+## 버전 호환성
+
+Codex CLI와 Claude Code의 headless/protocol 인터페이스는 버전에 따라 달라질 수 있습니다. 특히 이 connector는 Codex의 `app-server` JSON-RPC와 Claude Code의 stream JSON 출력을 사용하므로, 서버마다 버전이 크게 다르면 한 서버에서만 fork, resume, 진행 출력 또는 권한 설정이 실패할 수 있습니다.
+
+2026-07-21 현재 개발 및 실제 Mac 서비스에서 확인한 기준은 다음과 같습니다.
+
+| 구성 요소 | 지원 또는 확인 버전 | 메모 |
+| --- | --- | --- |
+| Node.js | `^20.19.0` 또는 `>=22.12.0` | Ubuntu는 Node.js 22 LTS 권장 |
+| pnpm | `9.15.0` | `packageManager`와 Ubuntu 설치 문서에서 고정 |
+| Codex CLI | `codex-cli 0.145.0-alpha.18` 확인 | `app-server`, `thread/resume`, `thread/fork`, `turn/start` 사용 |
+| Claude Code | `2.1.215` 확인 | `stream-json`, `--resume`, `--fork-session`, `--permission-mode` 사용 |
+
+Codex와 Claude Code의 표에 적힌 값은 엄격한 최소 버전이 아니라 **검증 기준 버전**입니다. 더 최신 버전이 항상 호환된다는 뜻은 아닙니다. 여러 Ubuntu 서버를 운영할 때는 가능한 한 같은 CLI 버전을 맞추고, 한 서버에서 먼저 connector smoke test를 통과시킨 뒤 나머지 서버를 업데이트하세요.
+
+각 머신에서 아래 결과를 함께 기록하면 호환 문제를 비교하기 쉽습니다.
+
+```bash
+node --version
+pnpm --version
+codex --version
+claude --version
+git -C /path/to/Codex_discord rev-parse --short HEAD
+```
+
+CLI 업데이트 후에는 최소한 `where`, 짧은 Codex/Claude 요청, `/fork`, bot 재시작 후 실행 중 job 재연결을 확인하세요. 특정 서버에서만 문제가 생기면 정상 서버와 위 버전을 먼저 비교하고, 필요하면 해당 서버의 CLI를 마지막 정상 버전으로 되돌리세요. systemd가 interactive shell과 다른 실행 파일을 잡지 않도록 `CODEX_DISCORD_CODEX_COMMAND`와 `CODEX_DISCORD_CLAUDE_COMMAND`에는 검증한 실행 파일의 절대 경로를 설정하는 것이 안전합니다.
+
 ## 실험적 다중 컴퓨터 연결: Hub mode
 
 Hub mode는 여러 컴퓨터를 한 Discord 서버에서 관리하기 위한 실험적 옵션입니다. 아직 테스트 중인 서브 기능이며, 보안 위험이 Direct mode보다 높습니다. 꼭 필요한 경우가 아니라면 Direct mode를 사용하세요.

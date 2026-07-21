@@ -80,6 +80,8 @@ node --version
 pnpm --version
 ```
 
+현재 connector의 Node 지원 범위는 `^20.19.0 || >=22.12.0`이고, Ubuntu 권장 조합은 Node.js 22 LTS와 pnpm `9.15.0`입니다. Node 22라도 `22.12.0`보다 오래된 버전이면 먼저 업데이트하세요.
+
 Codex도 같은 user에서 동작해야 합니다.
 
 ```bash
@@ -88,6 +90,44 @@ ls -la "$HOME/.codex"
 ```
 
 `$HOME/.codex`가 없으면, 먼저 이 Ubuntu user로 Codex를 한 번 실행하거나 IDE에서 Codex 로그인을 완료하세요.
+
+Claude Code 채널도 사용할 서버라면 같은 user에서 Claude CLI를 확인합니다.
+
+```bash
+claude --version
+ls -la "$HOME/.claude"
+```
+
+## Codex와 Claude Code 호환 기준
+
+2026-07-21 현재 connector에서 확인한 agent CLI 기준은 다음과 같습니다.
+
+| 구성 요소 | 확인 버전 | connector가 의존하는 기능 |
+| --- | --- | --- |
+| Codex CLI | `codex-cli 0.145.0-alpha.18` | `app-server`, session resume/fork, turn progress, approval 요청 |
+| Claude Code | `2.1.215` | stream JSON, session resume/fork, `bypassPermissions` |
+
+이 숫자는 최소 버전 보장이 아니라 검증 기준입니다. Codex `app-server`와 Claude Code의 headless JSON 형식은 버전 변경으로 달라질 수 있으므로, 여러 Ubuntu 서버에서는 CLI 버전을 통일하는 것을 권장합니다. connector만 `git pull`하고 CLI는 서버마다 다른 상태로 두면 특정 서버에서만 `unknown method`, 알 수 없는 CLI option, JSON parse 오류 또는 fork 실패가 날 수 있습니다.
+
+업데이트 전후에 아래 정보를 남깁니다.
+
+```bash
+node --version
+pnpm --version
+codex --version
+claude --version
+git rev-parse --short HEAD
+command -v node pnpm codex claude
+```
+
+systemd 서비스는 login shell과 PATH가 다를 수 있습니다. 정상 동작을 확인한 절대 경로를 두 서비스의 환경 변수로 지정하면 다른 버전이 우연히 선택되는 것을 막을 수 있습니다.
+
+```ini
+Environment=CODEX_DISCORD_CODEX_COMMAND=/absolute/path/to/codex
+Environment=CODEX_DISCORD_CLAUDE_COMMAND=/absolute/path/to/claude
+```
+
+CLI를 업데이트할 때는 서버 한 대에서 짧은 Codex 요청, 짧은 Claude 요청, `/fork`, bot 재시작 후 job 재연결을 먼저 확인한 뒤 나머지 서버에 적용하세요. 문제가 생기면 정상 서버와 위 버전 및 실행 경로를 비교하고 마지막 정상 CLI 버전으로 되돌립니다.
 
 ## repo clone
 
