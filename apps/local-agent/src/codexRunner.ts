@@ -20,6 +20,7 @@ export interface RunCodexPromptInput {
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
   controlKey?: string;
   onApprovalRequest?: (request: CodexApprovalRequest) => Promise<CodexApprovalDecision> | CodexApprovalDecision;
+  onUserInputRequest?: (request: CodexUserInputRequest) => Promise<CodexUserInputResponse> | CodexUserInputResponse;
 }
 
 export type CodexApprovalKind = "command" | "file-change" | "permissions" | "legacy-command" | "legacy-patch";
@@ -39,6 +40,36 @@ export interface CodexApprovalRequest {
 
 export interface CodexApprovalDecision {
   decision: CodexApprovalChoice;
+}
+
+export interface CodexUserInputOption {
+  label: string;
+  description: string;
+}
+
+export interface CodexUserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isOther: boolean;
+  isSecret: boolean;
+  options: CodexUserInputOption[] | null;
+}
+
+export interface CodexUserInputRequest {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  questions: CodexUserInputQuestion[];
+  autoResolutionMs: number | null;
+}
+
+export interface CodexUserInputAnswer {
+  answers: string[];
+}
+
+export interface CodexUserInputResponse {
+  answers: Record<string, CodexUserInputAnswer>;
 }
 
 export type CodexRunnerProgressEvent =

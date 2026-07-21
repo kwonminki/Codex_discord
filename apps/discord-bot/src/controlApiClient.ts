@@ -1,5 +1,10 @@
 import type { ChannelMode, CommandTier, SessionOrigin } from "../../../packages/core/src/index.js";
-import type { CodexApprovalDecision, CodexApprovalRequest } from "../../local-agent/src/codexRunner.js";
+import type {
+  CodexApprovalDecision,
+  CodexApprovalRequest,
+  CodexUserInputRequest,
+  CodexUserInputResponse,
+} from "../../local-agent/src/codexRunner.js";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface RunCommandJobPayload {
@@ -58,6 +63,8 @@ export type ClaudePromptProgressEvent = Exclude<CodexPromptProgressEvent, { type
 
 export type CodexPromptApprovalRequest = CodexApprovalRequest;
 export type CodexPromptApprovalDecision = CodexApprovalDecision;
+export type CodexPromptUserInputRequest = CodexUserInputRequest;
+export type CodexPromptUserInputResponse = CodexUserInputResponse;
 
 export type ControlApiJobResponse =
   | { jobId: string; result: unknown }
@@ -77,6 +84,7 @@ export interface SubmitCodexPromptInput {
   queueKey?: string;
   onProgress?: (event: CodexPromptProgressEvent) => Promise<void> | void;
   onApprovalRequest?: (request: CodexPromptApprovalRequest) => Promise<CodexPromptApprovalDecision> | CodexPromptApprovalDecision;
+  onUserInputRequest?: (request: CodexPromptUserInputRequest) => Promise<CodexPromptUserInputResponse> | CodexPromptUserInputResponse;
 }
 
 export interface SubmitClaudePromptInput {

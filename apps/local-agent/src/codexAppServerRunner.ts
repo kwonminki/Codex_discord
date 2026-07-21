@@ -8,6 +8,9 @@ import type {
   CodexApprovalDecision,
   CodexApprovalRequest,
   CodexRunnerProgressEvent,
+  CodexUserInputQuestion,
+  CodexUserInputRequest,
+  CodexUserInputResponse,
   RunCodexPromptInput,
   RunCodexPromptResult,
 } from "./codexRunner.js";
@@ -777,6 +780,67 @@ function approvalResponseForServerRequest(
   return { decision: decision.decision };
 }
 
+function userInputQuestion(value: unknown): CodexUserInputQuestion | null {
+  const question = objectParam(value);
+  const id = stringParam(question, "id");
+  const header = stringParam(question, "header");
+  const prompt = stringParam(question, "question");
+
+  if (!id || !header || !prompt) {
+    return null;
+  }
+
+  const rawOptions = Array.isArray(question.options) ? question.options : null;
+  const options = rawOptions
+    ?.map((option) => {
+      const normalized = objectParam(option);
+      const label = stringParam(normalized, "label");
+      const description = stringParam(normalized, "description");
+      return label && description ? { label, description } : null;
+    })
+    .filter((option): option is { label: string; description: string } => Boolean(option)) ?? null;
+
+  return {
+    id,
+    header,
+    question: prompt,
+    isOther: question.isOther === true,
+    isSecret: question.isSecret === true,
+    options,
+  };
+}
+
+function userInputRequestFromServerRequest(
+  method: string,
+  params: Record<string, unknown>,
+): CodexUserInputRequest | null {
+  if (method !== "item/tool/requestUserInput") {
+    return null;
+  }
+
+  const threadId = stringParam(params, "threadId");
+  const turnId = stringParam(params, "turnId");
+  const itemId = stringParam(params, "itemId");
+  const questions = Array.isArray(params.questions)
+    ? params.questions.map(userInputQuestion).filter((question): question is CodexUserInputQuestion => Boolean(question))
+    : [];
+
+  if (!threadId || !turnId || !itemId || questions.length === 0) {
+    return null;
+  }
+
+  return {
+    threadId,
+    turnId,
+    itemId,
+    questions,
+    autoResolutionMs:
+      typeof params.autoResolutionMs === "number" && Number.isFinite(params.autoResolutionMs)
+        ? Math.max(0, params.autoResolutionMs)
+        : null,
+  };
+}
+
 export async function runCodexAppServerPrompt(
   input: RunCodexAppServerPromptInput,
 ): Promise<RunCodexPromptResult> {
@@ -1128,6 +1192,15 @@ async function runPromptAgainstAppServer(input: {
           result: approvalResponseForServerRequest(method, params, decision),
         }),
       );
+      return;
+    }
+
+    const userInputRequest = userInputRequestFromServerRequest(method, params);
+
+    if (userInputRequest) {
+      const response: CodexUserInputResponse =
+        (await Promise.resolve(input.input.onUserInputRequest?.(userInputRequest))) ?? { answers: {} };
+      socket.send(JSON.stringify({ id: message.id, result: response }));
       return;
     }
 

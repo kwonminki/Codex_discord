@@ -1291,6 +1291,126 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("routes a natural Discord reply into a pending Codex request_user_input question", async () => {
+    const replies: unknown[] = [];
+    const edits: unknown[] = [];
+    const statusReplies: unknown[] = [];
+    let userInputResponse: unknown = null;
+    const controlCodexTurn = vi.fn();
+    const submitCodexPrompt = vi.fn(async (input) => {
+      userInputResponse = await input.onUserInputRequest?.({
+        threadId: "codex-session-1",
+        turnId: "turn-1",
+        itemId: "question-1",
+        questions: [{
+          id: "implementation",
+          header: "구현 방식",
+          question: "어떤 방식으로 구현할까요?",
+          isOther: true,
+          isSecret: false,
+          options: [
+            { label: "별도 계층", description: "기존 코드와 분리합니다." },
+            { label: "직접 수정", description: "현재 코드에 바로 반영합니다." },
+          ],
+        }],
+        autoResolutionMs: null,
+      });
+
+      return {
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: "선택한 방식으로 구현했습니다.",
+          sessionId: "codex-session-1",
+        },
+      };
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      controlCodexTurn,
+      syncCodexSessions: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const reply = async (message: unknown) => {
+      replies.push(message);
+      return {
+        edit: async (nextMessage: unknown) => {
+          edits.push(nextMessage);
+        },
+      };
+    };
+
+    const promptTask = handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "codex 구현해줘",
+      roleIds: ["role-operator"],
+      reply,
+    });
+
+    await vi.waitFor(() => expect(replies).toHaveLength(2));
+    expect(replies[1]).toEqual(expect.objectContaining({
+      content: expect.stringContaining("<@&role-operator>"),
+      allowedMentions: expect.objectContaining({ roles: ["role-operator"] }),
+      embeds: [expect.objectContaining({
+        title: "Codex 질문 · 1/1 · 구현 방식",
+        fields: [expect.objectContaining({ value: expect.stringContaining("2. 직접 수정") })],
+      })],
+    }));
+    expect(replies[1]).not.toHaveProperty("components");
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "status",
+      roleIds: ["role-operator"],
+      reply: async (message) => {
+        statusReplies.push(message);
+      },
+    });
+    expect(statusReplies).toEqual([expect.objectContaining({
+      embeds: [expect.objectContaining({
+        fields: expect.arrayContaining([
+          { name: "Agent state", value: "`Codex waiting-for-user-input`", inline: true },
+        ]),
+      })],
+    })]);
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "2",
+      roleIds: ["role-operator"],
+      reply,
+    });
+    await promptTask;
+
+    expect(userInputResponse).toEqual({
+      answers: { implementation: { answers: ["직접 수정"] } },
+    });
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(1);
+    expect(controlCodexTurn).not.toHaveBeenCalled();
+    expect(replies[2]).toEqual(expect.objectContaining({
+      embeds: [expect.objectContaining({
+        title: "Codex에 답변 전달됨",
+        description: "`직접 수정`",
+      })],
+    }));
+    expect(edits.at(-1)).toEqual(expect.objectContaining({
+      content: expect.stringContaining("**Codex 작업 완료**"),
+      embeds: [expect.objectContaining({ title: "답변", description: "선택한 방식으로 구현했습니다." })],
+    }));
+  });
+
   it("blocks Codex prompts in the admin channel without submitting a Codex job", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn();

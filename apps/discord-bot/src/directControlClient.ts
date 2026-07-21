@@ -230,6 +230,7 @@ export function createDirectControlClient(
         codexHome: config.direct.codexHome,
         onProgress: input.onProgress,
         onApprovalRequest: input.onApprovalRequest,
+        onUserInputRequest: input.onUserInputRequest,
       };
       if (input.payload.forkSession && codexRunner !== "app-server") {
         return {
@@ -258,6 +259,7 @@ export function createDirectControlClient(
           },
           onProgress: input.onProgress,
           onApprovalRequest: input.onApprovalRequest,
+          onUserInputRequest: input.onUserInputRequest,
         });
         if (!input.requestId) {
           await options.workerClient.markDelivered(response.jobId);

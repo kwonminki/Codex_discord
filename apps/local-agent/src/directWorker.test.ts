@@ -122,6 +122,55 @@ describe("direct worker", () => {
     }
   });
 
+  it("persists request_user_input events and delivers the Discord answer to the worker", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-user-input-"));
+    const store = createDirectWorkerStore(path.join(root, "worker"));
+
+    try {
+      await store.enqueue({
+        jobId: "user-input-job",
+        type: "run-codex-prompt",
+        queueKey: "thread-1",
+        payload: {},
+      });
+      const userInputId = await store.requestUserInput("user-input-job", {
+        threadId: "codex-thread-1",
+        turnId: "turn-1",
+        itemId: "item-1",
+        questions: [{
+          id: "mode",
+          header: "모드",
+          question: "어떤 모드를 사용할까요?",
+          isOther: false,
+          isSecret: false,
+          options: [{ label: "안전", description: "보수적으로 실행합니다." }],
+        }],
+        autoResolutionMs: null,
+      });
+      await store.complete("user-input-job", { status: "completed" });
+      const requests: unknown[] = [];
+
+      await createDirectWorkerClient({ store, pollIntervalMs: 10 }).submit({
+        jobId: "user-input-job",
+        type: "run-codex-prompt",
+        queueKey: "thread-1",
+        payload: {},
+        onUserInputRequest: (request) => {
+          requests.push(request);
+          return { answers: { mode: { answers: ["안전"] } } };
+        },
+      });
+
+      expect(requests).toEqual([expect.objectContaining({ itemId: "item-1" })]);
+      await expect(store.readUserInputResponse("user-input-job", userInputId)).resolves.toEqual({
+        answers: { mode: { answers: ["안전"] } },
+      });
+      await expect(store.readDeliveryCursor("user-input-job")).resolves.toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps processing turn controls while draining an active job", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-drain-control-"));
     const store = createDirectWorkerStore(path.join(root, "worker"));

@@ -2,6 +2,8 @@ import type {
   CodexPromptApprovalDecision,
   CodexPromptApprovalRequest,
   CodexPromptProgressEvent,
+  CodexPromptUserInputRequest,
+  CodexPromptUserInputResponse,
   CodexTurnControlResult,
 } from "./controlApiClient.js";
 import {
@@ -29,6 +31,9 @@ export interface SubmitDirectWorkerJobInput<
   onApprovalRequest?: (
     request: CodexPromptApprovalRequest,
   ) => Promise<CodexPromptApprovalDecision> | CodexPromptApprovalDecision;
+  onUserInputRequest?: (
+    request: CodexPromptUserInputRequest,
+  ) => Promise<CodexPromptUserInputResponse> | CodexPromptUserInputResponse;
 }
 
 export function createDirectWorkerClient(options: {
@@ -58,13 +63,18 @@ export function createDirectWorkerClient(options: {
         try {
           if (workerEvent.type === "progress") {
             await input.onProgress?.(workerEvent.event as TProgress);
-          } else if (!await store.readApprovalDecision(request.jobId, workerEvent.approvalId)) {
+          } else if (workerEvent.type === "approval" && !await store.readApprovalDecision(request.jobId, workerEvent.approvalId)) {
             const decision = input.onApprovalRequest
               ? await Promise.resolve(input.onApprovalRequest(workerEvent.request)).catch(() => ({
                   decision: "decline" as const,
                 }))
               : { decision: "decline" as const };
             await store.writeApprovalDecision(request.jobId, workerEvent.approvalId, decision);
+          } else if (workerEvent.type === "user-input" && !await store.readUserInputResponse(request.jobId, workerEvent.userInputId)) {
+            const response = input.onUserInputRequest
+              ? await Promise.resolve(input.onUserInputRequest(workerEvent.request))
+              : { answers: {} };
+            await store.writeUserInputResponse(request.jobId, workerEvent.userInputId, response);
           }
 
           deliveredEventCount += 1;

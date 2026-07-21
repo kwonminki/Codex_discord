@@ -13,7 +13,13 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import type { CodexApprovalDecision, CodexApprovalRequest, CodexRunnerProgressEvent } from "./codexRunner.js";
+import type {
+  CodexApprovalDecision,
+  CodexApprovalRequest,
+  CodexRunnerProgressEvent,
+  CodexUserInputRequest,
+  CodexUserInputResponse,
+} from "./codexRunner.js";
 
 export type DirectWorkerJobType = "run-command" | "run-codex-prompt" | "run-claude-prompt";
 export type DirectWorkerJobStatus = "queued" | "running" | "completed" | "failed";
@@ -43,7 +49,8 @@ export type DirectWorkerJobResult =
 
 export type DirectWorkerJobEvent =
   | { type: "progress"; at: string; event: CodexRunnerProgressEvent }
-  | { type: "approval"; at: string; approvalId: string; request: CodexApprovalRequest };
+  | { type: "approval"; at: string; approvalId: string; request: CodexApprovalRequest }
+  | { type: "user-input"; at: string; userInputId: string; request: CodexUserInputRequest };
 
 export interface DirectWorkerControlRequest {
   version: 1;
@@ -270,6 +277,18 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
       await appendFile(path.join(jobDirectory(jobId), "events.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
       return approvalId;
     },
+    async requestUserInput(jobId: string, request: CodexUserInputRequest): Promise<string> {
+      const userInputId = randomUUID();
+      const record: DirectWorkerJobEvent = {
+        type: "user-input",
+        at: new Date().toISOString(),
+        userInputId,
+        request,
+      };
+      await mkdir(jobDirectory(jobId), { recursive: true });
+      await appendFile(path.join(jobDirectory(jobId), "events.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+      return userInputId;
+    },
     async readEvents(jobId: string): Promise<DirectWorkerJobEvent[]> {
       let raw: string;
       try {
@@ -315,6 +334,17 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
     readApprovalDecision(jobId: string, approvalId: string) {
       return readJson<CodexApprovalDecision>(
         path.join(jobDirectory(jobId), "approvals", `${validId(approvalId)}.json`),
+      );
+    },
+    writeUserInputResponse(jobId: string, userInputId: string, response: CodexUserInputResponse) {
+      return writeJsonAtomic(
+        path.join(jobDirectory(jobId), "user-input", `${validId(userInputId)}.json`),
+        response,
+      );
+    },
+    readUserInputResponse(jobId: string, userInputId: string) {
+      return readJson<CodexUserInputResponse>(
+        path.join(jobDirectory(jobId), "user-input", `${validId(userInputId)}.json`),
       );
     },
     async markDelivered(jobId: string): Promise<void> {

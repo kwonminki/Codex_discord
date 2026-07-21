@@ -719,4 +719,156 @@ describe("runCodexAppServerPrompt", () => {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
+
+  it("answers app-server request_user_input tool requests", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
+    const socketPath = path.join("/tmp", `codex-app-server-runner-user-input-${process.pid}-${Date.now()}.sock`);
+    socketPaths.push(socketPath);
+    const httpServer = createServer();
+    const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
+    let userInputResponse: unknown = null;
+
+    try {
+      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+
+      wsServer.on("connection", (socket) => {
+        socket.on("message", (raw) => {
+          const message = JSON.parse(raw.toString()) as {
+            id?: number | string;
+            method?: string;
+            result?: unknown;
+          };
+
+          if (message.id === "user-input-1" && !message.method) {
+            userInputResponse = message.result;
+            socket.send(JSON.stringify({
+              method: "item/completed",
+              params: {
+                threadId: "thread-user-input",
+                turnId: "turn-user-input",
+                item: {
+                  type: "agentMessage",
+                  id: "item-answer",
+                  text: "선택한 방식으로 구현했습니다.",
+                  phase: "final_answer",
+                },
+              },
+            }));
+            socket.send(JSON.stringify({
+              method: "turn/completed",
+              params: {
+                threadId: "thread-user-input",
+                turn: { id: "turn-user-input", status: "completed", error: null },
+              },
+            }));
+            return;
+          }
+
+          if (!message.method) {
+            return;
+          }
+
+          if (message.method === "initialize") {
+            socket.send(JSON.stringify({
+              id: message.id,
+              result: {
+                userAgent: "Codex Desktop/0.0.0 test",
+                codexHome: path.join(workspaceRoot, ".codex"),
+                platformFamily: "unix",
+                platformOs: "macos",
+              },
+            }));
+            return;
+          }
+
+          if (message.method === "thread/start") {
+            socket.send(JSON.stringify({
+              id: message.id,
+              result: { thread: { id: "thread-user-input" } },
+            }));
+            return;
+          }
+
+          if (message.method === "turn/start") {
+            socket.send(JSON.stringify({
+              id: message.id,
+              result: {
+                turn: {
+                  id: "turn-user-input",
+                  status: "inProgress",
+                  items: [],
+                  itemsView: "notLoaded",
+                  error: null,
+                },
+              },
+            }));
+            socket.send(JSON.stringify({
+              id: "user-input-1",
+              method: "item/tool/requestUserInput",
+              params: {
+                threadId: "thread-user-input",
+                turnId: "turn-user-input",
+                itemId: "question-1",
+                questions: [{
+                  id: "implementation",
+                  header: "구현 방식",
+                  question: "어떤 방식으로 구현할까요?",
+                  isOther: true,
+                  isSecret: false,
+                  options: [
+                    { label: "별도 계층", description: "기존 코드와 분리합니다." },
+                    { label: "직접 수정", description: "현재 코드에 바로 반영합니다." },
+                  ],
+                }],
+                autoResolutionMs: null,
+              },
+            }));
+          }
+        });
+      });
+
+      const userInputRequests: unknown[] = [];
+      const result = await runCodexAppServerPrompt({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        prompt: "질문해줘",
+        timeoutMs: 5_000,
+        appServerSocketPath: socketPath,
+        onUserInputRequest: (request) => {
+          userInputRequests.push(request);
+          return { answers: { implementation: { answers: ["별도 계층"] } } };
+        },
+      });
+
+      expect(userInputRequests).toEqual([{
+        threadId: "thread-user-input",
+        turnId: "turn-user-input",
+        itemId: "question-1",
+        questions: [{
+          id: "implementation",
+          header: "구현 방식",
+          question: "어떤 방식으로 구현할까요?",
+          isOther: true,
+          isSecret: false,
+          options: [
+            { label: "별도 계층", description: "기존 코드와 분리합니다." },
+            { label: "직접 수정", description: "현재 코드에 바로 반영합니다." },
+          ],
+        }],
+        autoResolutionMs: null,
+      }]);
+      expect(userInputResponse).toEqual({
+        answers: { implementation: { answers: ["별도 계층"] } },
+      });
+      expect(result).toMatchObject({
+        status: "completed",
+        finalMessage: "선택한 방식으로 구현했습니다.",
+        sessionId: "thread-user-input",
+      });
+    } finally {
+      wsServer.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
 });

@@ -8,7 +8,12 @@ import {
   steerActiveCodexAppServerTurn,
 } from "./codexAppServerRunner.js";
 import { runClaudePrompt, type RunClaudePromptInput } from "./claudeRunner.js";
-import { runCodexPrompt, type CodexApprovalDecision, type RunCodexPromptInput } from "./codexRunner.js";
+import {
+  runCodexPrompt,
+  type CodexApprovalDecision,
+  type CodexUserInputResponse,
+  type RunCodexPromptInput,
+} from "./codexRunner.js";
 import { createDirectWorkerStore, type DirectWorkerJobRequest, type DirectWorkerStore } from "./directWorkerStore.js";
 import { runWorkspaceCommand, type RunWorkspaceCommandInput } from "./runner.js";
 
@@ -51,6 +56,20 @@ async function waitForApproval(
   }
 }
 
+async function waitForUserInput(
+  store: DirectWorkerStore,
+  jobId: string,
+  userInputId: string,
+): Promise<CodexUserInputResponse> {
+  for (;;) {
+    const response = await store.readUserInputResponse(jobId, userInputId);
+    if (response) {
+      return response;
+    }
+    await wait(250);
+  }
+}
+
 async function runWorkerJob(store: DirectWorkerStore, request: DirectWorkerJobRequest): Promise<unknown> {
   if (request.type === "run-command") {
     return runWorkspaceCommand(request.payload as RunWorkspaceCommandInput);
@@ -74,6 +93,10 @@ async function runWorkerJob(store: DirectWorkerStore, request: DirectWorkerJobRe
     onApprovalRequest: async (approvalRequest) => {
       const approvalId = await store.requestApproval(request.jobId, approvalRequest);
       return waitForApproval(store, request.jobId, approvalId);
+    },
+    onUserInputRequest: async (userInputRequest) => {
+      const userInputId = await store.requestUserInput(request.jobId, userInputRequest);
+      return waitForUserInput(store, request.jobId, userInputId);
     },
   };
 

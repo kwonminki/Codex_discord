@@ -85,6 +85,15 @@ export interface CodexApprovalRequestMessage {
   details?: Array<{ name: string; value: string }>;
 }
 
+export interface CodexUserInputQuestionMessage {
+  id: string;
+  header: string;
+  question: string;
+  isOther: boolean;
+  isSecret: boolean;
+  options: Array<{ label: string; description: string }> | null;
+}
+
 export interface CodexProgressState {
   status: string;
   sessionId?: string | null;
@@ -1611,6 +1620,58 @@ export function formatCodexApprovalDecision(input: {
   });
 }
 
+export function formatCodexUserInputRequest(input: {
+  question: CodexUserInputQuestionMessage;
+  index: number;
+  total: number;
+  autoResolutionMs?: number | null;
+}): DiscordMessagePayload {
+  const options = input.question.options ?? [];
+  const fields: DiscordEmbedFieldPayload[] = [];
+
+  if (options.length > 0) {
+    fields.push({
+      name: "선택지",
+      value: truncateFieldValue(options
+        .map((option, index) => `**${index + 1}. ${sanitizeBlockDiscordText(option.label)}**\n${sanitizeBlockDiscordText(option.description)}`)
+        .join("\n\n")),
+      inline: false,
+    });
+  }
+
+  const instructions = [
+    options.length > 0
+      ? "이 스레드에 번호, 선택지 이름 또는 직접 답변을 보내세요."
+      : "이 스레드에 답변을 보내세요.",
+    input.question.isSecret
+      ? "주의: Discord 메시지는 비밀 입력창이 아닙니다. 토큰이나 비밀번호는 보내지 마세요."
+      : "",
+    input.autoResolutionMs && input.autoResolutionMs > 0
+      ? `${Math.ceil(input.autoResolutionMs / 1_000)}초 안에 답하지 않으면 첫 번째 선택지로 자동 진행합니다.`
+      : "",
+  ].filter(Boolean).join("\n\n");
+
+  return messagePayload({
+    title: `Codex 질문 · ${input.index + 1}/${input.total} · ${sanitizeInlineDiscordText(input.question.header)}`,
+    color: COLORS.queued,
+    description: truncateDescription(`${sanitizeDiscordMarkdown(input.question.question)}\n\n${instructions}`),
+    fields,
+  });
+}
+
+export function formatCodexUserInputReceived(input: {
+  answer: string;
+  autoResolved?: boolean;
+}): DiscordMessagePayload {
+  return messagePayload({
+    title: input.autoResolved ? "Codex 질문 자동 응답" : "Codex에 답변 전달됨",
+    color: input.autoResolved ? COLORS.neutral : COLORS.success,
+    description: input.autoResolved
+      ? `응답 시간이 지나 첫 번째 선택지 ${wrapDiscordText(input.answer || "(응답 없음)")}로 계속 진행합니다.`
+      : wrapDiscordText(input.answer || "(응답 없음)"),
+  });
+}
+
 export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const adminSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Admin slash commands",
@@ -1876,6 +1937,7 @@ export function formatChannelStatus(input: {
     lastActivityAt?: number | null;
     pendingCount: number;
     waitingForApproval?: boolean;
+    waitingForUserInput?: boolean;
     nowMs?: number;
   };
 }): DiscordMessagePayload {
@@ -1883,11 +1945,13 @@ export function formatChannelStatus(input: {
   const execution = input.execution ?? { active: false, pendingCount: 0 };
   const nowMs = execution.nowMs ?? Date.now();
   const agentName = isClaudeCodeChannel ? "Claude Code" : "Codex";
-  const executionState = execution.waitingForApproval
-    ? "waiting-for-approval"
-    : execution.active
-      ? "running"
-      : "idle";
+  const executionState = execution.waitingForUserInput
+    ? "waiting-for-user-input"
+    : execution.waitingForApproval
+      ? "waiting-for-approval"
+      : execution.active
+        ? "running"
+        : "idle";
   const executionFields: DiscordEmbedFieldPayload[] = [
     {
       name: "Agent state",

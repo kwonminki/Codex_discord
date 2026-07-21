@@ -87,7 +87,7 @@ pnpm connect start --direct --component worker
 pnpm connect start --direct --component bot
 ```
 
-Direct requests are persisted under `.connect/discord-queue`, and worker jobs, progress, approvals, and results under `.connect/worker`. A restarted bot reconnects to the same request ID. A worker that receives `SIGTERM` stops accepting new jobs and waits for active jobs to finish before exiting; queued jobs stay on disk.
+Direct requests are persisted under `.connect/discord-queue`, and worker jobs, progress, approvals, Codex user questions, and results under `.connect/worker`. A restarted bot reconnects to the same request ID. A worker that receives `SIGTERM` stops accepting new jobs and waits for active jobs to finish before exiting; queued jobs stay on disk.
 
 In Discord, run:
 

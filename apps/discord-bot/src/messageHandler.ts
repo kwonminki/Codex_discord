@@ -13,7 +13,13 @@ import type {
   SyncCodexSessionsResult,
 } from "./codexSessionSync.js";
 import type { SyncCodexSessionTranscriptUpdatesResult } from "./codexTranscriptSync.js";
-import type { CodexPromptApprovalDecision, CodexPromptApprovalRequest, ControlApiClient } from "./controlApiClient.js";
+import type {
+  CodexPromptApprovalDecision,
+  CodexPromptApprovalRequest,
+  CodexPromptUserInputRequest,
+  CodexPromptUserInputResponse,
+  ControlApiClient,
+} from "./controlApiClient.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { DiscordIncomingAttachment, MaterializedDiscordAttachment } from "./incomingAttachments.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
@@ -24,6 +30,8 @@ import {
   formatCodexAck,
   formatCodexApprovalDecision,
   formatCodexApprovalRequest,
+  formatCodexUserInputReceived,
+  formatCodexUserInputRequest,
   formatCodexModelResult,
   formatCodexProgressUpdate,
   formatCodexResultUpdate,
@@ -658,6 +666,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
   >();
   let nextCodexApprovalToken = 1;
+  const pendingCodexUserInputs = new Map<
+    string,
+    {
+      question: CodexPromptUserInputRequest["questions"][number];
+      resolve: (answers: string[]) => void;
+      timer: ReturnType<typeof setTimeout> | null;
+    }
+  >();
 
   function executionState(excludeActiveMessage?: DiscordMessageLike): BotReloadExecutionState {
     let activeCount = 0;
@@ -744,6 +760,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
   function channelWaitingForApproval(channelId: string): boolean {
     return [...pendingCodexApprovals.values()].some((approval) => approval.channelId === channelId);
+  }
+
+  function channelWaitingForUserInput(channelId: string): boolean {
+    return pendingCodexUserInputs.has(channelId);
   }
 
   function channelHasPendingAgentRequests(
@@ -881,6 +901,86 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     return decisionPromise;
   }
 
+  function codexUserInputAnswer(
+    question: CodexPromptUserInputRequest["questions"][number],
+    content: string,
+  ): string {
+    const answer = content.trim();
+    const options = question.options ?? [];
+    const numericChoice = answer.match(/^([1-9]\d*)$/);
+
+    if (numericChoice) {
+      const selected = options[Number.parseInt(numericChoice[1] ?? "0", 10) - 1];
+      if (selected) {
+        return selected.label;
+      }
+    }
+
+    const namedChoice = options.find((option) => option.label.toLowerCase() === answer.toLowerCase());
+    return namedChoice?.label ?? answer;
+  }
+
+  async function requestCodexUserInput(
+    reply: DiscordMessageLike["reply"],
+    replyWithRoleMentions: DiscordMessageLike["reply"],
+    channelId: string,
+    request: CodexPromptUserInputRequest,
+  ): Promise<CodexPromptUserInputResponse> {
+    const answers: CodexPromptUserInputResponse["answers"] = {};
+    const deadline = request.autoResolutionMs && request.autoResolutionMs > 0
+      ? Date.now() + request.autoResolutionMs
+      : null;
+
+    for (const [index, question] of request.questions.entries()) {
+      touchChannelActivity(channelId);
+      const remainingMs = deadline === null ? null : Math.max(0, deadline - Date.now());
+      let pending: {
+        question: CodexPromptUserInputRequest["questions"][number];
+        resolve: (values: string[]) => void;
+        timer: ReturnType<typeof setTimeout> | null;
+      };
+      const responsePromise = new Promise<string[]>((resolve) => {
+        pending = { question, resolve, timer: null };
+      });
+
+      pendingCodexUserInputs.set(channelId, pending!);
+
+      if (remainingMs !== null) {
+        pending!.timer = setTimeout(() => {
+          if (pendingCodexUserInputs.get(channelId) !== pending) {
+            return;
+          }
+
+          pendingCodexUserInputs.delete(channelId);
+          const fallback = question.options?.[0]?.label ?? "";
+          pending!.resolve(fallback ? [fallback] : []);
+          void reply(formatCodexUserInputReceived({ answer: fallback, autoResolved: true })).catch((error) => {
+            console.warn("discord-bot failed to post a Codex question auto-response", error);
+          });
+        }, remainingMs);
+      }
+
+      try {
+        await replyWithRoleMentions(formatCodexUserInputRequest({
+          question,
+          index,
+          total: request.questions.length,
+          autoResolutionMs: remainingMs,
+        }));
+        answers[question.id] = { answers: await responsePromise };
+      } finally {
+        if (pendingCodexUserInputs.get(channelId) === pending!) {
+          pendingCodexUserInputs.delete(channelId);
+        }
+        if (pending!.timer) {
+          clearTimeout(pending!.timer);
+        }
+      }
+    }
+
+    return { answers };
+  }
+
   function createLiveProgressReporter(input: {
     message: DiscordMessageLike;
     channelContext: ManagedDiscordChannelContext;
@@ -999,6 +1099,25 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
+    const pendingUserInput = pendingCodexUserInputs.get(message.channelId);
+
+    if (pendingUserInput && isCodexUserInputReply(message.content)) {
+      if (!hasAllowedRole(message.roleIds, channelContext.allowedRoleIds)) {
+        await reply(formatDenied("User does not have an allowed role"));
+        return;
+      }
+
+      pendingCodexUserInputs.delete(message.channelId);
+      if (pendingUserInput.timer) {
+        clearTimeout(pendingUserInput.timer);
+      }
+      const answer = codexUserInputAnswer(pendingUserInput.question, message.content);
+      touchChannelActivity(message.channelId);
+      pendingUserInput.resolve(answer ? [answer] : []);
+      await reply(formatCodexUserInputReceived({ answer }));
+      return;
+    }
+
     const routed = routeMessage(message, channelContext);
 
     if (routed.type === "queue-prompt") {
@@ -1064,6 +1183,16 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         action,
         ...(routed.type === "codex-steer" ? { content: routed.content } : {}),
       });
+      if (action === "interrupt" && result.status !== "failed" && result.status !== "unsupported") {
+        const pending = pendingCodexUserInputs.get(message.channelId);
+        if (pending) {
+          pendingCodexUserInputs.delete(message.channelId);
+          if (pending.timer) {
+            clearTimeout(pending.timer);
+          }
+          pending.resolve([]);
+        }
+      }
       await reply(formatCodexTurnControlResult({ action, ...result }));
       return;
     }
@@ -1092,6 +1221,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             lastActivityAt: queue?.activeLastActivityAt ?? null,
             pendingCount: queue?.pending.length ?? 0,
             waitingForApproval: channelWaitingForApproval(message.channelId),
+            waitingForUserInput: channelWaitingForUserInput(message.channelId),
           },
         }),
       );
@@ -1534,6 +1664,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             );
           },
           onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
+          onUserInputRequest: (request) => requestCodexUserInput(reply, replyWithRoleMentions, message.channelId, request),
         });
         progressReporter.finish();
 
@@ -1715,6 +1846,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }
             },
             onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
+            onUserInputRequest: (request) => requestCodexUserInput(reply, replyWithRoleMentions, message.channelId, request),
           });
 
           const failureMessage = forkResponseErrorMessage(response, "Codex");
@@ -2069,6 +2201,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             );
           },
           onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
+          onUserInputRequest: (request) => requestCodexUserInput(reply, replyWithRoleMentions, message.channelId, request),
         });
         progressReporter.finish();
         const responseForDisplay = withAgentMessageFallback(response, latestAgentMessage);
@@ -2321,7 +2454,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     const immediateControl = Boolean(
-      parseCodexApprovalResponse(message.content) || isImmediateQueueControl(message.content),
+      parseCodexApprovalResponse(message.content) ||
+      isImmediateQueueControl(message.content) ||
+      (channelWaitingForUserInput(message.channelId) && isCodexUserInputReply(message.content)),
     );
 
     if ((deferredRestartRequested || restartScheduled) && !immediateControl) {
@@ -2481,6 +2616,11 @@ function isImmediateQueueControl(content: string): boolean {
 
 function isExplicitQueuePrompt(content: string): boolean {
   return /^\/*queue\s+prompt\s*:\s*\S/i.test(content.trim());
+}
+
+function isCodexUserInputReply(content: string): boolean {
+  const trimmed = content.trim();
+  return trimmed.length > 0 && !trimmed.startsWith("/") && !isImmediateQueueControl(trimmed);
 }
 
 function isDurableAgentRequest(type: string): boolean {
