@@ -1647,7 +1647,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const sessionSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Session slash commands",
     value: codeBlock(
-      "/codex prompt:README 요약해줘\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue prompt:현재 작업 뒤에 테스트 실행\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
+      "/codex prompt:README 요약해줘\n/fork\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue prompt:현재 작업 뒤에 테스트 실행\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
       "text",
     ),
     inline: false,
@@ -1726,7 +1726,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Session controls",
       value: codeBlock(
-        "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\nhowtouse\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
+        "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
       inline: false,

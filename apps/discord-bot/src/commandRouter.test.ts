@@ -62,7 +62,19 @@ describe("routeDiscordMessage", () => {
     });
   });
 
-  it("routes howtouse to the Codex Discord usage prompt", () => {
+  it("requires a slash prefix for the howtouse shortcut", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "/howtouse",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("10MiB"),
+    });
+
     expect(
       routeDiscordMessage({
         channelMode: "session-linked",
@@ -72,7 +84,7 @@ describe("routeDiscordMessage", () => {
       }),
     ).toEqual({
       type: "codex-chat",
-      content: expect.stringContaining("10MiB"),
+      content: "howtouse",
     });
   });
 
@@ -694,13 +706,25 @@ describe("routeDiscordMessage", () => {
     expect(
       routeDiscordMessage({
         channelMode: "claude-code",
-        content: "fork 다른 접근 테스트",
+        content: "/fork 다른 접근 테스트",
         userRoleIds: ["role-operator"],
         allowedRoleIds: ["role-operator"],
       }),
     ).toEqual({
       type: "fork-session",
       name: "다른 접근 테스트",
+    });
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "fork 는 잘 되는건가?",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "codex-chat",
+      content: "fork 는 잘 되는건가?",
     });
   });
 

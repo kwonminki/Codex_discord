@@ -127,7 +127,7 @@ function parseCodexShortcut(content: string): { content: string } | null {
     };
   }
 
-  if (/^(?:howtouse|how-to-use|사용법)$/i.test(normalized)) {
+  if (/^\/(?:howtouse|how-to-use|사용법)$/i.test(normalized)) {
     return {
       content: CODEX_DISCORD_HOW_TO_USE_PROMPT,
     };
@@ -390,15 +390,15 @@ function parseForkSessionCommand(content: string): { name: string } | null {
   const normalized = content.replace(/\s+/g, " ").trim();
   const keyedName = parseKeyedValue(normalized, "name");
 
-  if (/^fork(?:\s+session)?$/i.test(normalized)) {
+  if (/^\/fork(?:\s+session)?$/i.test(normalized)) {
     return null;
   }
 
-  if (keyedName && /^(?:fork|fork session)(?:\s+name:[^\n]+)$/i.test(normalized)) {
+  if (keyedName && /^\/(?:fork|fork session)(?:\s+name:[^\n]+)$/i.test(normalized)) {
     return { name: keyedName };
   }
 
-  const match = normalized.match(/^fork(?:\s+session)?\s+(.+)$/i);
+  const match = normalized.match(/^\/fork(?:\s+session)?\s+(.+)$/i);
   const name = match?.[1]?.trim();
   return name ? { name } : null;
 }

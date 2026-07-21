@@ -311,6 +311,8 @@ chat new cwd:/Users/me/project name:주간 보고서
 | `/codex-command command:<name> prompt:<args>` | `model`, `review`, `compact`, `mcp` 같은 session shortcut을 같은 라우터로 실행합니다. |
 | `/schedule action:create mode:once/every/daily/weekly command:<명령> at:<시간> every:<주기> weekdays:<요일>` | 이 세션 채널에서 기존 채팅형 명령을 예약 실행합니다. |
 
+`/fork`와 `/howtouse`는 앞에 `/`가 붙은 명령으로만 동작합니다. `fork는 잘 되는건가?`, `howtouse 내용을 바꿔줘`처럼 같은 단어가 들어간 일반 메시지는 명령으로 해석하지 않고 현재 agent에게 그대로 전달합니다.
+
 ### 채팅형 예약 명령
 
 `/schedule`은 아래 채팅형 명령과 같은 라우터를 사용합니다. 예약 대상 `command:`에는 이미 지원되는 채팅형 명령을 넣습니다.
