@@ -239,6 +239,7 @@ describe("direct sync state store", () => {
 
       await store.markDiscordRequestedCodexSession("SESSION-1");
       await store.markDiscordRequestedCodexSession("session-1");
+      await store.markDiscordRequestedCodexSession("session-1", { completionMentionSent: true });
       await store.markDiscordRequestedCodexSession("session-2");
 
       await expect(store.read()).resolves.toMatchObject({
@@ -247,6 +248,7 @@ describe("direct sync state store", () => {
           {
             sessionId: "session-1",
             requestedAt: expect.any(String),
+            completionMentionSent: true,
           },
           {
             sessionId: "session-2",

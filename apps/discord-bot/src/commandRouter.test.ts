@@ -687,6 +687,22 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes queue and active turn control commands", () => {
+    const base = {
+      channelMode: "session-linked" as const,
+      userRoleIds: ["role-operator"],
+      allowedRoleIds: ["role-operator"],
+    };
+
+    expect(routeDiscordMessage({ ...base, content: "queue" })).toEqual({ type: "queue-status" });
+    expect(routeDiscordMessage({ ...base, content: "/queue-clear" })).toEqual({ type: "queue-clear" });
+    expect(routeDiscordMessage({ ...base, content: "interrupt" })).toEqual({ type: "codex-interrupt" });
+    expect(routeDiscordMessage({ ...base, content: "steer 구현 방향을 바꿔줘" })).toEqual({
+      type: "codex-steer",
+      content: "구현 방향을 바꿔줘",
+    });
+  });
+
   it("routes explicit sync all requests to immediate admin sync", () => {
     expect(
       routeDiscordMessage({

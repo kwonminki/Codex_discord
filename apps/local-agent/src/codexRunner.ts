@@ -17,6 +17,7 @@ export interface RunCodexPromptInput {
   mode?: "prompt" | "review";
   model?: string | null;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
+  controlKey?: string;
   onApprovalRequest?: (request: CodexApprovalRequest) => Promise<CodexApprovalDecision> | CodexApprovalDecision;
 }
 

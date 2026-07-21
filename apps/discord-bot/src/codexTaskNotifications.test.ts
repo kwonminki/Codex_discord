@@ -725,7 +725,7 @@ describe("notifyCodexTaskCompletions", () => {
     }
   });
 
-  it("skips actively streamed Discord sessions until their final result is sent", async () => {
+  it("skips the polled completion when the direct Discord response already sent a completion mention", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-task-notifications-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
     const sendTextMessage = vi.fn().mockResolvedValue(undefined);
@@ -737,7 +737,7 @@ describe("notifyCodexTaskCompletions", () => {
         adminChannelId: "admin-channel",
         sessions: [],
       });
-      await stateStore.markDiscordRequestedCodexSession("session-1");
+      await stateStore.markDiscordRequestedCodexSession("session-1", { completionMentionSent: true });
 
       await notifyCodexTaskCompletions({
         guild: { sendTextMessage },
@@ -765,10 +765,15 @@ describe("notifyCodexTaskCompletions", () => {
         sessions: [session({ completionKey: "complete-2", assistantAnswer: "Discord 요청 답변입니다." })],
       });
 
-      expect(sendTextMessage).toHaveBeenCalledTimes(1);
-      expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({ embeds: [] });
+      expect(sendTextMessage).not.toHaveBeenCalled();
       await expect(stateStore.read()).resolves.toMatchObject({
         discordRequestedCodexSessionRequests: [],
+        taskCompletionNotifications: [
+          expect.objectContaining({
+            sessionId: "session-1",
+            notifiedAt: expect.any(String),
+          }),
+        ],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

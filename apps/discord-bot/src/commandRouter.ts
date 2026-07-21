@@ -20,6 +20,10 @@ export type RoutedDiscordMessage =
   | { type: "codex-continue-session"; sessionId: string; content: string }
   | { type: "claude-chat"; content: string }
   | { type: "fork-session"; name: string }
+  | { type: "queue-status" }
+  | { type: "queue-clear" }
+  | { type: "codex-steer"; content: string }
+  | { type: "codex-interrupt" }
   | {
       type: "admin-new-chat";
       name: string | null;
@@ -396,6 +400,26 @@ function parseForkSessionCommand(content: string): { name: string } | null {
   const match = normalized.match(/^fork(?:\s+session)?\s+(.+)$/i);
   const name = match?.[1]?.trim();
   return name ? { name } : null;
+}
+
+function parseQueueControlCommand(content: string): RoutedDiscordMessage | null {
+  const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
+
+  if (/^(?:queue|queue-status)$/i.test(normalized)) {
+    return { type: "queue-status" };
+  }
+
+  if (/^(?:queue-clear|clear-queue)$/i.test(normalized)) {
+    return { type: "queue-clear" };
+  }
+
+  if (/^(?:interrupt|stop-current)$/i.test(normalized)) {
+    return { type: "codex-interrupt" };
+  }
+
+  const steer = normalized.match(/^steer\s+([\s\S]+)$/i);
+  const steerContent = steer?.[1]?.trim();
+  return steerContent ? { type: "codex-steer", content: steerContent } : null;
 }
 
 function codexOpenShellCommand(sessionId: string): string {
@@ -916,6 +940,24 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "fork-session", name: forkSession.name };
+  }
+
+  const queueControl = parseQueueControlCommand(trimmedContent);
+
+  if (queueControl) {
+    const authorization = authorizeCommand({
+      userRoleIds: input.userRoleIds,
+      allowedRoleIds: input.allowedRoleIds,
+    });
+
+    if (!authorization.allowed) {
+      return {
+        type: "denied",
+        reason: authorization.reason ?? "User does not have an allowed role",
+      };
+    }
+
+    return queueControl;
   }
 
   const codexOpenSession = parseCodexOpenSessionCommand(trimmedContent);

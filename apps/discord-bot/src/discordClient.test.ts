@@ -7,7 +7,13 @@ import {
   attachDiscordInteractionHandler,
   createDiscordGuildSurface,
 } from "./discordClient.js";
-import { formatCodexProgressUpdate, formatCodexResultUpdate, formatCollapsibleThoughtMessage } from "./responses.js";
+import {
+  formatCodexAck,
+  formatCodexProgressUpdate,
+  formatCodexResultUpdate,
+  formatCollapsibleThoughtMessage,
+  withRoleMentions,
+} from "./responses.js";
 
 describe("attachDiscordMessageHandler", () => {
   it("adapts Discord messageCreate events into the pure message handler", async () => {
@@ -127,6 +133,76 @@ describe("attachDiscordMessageHandler", () => {
       content: "<@&operator-role>\n작업 완료",
       embeds: [],
     });
+  });
+
+  it("preserves role mentions while editing a Codex progress message", async () => {
+    const handlers = new Map<string, (message: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const edit = vi.fn().mockResolvedValue({ id: "progress-message-1" });
+    const reply = vi.fn().mockResolvedValue({ id: "progress-message-1", edit });
+
+    attachDiscordMessageHandler(client, handleMessage);
+    handlers.get("messageCreate")?.({
+      author: { bot: false, id: "discord-user-1" },
+      channelId: "thread-1",
+      content: "작업해줘",
+      member: { roles: { cache: new Map([["operator-role", { id: "operator-role" }]]) } },
+      reply,
+      guild: null,
+    });
+
+    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<{ edit(message: unknown): Promise<unknown> }> };
+    const input = {
+      computerDisplayName: "Kwon Mac",
+      workspaceDisplayName: "repo",
+      cwd: "/repo",
+      prompt: "작업해줘",
+    };
+    const queuedReply = await adaptedMessage.reply(
+      withRoleMentions(formatCodexAck(input), ["operator-role"]),
+    );
+
+    await queuedReply.edit(
+      withRoleMentions(
+        formatCodexProgressUpdate(input, { status: "item.started", recentEvents: ["파일 확인 중"] }),
+        ["operator-role"],
+      ),
+    );
+
+    await queuedReply.edit(
+      withRoleMentions(
+        formatCodexResultUpdate(
+          { ...input, agentLabel: "Claude Code" },
+          {
+            result: {
+              status: "completed",
+              finalMessage: "Claude 최종 답변입니다.",
+              sessionId: "claude-session-1",
+            },
+          },
+          { recentEvents: ["Read · 입력: README.md", "도구 실행 완료"] },
+        ),
+        ["operator-role"],
+      ),
+    );
+
+    expect(edit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        allowedMentions: { parse: [], roles: ["operator-role"] },
+        content: expect.stringContaining("<@&operator-role>"),
+      }),
+    );
+    expect(edit.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        content: expect.stringContaining("Claude 최종 답변입니다."),
+      }),
+    );
   });
 });
 

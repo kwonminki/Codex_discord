@@ -20,6 +20,21 @@ export interface RunCodexPromptJobPayload {
   mode?: "prompt" | "review";
   model?: string | null;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null;
+  controlKey?: string;
+}
+
+export interface CodexTurnControlResult {
+  status: "accepted" | "no-active-turn" | "unsupported" | "failed";
+  message: string;
+  threadId?: string;
+  turnId?: string;
+}
+
+export interface ControlCodexTurnInput {
+  computerId: string;
+  controlKey: string;
+  action: "steer" | "interrupt";
+  content?: string;
 }
 
 export interface RunClaudePromptJobPayload {
@@ -175,6 +190,7 @@ export interface ControlApiClient {
   linkCodexSession(input: LinkCodexSessionInput): Promise<LinkedCodexSessionResponse>;
   listCodexSessions(input: ListCodexSessionsInput): Promise<ControlApiJobResponse>;
   submitCodexPrompt(input: SubmitCodexPromptInput): Promise<ControlApiJobResponse>;
+  controlCodexTurn?: (input: ControlCodexTurnInput) => Promise<CodexTurnControlResult>;
   submitClaudePrompt?: (input: SubmitClaudePromptInput) => Promise<ControlApiJobResponse>;
   submitCommandJob(input: SubmitCommandJobInput): Promise<ControlApiJobResponse>;
 }

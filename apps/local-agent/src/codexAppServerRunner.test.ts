@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
-import { runCodexAppServerPrompt } from "./codexAppServerRunner.js";
+import {
+  interruptActiveCodexAppServerTurn,
+  runCodexAppServerPrompt,
+  steerActiveCodexAppServerTurn,
+} from "./codexAppServerRunner.js";
 
 const socketPaths: string[] = [];
 
@@ -13,6 +17,114 @@ afterEach(async () => {
 });
 
 describe("runCodexAppServerPrompt", () => {
+  it("steers and interrupts an active turn through its control key", async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-control-"));
+    const socketPath = path.join("/tmp", `codex-app-server-control-${process.pid}-${Date.now()}.sock`);
+    socketPaths.push(socketPath);
+    const httpServer = createServer();
+    const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
+    const received: Array<{ method: string; params: unknown }> = [];
+
+    try {
+      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+
+      wsServer.on("connection", (socket) => {
+        socket.on("message", (raw) => {
+          const message = JSON.parse(raw.toString()) as { id?: number; method?: string; params?: unknown };
+
+          if (!message.method) {
+            return;
+          }
+
+          received.push({ method: message.method, params: message.params });
+
+          if (message.method === "initialize") {
+            socket.send(JSON.stringify({ id: message.id, result: {} }));
+            return;
+          }
+
+          if (message.method === "thread/start") {
+            socket.send(JSON.stringify({ id: message.id, result: { thread: { id: "control-thread-1" } } }));
+            return;
+          }
+
+          if (message.method === "turn/start") {
+            socket.send(JSON.stringify({
+              id: message.id,
+              result: { turn: { id: "control-turn-1", status: "inProgress", items: [] } },
+            }));
+            return;
+          }
+
+          if (message.method === "turn/steer") {
+            socket.send(JSON.stringify({ id: message.id, result: { turnId: "control-turn-1" } }));
+            return;
+          }
+
+          if (message.method === "turn/interrupt") {
+            socket.send(JSON.stringify({ id: message.id, result: {} }));
+            socket.send(JSON.stringify({
+              method: "turn/completed",
+              params: {
+                threadId: "control-thread-1",
+                turn: { id: "control-turn-1", status: "interrupted", error: { message: "Interrupted" } },
+              },
+            }));
+          }
+        });
+      });
+
+      const runPromise = runCodexAppServerPrompt({
+        workspaceRoot,
+        cwd: workspaceRoot,
+        prompt: "긴 작업을 시작해줘",
+        timeoutMs: 5_000,
+        sessionId: null,
+        controlKey: "discord-channel-1",
+        appServerSocketPath: socketPath,
+      });
+
+      let steerResult = await steerActiveCodexAppServerTurn("discord-channel-1", "구현 방향을 바꿔줘");
+      for (let attempt = 0; attempt < 20 && steerResult.status === "no-active-turn"; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        steerResult = await steerActiveCodexAppServerTurn("discord-channel-1", "구현 방향을 바꿔줘");
+      }
+
+      expect(steerResult).toMatchObject({
+        status: "accepted",
+        threadId: "control-thread-1",
+        turnId: "control-turn-1",
+      });
+      expect(await interruptActiveCodexAppServerTurn("discord-channel-1")).toMatchObject({
+        status: "accepted",
+        threadId: "control-thread-1",
+        turnId: "control-turn-1",
+      });
+      await expect(runPromise).resolves.toMatchObject({ status: "failed", finalMessage: "Interrupted" });
+      await expect(interruptActiveCodexAppServerTurn("discord-channel-1")).resolves.toMatchObject({
+        status: "no-active-turn",
+      });
+      expect(received).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          method: "turn/steer",
+          params: {
+            threadId: "control-thread-1",
+            expectedTurnId: "control-turn-1",
+            input: [{ type: "text", text: "구현 방향을 바꿔줘", text_elements: [] }],
+          },
+        }),
+        expect.objectContaining({
+          method: "turn/interrupt",
+          params: { threadId: "control-thread-1", turnId: "control-turn-1" },
+        }),
+      ]));
+    } finally {
+      wsServer.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("runs a prompt through the Codex app-server protocol", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
     const socketPath = path.join("/tmp", `codex-app-server-runner-${process.pid}-${Date.now()}.sock`);
@@ -97,8 +209,20 @@ describe("runCodexAppServerPrompt", () => {
                   item: {
                     type: "commandExecution",
                     id: "command-1",
-                    text: "pnpm test",
+                    command: "pnpm test",
+                    cwd: workspaceRoot,
                   },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "item/commandExecution/outputDelta",
+                params: {
+                  threadId: "thread-1",
+                  turnId: "turn-1",
+                  itemId: "command-1",
+                  delta: "330 tests passed\n",
                 },
               }),
             );
@@ -111,8 +235,23 @@ describe("runCodexAppServerPrompt", () => {
                   item: {
                     type: "commandExecution",
                     id: "command-1",
-                    text: "pnpm test",
+                    command: "pnpm test",
+                    cwd: workspaceRoot,
+                    exitCode: 0,
+                    durationMs: 850,
                   },
+                },
+              }),
+            );
+            socket.send(
+              JSON.stringify({
+                method: "item/reasoning/summaryTextDelta",
+                params: {
+                  threadId: "thread-1",
+                  turnId: "turn-1",
+                  itemId: "reasoning-1",
+                  summaryIndex: 0,
+                  delta: "샘플 경계를 다시 확인했습니다.",
                 },
               }),
             );
@@ -125,7 +264,8 @@ describe("runCodexAppServerPrompt", () => {
                   item: {
                     type: "reasoning",
                     id: "reasoning-1",
-                    summary: [{ type: "summary_text", text: "샘플 경계를 다시 확인했습니다." }],
+                    summary: [],
+                    content: ["외부로 보내면 안 되는 raw reasoning"],
                   },
                 },
               }),
@@ -197,13 +337,13 @@ describe("runCodexAppServerPrompt", () => {
           {
             type: "operation-progress",
             label: "명령 실행 중",
-            detail: "pnpm test",
+            detail: `명령: pnpm test · 위치: ${workspaceRoot}`,
             eventType: "item/started",
           },
           {
             type: "operation-progress",
             label: "명령 실행 완료",
-            detail: "pnpm test",
+            detail: `명령: pnpm test · 위치: ${workspaceRoot} · 종료 코드: 0 · 소요: 850ms · 출력: 330 tests passed`,
             eventType: "item/completed",
           },
           {
@@ -215,6 +355,7 @@ describe("runCodexAppServerPrompt", () => {
           { type: "agent-message", text: "완료했습니다." },
         ]),
       );
+      expect(JSON.stringify(events)).not.toContain("외부로 보내면 안 되는 raw reasoning");
       expect(received).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

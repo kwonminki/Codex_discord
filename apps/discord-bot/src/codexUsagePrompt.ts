@@ -7,6 +7,8 @@ import {
 export const CODEX_DISCORD_HOW_TO_USE_PROMPT = [
   "이 Codex 세션은 Discord 채널과 연결되어 있습니다.",
   "Discord 사용자가 이 채널에 자연어를 보내면 지금 세션으로 이어지고, 최종 답변은 다시 Discord로 전송됩니다.",
+  "같은 채널에서 작업 중 보낸 일반 메시지는 대기열에 쌓입니다. /steer는 현재 Codex turn에 즉시 지시를 추가하고, /interrupt는 현재 turn을 중단합니다. /queue와 /queue-clear로 대기열을 확인하거나 비울 수 있습니다.",
+  "Claude Code 채널에서는 /queue와 /queue-clear만 지원하며, /steer와 /interrupt는 현재 headless 실행 방식에서 지원되지 않습니다.",
   "",
   "Discord에 파일을 첨부해서 보내야 할 때는 최종 답변에 아래 JSON 블록을 포함하세요. 봇이 이 블록은 숨기고, 파일을 Discord 첨부로 올립니다.",
   "",

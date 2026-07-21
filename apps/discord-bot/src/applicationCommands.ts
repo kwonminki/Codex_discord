@@ -433,7 +433,30 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "fork",
-    description: "현재 Claude Code session thread를 새 Discord thread로 fork합니다.",
+    description: "현재 Codex 또는 Claude Code session thread를 새 Discord thread로 fork합니다.",
+  },
+  {
+    name: "steer",
+    description: "현재 실행 중인 Codex 작업에 즉시 추가 지시를 보냅니다.",
+    options: [
+      stringOption({
+        name: "prompt",
+        description: "현재 turn에 추가할 지시",
+        required: true,
+      }),
+    ],
+  },
+  {
+    name: "interrupt",
+    description: "현재 실행 중인 Codex 작업을 중단합니다.",
+  },
+  {
+    name: "queue",
+    description: "현재 채널의 실행 중 작업과 대기 요청을 보여줍니다.",
+  },
+  {
+    name: "queue-clear",
+    description: "현재 실행은 유지하고 이 채널의 대기 요청을 모두 삭제합니다.",
   },
   {
     name: "archive",
@@ -666,6 +689,16 @@ export function routeDiscordApplicationCommand(
         initialPrompt,
       });
     }
+    case "steer": {
+      const prompt = interaction.options.getString("prompt", true)?.trim();
+      return prompt ? `steer ${prompt}` : null;
+    }
+    case "interrupt":
+      return "interrupt";
+    case "queue":
+      return "queue";
+    case "queue-clear":
+      return "queue-clear";
     case "archive":
       return "archive";
     case "browse":

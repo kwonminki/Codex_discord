@@ -194,7 +194,12 @@ function prepareCodexProgressPayload(messageId: string, message: unknown): unkno
   }
 
   const expanded = codexProgressMessages.get(messageId)?.expanded ?? view.view.expanded;
-  const prepared = formatCodexThoughtView(view, { expanded });
+  let prepared = formatCodexThoughtView(view, { expanded });
+  const mentionRoleIds = message.allowedMentions.roles ?? [];
+
+  if (mentionRoleIds.length > 0) {
+    prepared = withRoleMentions(prepared, mentionRoleIds) as DiscordMessagePayload;
+  }
 
   const files = message.files ?? codexProgressMessages.get(messageId)?.files;
 

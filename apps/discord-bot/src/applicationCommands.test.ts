@@ -53,6 +53,10 @@ describe("Discord application commands", () => {
       "schedule",
       "chat-new",
       "fork",
+      "steer",
+      "interrupt",
+      "queue",
+      "queue-clear",
       "archive",
       "browse",
       "shell",
@@ -197,6 +201,15 @@ describe("Discord application commands", () => {
         options: options({ target: "이번 채널" }),
       }),
     ).toBe("codex 이번 채널을 요약하고 다음 액션을 제안해줘");
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "steer",
+        options: options({ prompt: "테스트 대신 구현부터 진행해줘" }),
+      }),
+    ).toBe("steer 테스트 대신 구현부터 진행해줘");
+    expect(routeDiscordApplicationCommand({ commandName: "interrupt", options: options({}) })).toBe("interrupt");
+    expect(routeDiscordApplicationCommand({ commandName: "queue", options: options({}) })).toBe("queue");
+    expect(routeDiscordApplicationCommand({ commandName: "queue-clear", options: options({}) })).toBe("queue-clear");
   });
 
   it("routes bridge utility slash commands to existing message commands", () => {

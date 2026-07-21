@@ -18,7 +18,7 @@ import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
-import { withRoleMentions } from "./responses.js";
+import { CODEX_PROGRESS_EVENT_LIMIT, withRoleMentions } from "./responses.js";
 import {
   formatCodexAck,
   formatCodexApprovalDecision,
@@ -57,6 +57,9 @@ import {
   formatSyncResultUpdate,
   formatScheduleResult,
   formatCodexRunModeResult,
+  formatCodexTurnControlResult,
+  formatQueueClearResult,
+  formatQueueStatus,
 } from "./responses.js";
 import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
@@ -104,6 +107,7 @@ export interface CreateDiscordMessageHandlerInput {
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
+  controlCodexTurn?: ControlApiClient["controlCodexTurn"];
   submitClaudePrompt?: ControlApiClient["submitClaudePrompt"];
   syncCodexSessions?: (input: {
     guild: DiscordGuildSurface;
@@ -156,7 +160,10 @@ export interface CreateDiscordMessageHandlerInput {
     postUpdates?: boolean;
   }) => Promise<SyncCodexSessionTranscriptUpdatesResult>;
   setSessionStreaming?: (sessionId: string, active: boolean) => void;
-  markDiscordRequestedCodexSession?: (sessionId: string) => Promise<void> | void;
+  markDiscordRequestedCodexSession?: (
+    sessionId: string,
+    options?: { completionMentionSent?: boolean },
+  ) => Promise<void> | void;
   reloadBot?: (input: { mode: "commands" | "restart" }) => Promise<{
     mode: "commands" | "restart";
     commandCount: number;
@@ -203,6 +210,18 @@ function extractResultStatus(response: Awaited<ReturnType<ControlApiClient["subm
 
   const status = (response.result as { status?: unknown }).status;
   return typeof status === "string" && status.length > 0 ? status : "unknown";
+}
+
+function promptResponseFailed(response: { result?: unknown; error?: unknown }): boolean {
+  if ("error" in response && response.error) {
+    return true;
+  }
+
+  if (!("result" in response) || typeof response.result !== "object" || response.result === null) {
+    return true;
+  }
+
+  return (response.result as { status?: unknown }).status === "failed";
 }
 
 async function recordCommandAudit(
@@ -261,8 +280,45 @@ function createReplyWithOptionalRoleMentions(
   };
 }
 
+async function sendThreadCompletionMention(input: {
+  message: DiscordMessageLike;
+  channelContext: ManagedDiscordChannelContext;
+  agentLabel: "Codex" | "Claude Code";
+  failed: boolean;
+}): Promise<boolean> {
+  const mentionRoleIds = input.channelContext.allowedRoleIds.filter(
+    (roleId) => roleId.trim().length > 0,
+  );
+
+  if (
+    input.channelContext.discordDeliveryMode !== "thread" ||
+    mentionRoleIds.length === 0 ||
+    !input.message.guild?.sendTextMessage
+  ) {
+    return false;
+  }
+
+  try {
+    await input.message.guild.sendTextMessage(
+      input.message.channelId,
+      `**${input.agentLabel} 작업 ${input.failed ? "실패" : "완료"}**`,
+      { mentionRoleIds },
+    );
+    return true;
+  } catch (error) {
+    console.error("discord-bot failed to send thread completion mention", error);
+    return false;
+  }
+}
+
 function appendProgressEvent(events: string[], event: string): string[] {
-  return [...events, event].slice(-8);
+  const normalizedEvent = event.trim();
+
+  if (!normalizedEvent || events.at(-1) === normalizedEvent) {
+    return events;
+  }
+
+  return [...events, normalizedEvent].slice(-CODEX_PROGRESS_EVENT_LIMIT);
 }
 
 function extractCodexResponseSessionId(response: { result?: unknown; error?: unknown }): string | null {
@@ -383,7 +439,19 @@ function codexPermissionSettings(): CodexPermissionSettings {
 }
 
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput) {
-  const channelQueues = new Map<string, Promise<void>>();
+  interface QueuedMessage {
+    message: DiscordMessageLike;
+    resolve(): void;
+    reject(error: unknown): void;
+  }
+
+  interface ChannelQueue {
+    running: boolean;
+    activeMessage: DiscordMessageLike | null;
+    pending: QueuedMessage[];
+  }
+
+  const channelQueues = new Map<string, ChannelQueue>();
   const codexSessionIdsByChannel = new Map<string, string>();
   const claudeSessionIdsByChannel = new Map<string, string>();
   const codexModelsByChannel = new Map<string, string>();
@@ -476,6 +544,67 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       userRoleIds: message.roleIds,
       allowedRoleIds: channelContext.allowedRoleIds,
     });
+
+    if (routed.type === "queue-status") {
+      const queue = channelQueues.get(message.channelId);
+      await reply(formatQueueStatus({
+        active: queue?.activeMessage ? queueMessageSummary(queue.activeMessage.content) : null,
+        pending: queue?.pending.map((entry) => queueMessageSummary(entry.message.content)) ?? [],
+      }));
+      return;
+    }
+
+    if (routed.type === "queue-clear") {
+      const queue = channelQueues.get(message.channelId);
+      const removed = queue?.pending.splice(0) ?? [];
+
+      for (const entry of removed) {
+        try {
+          await entry.message.reply("이 요청은 /queue-clear로 대기열에서 삭제되었습니다.");
+        } catch (error) {
+          console.warn("discord-bot failed to acknowledge a cleared queue entry", error);
+        } finally {
+          entry.resolve();
+        }
+      }
+
+      await reply(formatQueueClearResult({
+        clearedCount: removed.length,
+        active: Boolean(queue?.activeMessage),
+      }));
+      return;
+    }
+
+    if (routed.type === "codex-steer" || routed.type === "codex-interrupt") {
+      const action = routed.type === "codex-steer" ? "steer" : "interrupt";
+
+      if (channelContext.channelMode === "claude-code") {
+        await reply(formatCodexTurnControlResult({
+          action,
+          status: "unsupported",
+          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering/interrupt를 지원하지 않습니다. 일반 메시지는 대기열에 넣어 다음 요청으로 실행할 수 있습니다.",
+        }));
+        return;
+      }
+
+      if (!input.controlCodexTurn) {
+        await reply(formatCodexTurnControlResult({
+          action,
+          status: "unsupported",
+          message: "이 봇 실행 모드에는 Codex app-server turn 제어가 연결되어 있지 않습니다.",
+        }));
+        return;
+      }
+
+      const result = await input.controlCodexTurn({
+        computerId: channelContext.computerId,
+        controlKey: message.channelId,
+        action,
+        ...(routed.type === "codex-steer" ? { content: routed.content } : {}),
+      });
+      await reply(formatCodexTurnControlResult({ action, ...result }));
+      return;
+    }
 
     if (routed.type === "bot-help") {
       await reply(formatHelp(channelContext.channelMode));
@@ -890,6 +1019,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             mode: "review",
             model: codexModelsByChannel.get(message.channelId) ?? null,
             reasoningEffort: reasoningEffortForChannel(message.channelId),
+            controlKey: message.channelId,
           },
           onProgress: async (event) => {
             const status = event.type === "operation-progress" ? event.label : event.type;
@@ -914,15 +1044,25 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         const reviewSessionId = extractCodexResponseSessionId(response);
 
-        if (reviewSessionId) {
-          await input.markDiscordRequestedCodexSession?.(reviewSessionId);
-        }
-
         await updateQueuedReply(
           queuedReply,
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         );
+        const completionMentionSent = await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Codex",
+          failed: promptResponseFailed(response),
+        });
+
+        if (reviewSessionId) {
+          if (completionMentionSent) {
+            await input.markDiscordRequestedCodexSession?.(reviewSessionId, { completionMentionSent: true });
+          } else {
+            await input.markDiscordRequestedCodexSession?.(reviewSessionId);
+          }
+        }
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Codex review failed";
         await updateQueuedReply(
@@ -930,6 +1070,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
         );
+        await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Codex",
+          failed: true,
+        });
       }
       return;
     }
@@ -1025,6 +1171,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               forkSession: true,
               model: codexModelsByChannel.get(message.channelId) ?? null,
               reasoningEffort: reasoningEffortForChannel(message.channelId),
+              controlKey: forkThread.discordChannelId,
             },
             onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
           });
@@ -1160,6 +1307,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
         );
+        await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Claude Code",
+          failed: promptResponseFailed(response),
+        });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Claude Code prompt failed";
         await updateQueuedReply(
@@ -1167,6 +1320,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
         );
+        await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Claude Code",
+          failed: true,
+        });
       }
       return;
     }
@@ -1227,6 +1386,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             sessionId: streamedSessionId,
             model: codexModelsByChannel.get(message.channelId) ?? null,
             reasoningEffort: reasoningEffortForChannel(message.channelId),
+            controlKey: message.channelId,
           },
           onProgress: async (event) => {
             if (event.type === "thread-started") {
@@ -1294,8 +1454,6 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         const nextSessionId = extractCodexResponseSessionId(response);
 
         if (nextSessionId) {
-          await input.markDiscordRequestedCodexSession?.(nextSessionId);
-
           if (routed.type === "codex-chat") {
             codexSessionIdsByChannel.set(message.channelId, nextSessionId);
           }
@@ -1332,6 +1490,20 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, response, { recentEvents }),
         );
+        const completionMentionSent = await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Codex",
+          failed: promptResponseFailed(response),
+        });
+
+        if (nextSessionId) {
+          if (completionMentionSent) {
+            await input.markDiscordRequestedCodexSession?.(nextSessionId, { completionMentionSent: true });
+          } else {
+            await input.markDiscordRequestedCodexSession?.(nextSessionId);
+          }
+        }
       } catch (error) {
         if (
           channelContext.channelMode === "session-linked" &&
@@ -1352,6 +1524,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           (replyMessage) => reply(replyMessage),
           formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
         );
+        await sendThreadCompletionMention({
+          message,
+          channelContext,
+          agentLabel: "Codex",
+          failed: true,
+        });
       } finally {
         for (const sessionId of activeStreamingSessionIds) {
           input.setSessionStreaming?.(sessionId, false);
@@ -1430,24 +1608,66 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   }
 
   return async function handleDiscordMessage(message: DiscordMessageLike): Promise<void> {
-    if (parseCodexApprovalResponse(message.content)) {
+    if (parseCodexApprovalResponse(message.content) || isImmediateQueueControl(message.content)) {
       await processDiscordMessage(message);
       return;
     }
 
-    const previousChannelTask = channelQueues.get(message.channelId) ?? Promise.resolve();
-    const nextChannelTask = previousChannelTask
-      .catch(() => undefined)
-      .then(() => processDiscordMessage(message));
+    let queue = channelQueues.get(message.channelId);
 
-    channelQueues.set(message.channelId, nextChannelTask);
+    if (!queue) {
+      queue = { running: false, activeMessage: null, pending: [] };
+      channelQueues.set(message.channelId, queue);
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      queue?.pending.push({ message, resolve, reject });
+      void drainChannelQueue(message.channelId, queue as ChannelQueue);
+    });
+  };
+
+  async function drainChannelQueue(channelId: string, queue: ChannelQueue): Promise<void> {
+    if (queue.running) {
+      return;
+    }
+
+    queue.running = true;
 
     try {
-      await nextChannelTask;
+      while (queue.pending.length > 0) {
+        const entry = queue.pending.shift();
+
+        if (!entry) {
+          continue;
+        }
+
+        queue.activeMessage = entry.message;
+
+        try {
+          await processDiscordMessage(entry.message);
+          entry.resolve();
+        } catch (error) {
+          entry.reject(error);
+        } finally {
+          queue.activeMessage = null;
+        }
+      }
     } finally {
-      if (channelQueues.get(message.channelId) === nextChannelTask) {
-        channelQueues.delete(message.channelId);
+      queue.running = false;
+      if (queue.pending.length === 0 && channelQueues.get(channelId) === queue) {
+        channelQueues.delete(channelId);
       }
     }
-  };
+  }
+}
+
+function queueMessageSummary(content: string): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized || "(empty message)";
+}
+
+function isImmediateQueueControl(content: string): boolean {
+  const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
+  return /^(?:queue|queue-status|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
+    || /^steer\s+\S/i.test(normalized);
 }

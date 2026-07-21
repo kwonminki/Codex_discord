@@ -56,6 +56,10 @@ Session-linked commands:
 - `/model model:<모델>` stores a per-channel model preference used by later Codex runs until the bot restarts.
 - `/archive` opens a confirmation card for the current generated session channel; use `archive confirm` to archive.
 - `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a forked agent session. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
+- `/steer prompt:<instruction>` appends an instruction to the active Codex app-server turn. Claude Code channels return an unsupported notice.
+- `/interrupt` requests interruption of the active Codex app-server turn. Claude Code channels return an unsupported notice.
+- `/queue` shows the active request and pending FIFO requests for the current Discord channel.
+- `/queue-clear` removes pending requests while leaving the active request running.
 - `/where` and `/status` show bridge channel status, including channel mode, computer, workspace, cwd, linked session, and model preference.
 - `/browse` opens the current directory browser UI.
 - `/shell command:<명령>` runs a shell command through the existing safety policy; typed shell commands in session channels use the `!` prefix.

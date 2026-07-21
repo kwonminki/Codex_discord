@@ -76,6 +76,7 @@ export interface ClaudeCodeCompletionNotificationState {
 export interface DiscordRequestedCodexSessionState {
   sessionId: string;
   requestedAt: string;
+  completionMentionSent?: boolean;
 }
 
 export interface DirectSyncState {
@@ -130,7 +131,10 @@ export interface DirectSyncStateStore {
   ): Promise<void>;
   updateSessionChannelClaudeSession(discordChannelId: string, claudeSessionId: string): Promise<void>;
   updateTranscriptSyncMode(mode: TranscriptSyncMode): Promise<void>;
-  markDiscordRequestedCodexSession(sessionId: string): Promise<void>;
+  markDiscordRequestedCodexSession(
+    sessionId: string,
+    options?: { completionMentionSent?: boolean },
+  ): Promise<void>;
 }
 
 export function createEmptyDirectSyncState(): DirectSyncState {
@@ -235,6 +239,9 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
                 {
                   sessionId: request.sessionId.toLowerCase(),
                   requestedAt: request.requestedAt,
+                  ...((request as DiscordRequestedCodexSessionState).completionMentionSent === true
+                    ? { completionMentionSent: true }
+                    : {}),
                 },
               ]),
           ).values(),
@@ -356,7 +363,7 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
         transcriptSyncMode: mode,
       });
     },
-    async markDiscordRequestedCodexSession(sessionId) {
+    async markDiscordRequestedCodexSession(sessionId, options) {
       const normalizedSessionId = sessionId.trim().toLowerCase();
 
       if (!normalizedSessionId) {
@@ -365,7 +372,14 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
 
       const state = await this.read();
 
-      if (state.discordRequestedCodexSessionRequests.some((request) => request.sessionId === normalizedSessionId)) {
+      const existingRequest = state.discordRequestedCodexSessionRequests.find(
+        (request) => request.sessionId === normalizedSessionId,
+      );
+
+      if (
+        existingRequest &&
+        (!options?.completionMentionSent || existingRequest.completionMentionSent)
+      ) {
         return;
       }
 
@@ -376,7 +390,11 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
           ...state.discordRequestedCodexSessionRequests.filter(
             (request) => request.sessionId !== normalizedSessionId,
           ),
-          { sessionId: normalizedSessionId, requestedAt: new Date().toISOString() },
+          {
+            sessionId: normalizedSessionId,
+            requestedAt: existingRequest?.requestedAt ?? new Date().toISOString(),
+            ...(options?.completionMentionSent ? { completionMentionSent: true } : {}),
+          },
         ],
       });
     },

@@ -99,8 +99,27 @@ function compactDetail(value: unknown): string | undefined {
     return undefined;
   }
 
-  const compact = value.replace(/\s+/g, " ").trim();
-  return compact.length > 0 ? compact.slice(0, 220) : undefined;
+  const compact = value.replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, " ").trim();
+  return compact.length > 0 ? compact.slice(0, 480) : undefined;
+}
+
+function structuredDetail(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return compactDetail(value);
+  }
+
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  try {
+    const serialized = JSON.stringify(value, (key, nestedValue) =>
+      /token|secret|password|authorization|cookie|api.?key/i.test(key) ? "[redacted]" : nestedValue,
+    );
+    return serialized && serialized !== "{}" && serialized !== "[]" ? compactDetail(serialized) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function textFromClaudeContent(content: unknown): string {
@@ -131,30 +150,61 @@ function toolProgressFromClaudeContent(content: unknown): ClaudeRunnerProgressEv
     return null;
   }
 
-  const toolUse = content.find((item) => {
-    if (!item || typeof item !== "object") {
-      return false;
-    }
+  const toolUses = content.filter(
+    (item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "tool_use",
+  );
 
-    return (item as Record<string, unknown>).type === "tool_use";
-  }) as Record<string, unknown> | undefined;
-
-  if (!toolUse) {
+  if (toolUses.length === 0) {
     return null;
   }
+
+  const details = toolUses.map((toolUse) => {
+    const name = compactDetail(toolUse.name) ?? "unknown tool";
+    const toolInput = structuredDetail(toolUse.input);
+    return toolInput ? `${name} · 입력: ${toolInput}` : name;
+  });
 
   return {
     type: "operation-progress",
     label: "Claude 도구 실행 중",
-    detail: compactDetail(toolUse.name) ?? compactDetail(toolUse.input),
+    detail: compactDetail(details.join(" | ")),
     eventType: "tool_use",
+  };
+}
+
+function toolResultProgressFromClaudeContent(content: unknown): ClaudeRunnerProgressEvent | null {
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const toolResults = content.filter(
+    (item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "tool_result",
+  );
+
+  if (toolResults.length === 0) {
+    return null;
+  }
+
+  const failed = toolResults.some((result) => result.is_error === true);
+  const details = toolResults.flatMap((result) => {
+    const resultDetail = structuredDetail(result.content);
+    return resultDetail ? [resultDetail] : [];
+  });
+
+  return {
+    type: "operation-progress",
+    label: failed ? "Claude 도구 실행 실패" : "Claude 도구 실행 완료",
+    detail: details.length > 0 ? compactDetail(details.join(" | ")) : undefined,
+    eventType: "tool_result",
   };
 }
 
 function parseClaudeStreamLine(line: string): {
   sessionId?: string;
   finalMessage?: string;
-  progress?: ClaudeRunnerProgressEvent;
+  progressEvents?: ClaudeRunnerProgressEvent[];
   isError?: boolean;
 } | null {
   let parsed: Record<string, unknown>;
@@ -170,7 +220,7 @@ function parseClaudeStreamLine(line: string): {
   if (parsed.type === "system" && sessionId) {
     return {
       sessionId,
-      progress: { type: "thread-started", sessionId },
+      progressEvents: [{ type: "thread-started", sessionId }],
     };
   }
 
@@ -180,11 +230,18 @@ function parseClaudeStreamLine(line: string): {
     const text = textFromClaudeContent(content);
     const toolProgress = toolProgressFromClaudeContent(content);
 
-    if (toolProgress) {
-      return { sessionId, progress: toolProgress };
-    }
+    const progressEvents: ClaudeRunnerProgressEvent[] = [
+      ...(toolProgress ? [toolProgress] : []),
+      ...(text ? [{ type: "agent-message" as const, text }] : []),
+    ];
 
-    return text ? { sessionId, progress: { type: "agent-message", text } } : { sessionId };
+    return progressEvents.length > 0 ? { sessionId, progressEvents } : { sessionId };
+  }
+
+  if (parsed.type === "user") {
+    const message = parsed.message as Record<string, unknown> | undefined;
+    const toolResult = toolResultProgressFromClaudeContent(message?.content);
+    return toolResult ? { sessionId, progressEvents: [toolResult] } : { sessionId };
   }
 
   if (parsed.type === "result") {
@@ -202,12 +259,12 @@ function parseClaudeStreamLine(line: string): {
   if (parsed.type === "hook") {
     return {
       sessionId,
-      progress: {
+      progressEvents: [{
         type: "operation-progress",
         label: "Claude hook 실행 중",
-        detail: compactDetail(parsed.hook_event_name) ?? compactDetail(parsed.hook_event),
+        detail: structuredDetail(parsed.hook_event_name) ?? structuredDetail(parsed.hook_event),
         eventType: "hook",
-      },
+      }],
     };
   }
 
@@ -245,13 +302,13 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       resultWasError = true;
     }
 
-    if (event.progress) {
-      if (event.progress.type === "agent-message") {
-        lastAssistantMessage = event.progress.text;
+    for (const progress of event.progressEvents ?? []) {
+      if (progress.type === "agent-message") {
+        lastAssistantMessage = progress.text;
       }
 
       if (input.onProgress) {
-        progressTasks.push(Promise.resolve(input.onProgress(event.progress)));
+        progressTasks.push(Promise.resolve(input.onProgress(progress)));
       }
     }
   }

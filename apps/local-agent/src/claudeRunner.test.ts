@@ -41,7 +41,8 @@ describe("runClaudePrompt", () => {
         [
           "#!/usr/bin/env node",
           "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-session-1' }));",
-          "console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-session-1', message: { content: [{ type: 'tool_use', name: 'Read' }] } }));",
+          "console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-session-1', message: { content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: '/repo/README.md' } }] } }));",
+          "console.log(JSON.stringify({ type: 'user', session_id: 'claude-session-1', message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'README title and setup steps' }] } }));",
           "console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-session-1', message: { content: [{ type: 'text', text: '중간 설명입니다.' }] } }));",
           "console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'claude-session-1', result: '최종 답변입니다.' }));",
         ].join("\n"),
@@ -72,8 +73,14 @@ describe("runClaudePrompt", () => {
         {
           type: "operation-progress",
           label: "Claude 도구 실행 중",
-          detail: "Read",
+          detail: "Read · 입력: {\"file_path\":\"/repo/README.md\"}",
           eventType: "tool_use",
+        },
+        {
+          type: "operation-progress",
+          label: "Claude 도구 실행 완료",
+          detail: "README title and setup steps",
+          eventType: "tool_result",
         },
         { type: "agent-message", text: "중간 설명입니다." },
       ]);

@@ -28,7 +28,7 @@ const MAX_FIELD_VALUE_LENGTH = 1_024;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const ATTACH_TEXT_THRESHOLD = 1_000;
-export const CODEX_PROGRESS_EVENT_LIMIT = 8;
+export const CODEX_PROGRESS_EVENT_LIMIT = 16;
 
 type ChannelMode = "shell-admin" | "session-linked" | "claude-code";
 
@@ -1362,6 +1362,97 @@ export function formatBlockedCommand(input: { reason: string; guidance: string }
   });
 }
 
+export function formatQueueStatus(input: {
+  active: string | null;
+  pending: string[];
+}): DiscordMessagePayload {
+  const pendingPreview = input.pending.length > 0
+    ? input.pending.slice(0, 10).map((item, index) => `${index + 1}. ${item}`).join("\n")
+    : "(none)";
+
+  return messagePayload({
+    title: "Channel queue",
+    color: input.active || input.pending.length > 0 ? COLORS.queued : COLORS.neutral,
+    description: input.active
+      ? "현재 작업이 실행 중이며, 아래 요청들이 순서대로 대기하고 있습니다."
+      : "현재 실행 중인 작업이 없습니다.",
+    fields: [
+      {
+        name: "Active",
+        value: truncateFieldValue(wrapDiscordText(input.active ?? "(none)")),
+        inline: false,
+      },
+      {
+        name: `Pending (${input.pending.length})`,
+        value: truncateFieldValue(wrapDiscordText(pendingPreview)),
+        inline: false,
+      },
+    ],
+  });
+}
+
+export function formatQueueClearResult(input: {
+  clearedCount: number;
+  active: boolean;
+}): DiscordMessagePayload {
+  return messagePayload({
+    title: "Queue cleared",
+    color: COLORS.success,
+    description: input.active
+      ? "현재 실행 중인 작업은 유지하고 대기 요청만 삭제했습니다."
+      : "대기 요청을 삭제했습니다.",
+    fields: [
+      {
+        name: "Removed",
+        value: String(input.clearedCount),
+        inline: true,
+      },
+      {
+        name: "Active job",
+        value: input.active ? "running" : "none",
+        inline: true,
+      },
+    ],
+  });
+}
+
+export function formatCodexTurnControlResult(input: {
+  action: "steer" | "interrupt";
+  status: "accepted" | "no-active-turn" | "unsupported" | "failed";
+  message: string;
+  threadId?: string;
+  turnId?: string;
+}): DiscordMessagePayload {
+  const fields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Status",
+      value: wrapDiscordText(input.status),
+      inline: true,
+    },
+  ];
+
+  if (input.threadId) {
+    fields.push({ name: "Session", value: wrapDiscordText(input.threadId), inline: false });
+  }
+
+  if (input.turnId) {
+    fields.push({ name: "Turn", value: wrapDiscordText(input.turnId), inline: false });
+  }
+
+  return messagePayload({
+    title: input.status === "unsupported"
+      ? input.action === "steer" ? "Steering not supported" : "Interrupt not supported"
+      : input.action === "steer" ? "Codex steering" : "Codex interrupt",
+    color: input.status === "accepted"
+      ? COLORS.success
+      : input.status === "failed"
+        ? COLORS.failure
+        : COLORS.neutral,
+    description: truncateDescription(wrapDiscordText(input.message)),
+    fields,
+  });
+}
+
 function codexApprovalCustomId(token: string, decision: "accept" | "accept-session" | "decline" | "cancel"): string {
   return `${COMPONENT_IDS.codexApprovalPrefix}${token}:${decision}`;
 }
@@ -1491,7 +1582,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const sessionSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Session slash commands",
     value: codeBlock(
-      "/codex prompt:README 요약해줘\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
+      "/codex prompt:README 요약해줘\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
       "text",
     ),
     inline: false,
@@ -1509,7 +1600,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Claude Code",
-      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다.",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. `/queue`와 `/queue-clear`는 사용할 수 있지만 `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
       inline: false,
     },
     {
@@ -2314,7 +2405,7 @@ export function formatForkSessionResult(response: {
   return messagePayload({
     title: `${agentLabel} fork ready`,
     color: COLORS.success,
-    description: "새 Discord thread가 분기된 세션으로 연결되었습니다. 새 thread에서 바로 이어서 요청하세요.",
+    description: "새 Discord thread가 분기된 세션으로 연결되었습니다. 대화 맥락은 분리되지만 작업 디렉터리는 원본과 공유하므로, 두 thread에서 같은 파일을 동시에 수정하면 충돌할 수 있습니다.",
     fields,
   });
 }
@@ -2356,7 +2447,7 @@ export function formatForkedSessionThreadNotice(input: {
   return messagePayload({
     title: `${agentLabel} fork 연결됨`,
     color: COLORS.success,
-    description: `이 스레드에 메시지를 보내면 분기된 ${agentLabel} 세션으로 이어집니다.`,
+    description: `이 스레드에 메시지를 보내면 분기된 ${agentLabel} 세션으로 이어집니다. 대화 맥락은 분리되지만 원본과 같은 작업 디렉터리를 사용합니다.`,
     fields,
   });
 }
@@ -3054,18 +3145,48 @@ export function formatCodexVisibleProcessMessage(view: CodexThoughtView): Discor
       processLines.push(renderProgressEvent(latestMessage));
     }
 
-    return textPayload(
-      [
-        "**Codex 과정**",
-        processLines.length > 0 ? processLines.join("\n") : "아직 표시할 중간 출력이 없습니다.",
-      ].join("\n"),
-    );
+    const title = `**${agentLabel(view.view.input)} 과정**`;
+    const selectedLines: string[] = [];
+    let selectedLength = title.length + 1;
+    let omitted = false;
+
+    for (const line of [...processLines].reverse()) {
+      const nextLength = selectedLength + line.length + 1;
+      if (nextLength > MAX_MESSAGE_CONTENT_LENGTH - 80) {
+        omitted = true;
+        break;
+      }
+      selectedLines.unshift(line);
+      selectedLength = nextLength;
+    }
+
+    return textPayload([
+      title,
+      omitted ? "... (일부만 표시)\n이전 과정 일부 생략" : null,
+      selectedLines.length > 0 ? selectedLines.join("\n") : "아직 표시할 중간 출력이 없습니다.",
+    ].filter((line): line is string => Boolean(line)).join("\n"));
   }
 
   const marker = "**생각 / 중간 출력**";
   const expandedContent = view.view.expandedContent.trim();
   const markerIndex = expandedContent.indexOf(marker);
-  const visibleProcess = markerIndex >= 0 ? expandedContent.slice(markerIndex).trim() : expandedContent;
+  let visibleProcess = markerIndex >= 0 ? expandedContent.slice(markerIndex).trim() : expandedContent;
+
+  if (visibleProcess.length > MAX_MESSAGE_CONTENT_LENGTH - 40) {
+    const markerLine = markerIndex >= 0 ? marker : "**생각 / 중간 출력**";
+    const processBody = markerIndex >= 0
+      ? visibleProcess.slice(marker.length).trimStart()
+      : visibleProcess;
+    const omissionNotice = "... (일부만 표시)\n이전 과정 일부 생략";
+    const prefixLength = Math.min(320, Math.floor((MAX_MESSAGE_CONTENT_LENGTH - 100) / 3));
+    const suffixLength = MAX_MESSAGE_CONTENT_LENGTH - markerLine.length - omissionNotice.length - prefixLength - 8;
+    visibleProcess = [
+      markerLine,
+      processBody.slice(0, prefixLength).trimEnd(),
+      omissionNotice,
+      processBody.slice(-suffixLength).trimStart(),
+    ].join("\n");
+  }
 
   return textPayload(visibleProcess.length > 0 ? visibleProcess : "아직 표시할 중간 출력이 없습니다.");
 }

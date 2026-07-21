@@ -409,19 +409,21 @@ export async function notifyCodexTaskCompletions(
       continue;
     }
 
-    const omitAnswerForDiscordRequest = discordRequestedSessions.has(sessionKey);
+    const discordRequest = discordRequestedSessions.get(sessionKey);
+    const omitAnswerForDiscordRequest = Boolean(discordRequest);
+    const completionMentionAlreadySent = discordRequest?.completionMentionSent === true;
 
     notificationsBySession.set(
       sessionKey,
       nextNotificationState({
         session,
         eventKey: completionEvent.key,
-        notifiedAt: null,
+        notifiedAt: completionMentionAlreadySent ? now : null,
       }),
     );
     changed = true;
 
-    if (initialized && input.guild.sendTextMessage) {
+    if (initialized && input.guild.sendTextMessage && !completionMentionAlreadySent) {
       await input.stateStore.write(taskCompletionState({
         state,
         notificationsBySession,

@@ -366,6 +366,156 @@ describe("createDiscordMessageHandler", () => {
     expect(submitCommandJob.mock.calls[1][0].payload.command).toBe("ls");
   });
 
+  it("shows and clears pending messages while preserving the active job", async () => {
+    const activeJob = { resolve: null as ((value: unknown) => void) | null };
+    const submitCommandJob = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        activeJob.resolve = resolve;
+      }),
+    );
+    const controlReplies: unknown[] = [];
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt: vi.fn(),
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const message = (content: string, collect = false) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload: unknown) => {
+        if (collect) {
+          controlReplies.push(payload);
+        }
+        return { edit: async () => undefined };
+      },
+    });
+
+    const active = handleMessage(message("pwd"));
+    const pending = handleMessage(message("ls"));
+
+    for (let attempt = 0; attempt < 5 && submitCommandJob.mock.calls.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    await handleMessage(message("queue", true));
+    await handleMessage(message("queue-clear", true));
+    await pending;
+
+    expect(submitCommandJob).toHaveBeenCalledTimes(1);
+    expect(controlReplies[0]).toEqual(expect.objectContaining({
+      embeds: [expect.objectContaining({
+        title: "Channel queue",
+        fields: expect.arrayContaining([
+          expect.objectContaining({ name: "Pending (1)", value: expect.stringContaining("ls") }),
+        ]),
+      })],
+    }));
+    expect(controlReplies[1]).toEqual(expect.objectContaining({
+      embeds: [expect.objectContaining({
+        title: "Queue cleared",
+        fields: expect.arrayContaining([expect.objectContaining({ name: "Removed", value: "1" })]),
+      })],
+    }));
+
+    if (!activeJob.resolve) {
+      throw new Error("Expected active command resolver");
+    }
+    activeJob.resolve({ status: "completed", stdout: "", stderr: "", exitCode: 0 });
+    await active;
+  });
+
+  it("sends Codex steering and interrupt controls immediately", async () => {
+    const replies: unknown[] = [];
+    const controlCodexTurn = vi.fn()
+      .mockResolvedValueOnce({
+        status: "accepted",
+        message: "steered",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      })
+      .mockResolvedValueOnce({
+        status: "accepted",
+        message: "interrupted",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      controlCodexTurn,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const send = (content: string) => handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        replies.push(payload);
+      },
+    });
+
+    await send("steer 테스트 대신 구현부터 해줘");
+    await send("interrupt");
+
+    expect(controlCodexTurn).toHaveBeenNthCalledWith(1, {
+      computerId: "computer-1",
+      controlKey: "discord-channel-1",
+      action: "steer",
+      content: "테스트 대신 구현부터 해줘",
+    });
+    expect(controlCodexTurn).toHaveBeenNthCalledWith(2, {
+      computerId: "computer-1",
+      controlKey: "discord-channel-1",
+      action: "interrupt",
+    });
+    expect(replies).toEqual([
+      expect.objectContaining({ embeds: [expect.objectContaining({ title: "Codex steering" })] }),
+      expect.objectContaining({ embeds: [expect.objectContaining({ title: "Codex interrupt" })] }),
+    ]);
+  });
+
+  it("explains that live turn controls are unavailable for Claude Code", async () => {
+    const replies: unknown[] = [];
+    const controlCodexTurn = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => claudeChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt: vi.fn(),
+      controlCodexTurn,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-channel-1",
+      content: "steer 다른 방식으로 해줘",
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        replies.push(payload);
+      },
+    });
+
+    expect(controlCodexTurn).not.toHaveBeenCalled();
+    expect(replies[0]).toEqual(expect.objectContaining({
+      embeds: [expect.objectContaining({
+        title: "Steering not supported",
+        description: expect.stringContaining("Claude Code"),
+      })],
+    }));
+  });
+
   it("ignores bot and unmanaged channel messages", async () => {
     const submitCommandJob = vi.fn();
     const handleMessage = createDiscordMessageHandler({
@@ -1043,6 +1193,57 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it("keeps source and fork Discord channels on their own Codex session IDs", async () => {
+    const contexts = new Map<string, ManagedDiscordChannelContext>([
+      ["source-channel", { ...sessionChannelContext, codexSessionId: "source-session" }],
+      ["fork-channel", { ...sessionChannelContext, codexSessionId: "fork-session" }],
+    ]);
+    const submitCodexPrompt = vi.fn(async (input) => ({
+      jobId: `job-${input.payload.sessionId}`,
+      result: {
+        status: "completed",
+        finalMessage: `answer-${input.payload.sessionId}`,
+        sessionId: input.payload.sessionId,
+      },
+    }));
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async (channelId) => contexts.get(channelId) ?? null,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const send = (channelId: string, content: string) => handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId,
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    await Promise.all([
+      send("source-channel", "원본에서 계속해줘"),
+      send("fork-channel", "fork에서 다른 작업을 해줘"),
+    ]);
+
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(2);
+    expect(submitCodexPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        prompt: "원본에서 계속해줘",
+        sessionId: "source-session",
+        controlKey: "source-channel",
+      }),
+    }));
+    expect(submitCodexPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        prompt: "fork에서 다른 작업을 해줘",
+        sessionId: "fork-session",
+        controlKey: "fork-channel",
+      }),
+    }));
+  });
+
   it("stores a channel Codex run mode and passes reasoning effort to later prompts", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn().mockResolvedValue({
@@ -1324,8 +1525,11 @@ describe("createDiscordMessageHandler", () => {
       channelMode: "session-linked",
       workspaceDisplayName: "General Chat",
       codexSessionId: null,
+      discordDeliveryMode: "thread",
     };
     const linkNewCodexSession = vi.fn().mockResolvedValue(undefined);
+    const markDiscordRequestedCodexSession = vi.fn().mockResolvedValue(undefined);
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "completion-mention-1" });
     const submitCodexPrompt = vi.fn().mockResolvedValue({
       jobId: "job-1",
       result: {
@@ -1340,6 +1544,7 @@ describe("createDiscordMessageHandler", () => {
       submitCodexPrompt,
       syncCodexSessions: vi.fn(),
       linkNewCodexSession,
+      markDiscordRequestedCodexSession,
       updateChannelCwd: vi.fn(),
       recordCommandAudit: vi.fn(),
     });
@@ -1350,6 +1555,11 @@ describe("createDiscordMessageHandler", () => {
       channelId: "new-channel-1",
       content: "첫 작업 시작해줘",
       roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        sendTextMessage,
+      },
       reply: async () => ({
         edit: async () => undefined,
       }),
@@ -1367,6 +1577,15 @@ describe("createDiscordMessageHandler", () => {
       codexSessionId: "session-new",
       threadName: "첫 작업 시작해줘",
     });
+    expect(sendTextMessage).toHaveBeenCalledWith(
+      "new-channel-1",
+      "**Codex 작업 완료**",
+      { mentionRoleIds: ["role-operator"] },
+    );
+    expect(markDiscordRequestedCodexSession).toHaveBeenCalledWith(
+      "session-new",
+      { completionMentionSent: true },
+    );
   });
 
   it("uses a synced channel's Codex session id when submitting a session-linked prompt", async () => {

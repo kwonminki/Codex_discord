@@ -611,6 +611,7 @@ export async function startBot(): Promise<void> {
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
+    controlCodexTurn: controlApiClient.controlCodexTurn,
     submitClaudePrompt: controlApiClient.submitClaudePrompt,
     syncCodexSessions,
     createNewCodexChat,
@@ -633,7 +634,7 @@ export async function startBot(): Promise<void> {
       activelyStreamedSessionIds.delete(sessionId);
     },
     markDiscordRequestedCodexSession: directStateStore
-      ? (sessionId) => directStateStore.markDiscordRequestedCodexSession(sessionId)
+      ? (sessionId, options) => directStateStore.markDiscordRequestedCodexSession(sessionId, options)
       : undefined,
     reloadBot,
     previewSyncedChannelsDelete,

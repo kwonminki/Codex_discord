@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
 import { runClaudePrompt } from "../../local-agent/src/claudeRunner.js";
-import { runCodexAppServerPrompt } from "../../local-agent/src/codexAppServerRunner.js";
+import {
+  interruptActiveCodexAppServerTurn,
+  runCodexAppServerPrompt,
+  steerActiveCodexAppServerTurn,
+} from "../../local-agent/src/codexAppServerRunner.js";
 import { runCodexPrompt } from "../../local-agent/src/codexRunner.js";
 import { runWorkspaceCommand } from "../../local-agent/src/runner.js";
 import { assertInsideWorkspace } from "../../local-agent/src/workspace.js";
@@ -223,6 +227,25 @@ export function createDirectControlClient(
           ? await runCodexAppServerPrompt(runnerInput)
           : await runCodexPrompt(runnerInput);
       return { jobId: randomUUID(), result };
+    },
+    async controlCodexTurn(input) {
+      if (input.computerId !== config.direct.computerId) {
+        return {
+          status: "failed",
+          message: "Computer is offline",
+        };
+      }
+
+      if (codexRunner !== "app-server") {
+        return {
+          status: "unsupported",
+          message: "Codex steering requires CODEX_DISCORD_CODEX_RUNNER=app-server.",
+        };
+      }
+
+      return input.action === "steer"
+        ? steerActiveCodexAppServerTurn(input.controlKey, input.content ?? "")
+        : interruptActiveCodexAppServerTurn(input.controlKey);
     },
     async submitClaudePrompt(input) {
       if (input.computerId !== config.direct.computerId) {

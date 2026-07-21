@@ -47,6 +47,12 @@ interface TurnCompletedParams {
   };
 }
 
+interface TurnStartResponse {
+  turn?: {
+    id?: unknown;
+  };
+}
+
 interface ItemNotificationParams {
   item?: {
     id?: unknown;
@@ -57,6 +63,21 @@ interface ItemNotificationParams {
     phase?: unknown;
     result?: unknown;
     summary?: unknown;
+    command?: unknown;
+    cwd?: unknown;
+    aggregatedOutput?: unknown;
+    exitCode?: unknown;
+    durationMs?: unknown;
+    changes?: unknown;
+    server?: unknown;
+    tool?: unknown;
+    arguments?: unknown;
+    error?: unknown;
+    namespace?: unknown;
+    contentItems?: unknown;
+    success?: unknown;
+    query?: unknown;
+    status?: unknown;
   };
   delta?: unknown;
   itemId?: unknown;
@@ -68,6 +89,95 @@ const APP_SERVER_CLIENT_NAME = "codex-discord-connector";
 const APP_SERVER_APPROVAL_POLICY = "never";
 const APP_SERVER_APPROVALS_REVIEWER = "user";
 type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
+export interface CodexAppServerTurnControlResult {
+  status: "accepted" | "no-active-turn" | "failed";
+  message: string;
+  threadId?: string;
+  turnId?: string;
+}
+
+interface ActiveCodexAppServerTurn {
+  threadId: string;
+  turnId: string;
+  request(method: string, params: unknown): Promise<unknown>;
+}
+
+const activeTurnsByControlKey = new Map<string, ActiveCodexAppServerTurn>();
+
+export async function steerActiveCodexAppServerTurn(
+  controlKey: string,
+  content: string,
+): Promise<CodexAppServerTurnControlResult> {
+  const activeTurn = activeTurnsByControlKey.get(controlKey);
+
+  if (!activeTurn) {
+    return {
+      status: "no-active-turn",
+      message: "현재 이 Discord 채널에서 실행 중인 Codex turn이 없습니다.",
+    };
+  }
+
+  const prompt = content.trim();
+
+  if (!prompt) {
+    return { status: "failed", message: "Steering 지시가 비어 있습니다." };
+  }
+
+  try {
+    await activeTurn.request("turn/steer", {
+      threadId: activeTurn.threadId,
+      expectedTurnId: activeTurn.turnId,
+      input: [{ type: "text", text: prompt, text_elements: [] }],
+    });
+    return {
+      status: "accepted",
+      message: "현재 Codex turn에 추가 지시를 전달했습니다.",
+      threadId: activeTurn.threadId,
+      turnId: activeTurn.turnId,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      message: error instanceof Error ? error.message : "Codex steering 요청에 실패했습니다.",
+      threadId: activeTurn.threadId,
+      turnId: activeTurn.turnId,
+    };
+  }
+}
+
+export async function interruptActiveCodexAppServerTurn(
+  controlKey: string,
+): Promise<CodexAppServerTurnControlResult> {
+  const activeTurn = activeTurnsByControlKey.get(controlKey);
+
+  if (!activeTurn) {
+    return {
+      status: "no-active-turn",
+      message: "현재 이 Discord 채널에서 실행 중인 Codex turn이 없습니다.",
+    };
+  }
+
+  try {
+    await activeTurn.request("turn/interrupt", {
+      threadId: activeTurn.threadId,
+      turnId: activeTurn.turnId,
+    });
+    return {
+      status: "accepted",
+      message: "현재 Codex turn에 중단 요청을 전달했습니다.",
+      threadId: activeTurn.threadId,
+      turnId: activeTurn.turnId,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      message: error instanceof Error ? error.message : "Codex 중단 요청에 실패했습니다.",
+      threadId: activeTurn.threadId,
+      turnId: activeTurn.turnId,
+    };
+  }
+}
 
 function isAscii(value: string): boolean {
   return /^[\x00-\x7F]*$/.test(value);
@@ -113,7 +223,52 @@ function appServerListenUrl(socketPath: string): string {
 }
 
 function compactDetail(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, 180);
+  return value.replace(/\x1b\[[0-9;]*m/g, "").replace(/\s+/g, " ").trim().slice(0, 480);
+}
+
+function structuredDetail(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? compactDetail(value) : null;
+  }
+
+  try {
+    const serialized = JSON.stringify(value, (key, nestedValue) =>
+      /token|secret|password|authorization|cookie|api.?key/i.test(key) ? "[redacted]" : nestedValue,
+    );
+    return serialized && serialized !== "{}" && serialized !== "[]" ? compactDetail(serialized) : null;
+  } catch {
+    return null;
+  }
+}
+
+function fileChangeDetail(changes: unknown): string | null {
+  if (!Array.isArray(changes)) {
+    return null;
+  }
+
+  const descriptions = changes.slice(0, 6).flatMap((change) => {
+    if (typeof change !== "object" || change === null) {
+      return [];
+    }
+
+    const record = change as Record<string, unknown>;
+    const filePath = typeof record.path === "string" ? record.path : "unknown file";
+    const kind = typeof record.kind === "string" ? record.kind : "update";
+    const diff = typeof record.diff === "string" ? record.diff : "";
+    const additions = diff.split(/\r?\n/).filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const deletions = diff.split(/\r?\n/).filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    return [`${kind} ${filePath} (+${additions} -${deletions})`];
+  });
+
+  if (changes.length > 6) {
+    descriptions.push(`외 ${changes.length - 6}개 파일`);
+  }
+
+  return descriptions.length > 0 ? compactDetail(descriptions.join(" · ")) : null;
 }
 
 function extractTextValues(value: unknown): string[] {
@@ -138,6 +293,64 @@ function extractTextValues(value: unknown): string[] {
 function itemProgressDetail(item: ItemNotificationParams["item"]): string | undefined {
   if (!item) {
     return undefined;
+  }
+
+  const type = typeof item.type === "string" ? item.type : "";
+
+  if (type === "reasoning") {
+    const summary = extractTextValues(item.summary).join(" ");
+    return summary.trim().length > 0 ? compactDetail(summary) : undefined;
+  }
+
+  if (type === "commandExecution") {
+    const parts = [
+      typeof item.command === "string" ? `명령: ${item.command}` : null,
+      typeof item.cwd === "string" ? `위치: ${item.cwd}` : null,
+      typeof item.exitCode === "number" ? `종료 코드: ${item.exitCode}` : null,
+      typeof item.durationMs === "number" ? `소요: ${item.durationMs}ms` : null,
+      structuredDetail(item.aggregatedOutput) ? `출력: ${structuredDetail(item.aggregatedOutput)}` : null,
+      ...extractTextValues(item.text).map((text) => `명령: ${text}`),
+    ].filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? compactDetail([...new Set(parts)].join(" · ")) : undefined;
+  }
+
+  if (type === "fileChange") {
+    return fileChangeDetail(item.changes) ?? undefined;
+  }
+
+  if (type === "mcpToolCall") {
+    const toolName = [item.server, item.tool].filter((value): value is string => typeof value === "string").join("/");
+    const errorMessage =
+      typeof item.error === "object" && item.error !== null && typeof (item.error as { message?: unknown }).message === "string"
+        ? (item.error as { message: string }).message
+        : null;
+    return [
+      toolName ? `도구: ${toolName}` : null,
+      structuredDetail(item.arguments) ? `입력: ${structuredDetail(item.arguments)}` : null,
+      errorMessage ? `오류: ${errorMessage}` : null,
+      structuredDetail(item.result) ? `결과: ${structuredDetail(item.result)}` : null,
+    ].filter((part): part is string => Boolean(part)).join(" · ") || undefined;
+  }
+
+  if (type === "dynamicToolCall") {
+    const toolName = [item.namespace, item.tool].filter((value): value is string => typeof value === "string").join("/");
+    return [
+      toolName ? `도구: ${toolName}` : null,
+      structuredDetail(item.arguments) ? `입력: ${structuredDetail(item.arguments)}` : null,
+      structuredDetail(item.contentItems) ? `결과: ${structuredDetail(item.contentItems)}` : null,
+      typeof item.success === "boolean" ? `성공: ${item.success}` : null,
+    ].filter((part): part is string => Boolean(part)).join(" · ") || undefined;
+  }
+
+  if (type === "webSearch") {
+    return typeof item.query === "string" && item.query.trim().length > 0
+      ? compactDetail(`검색어: ${item.query}`)
+      : undefined;
+  }
+
+  if (type === "plan") {
+    const planText = extractTextValues(item.text).join(" ");
+    return planText.trim().length > 0 ? compactDetail(planText) : undefined;
   }
 
   const text = [
@@ -385,6 +598,15 @@ function threadIdFromResponse(response: unknown): string | null {
   return typeof threadId === "string" ? threadId : null;
 }
 
+function turnIdFromResponse(response: unknown): string | null {
+  if (typeof response !== "object" || response === null) {
+    return null;
+  }
+
+  const turnId = (response as TurnStartResponse).turn?.id;
+  return typeof turnId === "string" ? turnId : null;
+}
+
 function objectParam(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
 }
@@ -622,10 +844,14 @@ async function runPromptAgainstAppServer(input: {
   let nextRequestId = 1;
   let sessionId = input.input.sessionId ?? null;
   let completed = false;
+  let turnFinished = false;
+  let activeTurnId: string | null = null;
   let finalMessage = "";
   const announcedSessionIds = new Set<string>();
   const agentMessageTextById = new Map<string, string>();
   const agentMessageOrder: string[] = [];
+  const reasoningSummaryById = new Map<string, string>();
+  const commandOutputById = new Map<string, string>();
   const pendingRequests = new Map<
     number,
     {
@@ -637,6 +863,19 @@ async function runPromptAgainstAppServer(input: {
 
   function stderr(): string {
     return Buffer.concat(input.stderrChunks).toString("utf8");
+  }
+
+  function clearActiveTurn(): void {
+    const controlKey = input.input.controlKey?.trim();
+
+    if (!controlKey || !activeTurnId) {
+      return;
+    }
+
+    const activeTurn = activeTurnsByControlKey.get(controlKey);
+    if (activeTurn?.turnId === activeTurnId) {
+      activeTurnsByControlKey.delete(controlKey);
+    }
   }
 
   function request(method: string, params: unknown): Promise<unknown> {
@@ -674,6 +913,42 @@ async function runPromptAgainstAppServer(input: {
     agentMessageTextById.set(itemId, `${agentMessageTextById.get(itemId) ?? ""}${delta}`);
   }
 
+  function appendItemDelta(target: Map<string, string>, params: Record<string, unknown>, limit = 4_000): void {
+    const itemId = typeof params.itemId === "string" ? params.itemId : null;
+    const delta = typeof params.delta === "string" ? params.delta : "";
+
+    if (!itemId || !delta) {
+      return;
+    }
+
+    target.set(itemId, `${target.get(itemId) ?? ""}${delta}`.slice(-limit));
+  }
+
+  function enrichedItemParams(params: ItemNotificationParams): ItemNotificationParams {
+    const item = params.item;
+    const itemId = typeof item?.id === "string" ? item.id : null;
+
+    if (!item || !itemId) {
+      return params;
+    }
+
+    const reasoningSummary = reasoningSummaryById.get(itemId)?.trim();
+    const commandOutput = commandOutputById.get(itemId)?.trim();
+
+    return {
+      ...params,
+      item: {
+        ...item,
+        ...(reasoningSummary && extractTextValues(item.summary).length === 0
+          ? { summary: [reasoningSummary] }
+          : {}),
+        ...(commandOutput && !structuredDetail(item.aggregatedOutput)
+          ? { aggregatedOutput: commandOutput }
+          : {}),
+      },
+    };
+  }
+
   async function emitThreadStarted(threadId: string): Promise<void> {
     sessionId = threadId;
 
@@ -706,6 +981,8 @@ async function runPromptAgainstAppServer(input: {
   }
 
   function handleTurnCompleted(params: TurnCompletedParams): void {
+    turnFinished = true;
+    clearActiveTurn();
     completed = params.turn?.status === "completed";
     finalMessage = agentMessageTextById.get(agentMessageOrder.at(-1) ?? "") ?? "";
 
@@ -751,13 +1028,70 @@ async function runPromptAgainstAppServer(input: {
       return;
     }
 
+    if (method === "item/reasoning/summaryTextDelta") {
+      appendItemDelta(reasoningSummaryById, params);
+      return;
+    }
+
+    if (method === "item/commandExecution/outputDelta") {
+      appendItemDelta(commandOutputById, params);
+      return;
+    }
+
+    if (method === "item/mcpToolCall/progress" && typeof params.message === "string") {
+      void Promise.resolve(input.input.onProgress?.({
+        type: "operation-progress",
+        label: "도구 진행 중",
+        detail: compactDetail(params.message),
+        eventType: method,
+      }));
+      return;
+    }
+
+    if (method === "turn/plan/updated" && Array.isArray(params.plan)) {
+      const plan = params.plan.flatMap((step, index) => {
+        if (typeof step !== "object" || step === null || typeof (step as { step?: unknown }).step !== "string") {
+          return [];
+        }
+        const record = step as { step: string; status?: unknown };
+        return [`${index + 1}. ${record.step} (${String(record.status ?? "pending")})`];
+      });
+      void Promise.resolve(input.input.onProgress?.({
+        type: "operation-progress",
+        label: "계획 업데이트",
+        detail: compactDetail(plan.join(" · ")),
+        eventType: method,
+      }));
+      return;
+    }
+
+    if (method === "item/fileChange/patchUpdated") {
+      const detail = fileChangeDetail(params.changes);
+      if (detail) {
+        void Promise.resolve(input.input.onProgress?.({
+          type: "operation-progress",
+          label: "파일 수정 중",
+          detail,
+          eventType: method,
+        }));
+      }
+      return;
+    }
+
     if (method === "item/completed") {
-      const progress = itemProgressEvent(params as ItemNotificationParams, "completed");
+      const enrichedParams = enrichedItemParams(params as ItemNotificationParams);
+      const progress = itemProgressEvent(enrichedParams, "completed");
 
       if (progress) {
         void Promise.resolve(input.input.onProgress?.(progress));
       }
-      void handleItemCompleted(params as ItemNotificationParams);
+      void handleItemCompleted(enrichedParams);
+
+      const itemId = typeof enrichedParams.item?.id === "string" ? enrichedParams.item.id : null;
+      if (itemId) {
+        reasoningSummaryById.delete(itemId);
+        commandOutputById.delete(itemId);
+      }
       return;
     }
 
@@ -868,7 +1202,7 @@ async function runPromptAgainstAppServer(input: {
             throw new Error("Codex app-server thread/fork did not return a forked thread ID.");
           }
 
-          await request("turn/start", {
+          const turnResult = await request("turn/start", {
             threadId: sessionId,
             input: [{ type: "text", text: input.input.prompt, text_elements: [] }],
             cwd: input.cwd,
@@ -879,6 +1213,16 @@ async function runPromptAgainstAppServer(input: {
             model: model(input.input),
             effort: reasoningEffort(input.input),
           });
+          activeTurnId = turnIdFromResponse(turnResult);
+
+          const controlKey = input.input.controlKey?.trim();
+          if (controlKey && sessionId && activeTurnId && !turnFinished) {
+            activeTurnsByControlKey.set(controlKey, {
+              threadId: sessionId,
+              turnId: activeTurnId,
+              request,
+            });
+          }
         } catch (error) {
           if (timeout) {
             clearTimeout(timeout);
@@ -933,6 +1277,7 @@ async function runPromptAgainstAppServer(input: {
     });
 
     socket.on("error", (error) => {
+      clearActiveTurn();
       if (timeout) {
         clearTimeout(timeout);
       }
@@ -946,6 +1291,7 @@ async function runPromptAgainstAppServer(input: {
     });
 
     socket.on("close", () => {
+      clearActiveTurn();
       if (timeout) {
         clearTimeout(timeout);
       }

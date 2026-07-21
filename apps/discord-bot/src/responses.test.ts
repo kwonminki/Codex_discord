@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatCodexAck,
+  formatCodexVisibleProcessMessage,
   formatCollapsibleThoughtMessage,
   formatCodexProgressUpdate,
   formatCodexResultUpdate,
@@ -26,6 +27,7 @@ import {
   formatSyncResultUpdate,
   formatScheduleResult,
   formatMaintenancePanel,
+  getCodexThoughtView,
 } from "./responses.js";
 
 describe("responses", () => {
@@ -500,6 +502,35 @@ describe("responses", () => {
         ],
       }),
     );
+  });
+
+  it("sends detailed recent process events while dropping older events first", () => {
+    const payload = formatCodexProgressUpdate(
+      {
+        computerDisplayName: "Local Dev",
+        workspaceDisplayName: "repo",
+        cwd: "/repo",
+        prompt: "검사해줘",
+        agentLabel: "Claude Code",
+      },
+      {
+        status: "Claude 도구 실행 완료",
+        recentEvents: [
+          `오래된 과정 · ${"x".repeat(1_850)}`,
+          "Claude 도구 실행 중 · Read · 입력: {file_path:/repo/README.md}",
+          "Claude 도구 실행 완료 · README title and setup steps",
+        ],
+      },
+    );
+    const view = getCodexThoughtView(payload);
+    const processMessage = formatCodexVisibleProcessMessage(view!);
+
+    expect(processMessage.content).toContain("**Claude Code 과정**");
+    expect(processMessage.content).toContain("Claude 도구 실행 중");
+    expect(processMessage.content).toContain("Claude 도구 실행 완료");
+    expect(processMessage.content).toContain("이전 과정 일부 생략");
+    expect(processMessage.content).not.toContain("오래된 과정");
+    expect(processMessage.content?.length).toBeLessThanOrEqual(1_900);
   });
 
   it("renders file edit progress with filename-only diff stats", () => {
