@@ -123,6 +123,7 @@ describe("Discord application commands", () => {
     expect(prompt).toEqual(expect.stringContaining("codex "));
     expect(prompt).toEqual(expect.stringContaining("codex-discord-send"));
     expect(prompt).toEqual(expect.stringContaining("10MiB"));
+    expect(prompt).toEqual(expect.stringContaining("localPath"));
     expect(prompt).not.toEqual(expect.stringContaining("/queue"));
     expect(prompt).not.toEqual(expect.stringContaining("steering"));
     expect(

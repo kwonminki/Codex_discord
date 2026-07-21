@@ -1669,6 +1669,11 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
       inline: false,
     },
     {
+      name: "Attachments",
+      value: "메시지에 이미지, 영상, 오디오 또는 일반 파일을 첨부하면 봇이 서버의 임시 저장소에 내려받고 그 로컬 경로를 Claude Code 요청에 전달합니다. 파일만 보내도 기본 확인 요청으로 처리됩니다.",
+      inline: false,
+    },
+    {
       name: "Channel boundary",
       value: "이 채널은 Claude Code 전용입니다. Codex와 대화하거나 Codex 세션을 동기화하려면 Codex/admin 채널 또는 session 채널을 사용하세요.",
       inline: false,
@@ -1706,6 +1711,11 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
       inline: false,
     },
     {
+      name: "Attachments",
+      value: "이미지, 영상, 오디오 또는 일반 파일을 메시지에 첨부하면 Codex 요청으로 전달합니다. 설명 없이 파일만 보내도 되며, Claude Code로 보내려면 `claude <요청>`을 본문에 적으세요.",
+      inline: false,
+    },
+    {
       name: "Channel boundary",
       value: "main/admin 채널은 운영 전용입니다. Codex 대화, 리뷰, 테스트 수정, 모델 설정은 새 채팅 또는 동기화된 session 채널에서 실행하세요.",
       inline: false,
@@ -1729,6 +1739,11 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
         "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
+      inline: false,
+    },
+    {
+      name: "Attachments",
+      value: "메시지에 이미지, 영상, 오디오 또는 일반 파일을 첨부하면 봇이 서버의 임시 저장소에 내려받고 그 로컬 경로를 현재 Codex 요청에 전달합니다. 파일만 보내도 기본 확인 요청으로 처리됩니다.",
       inline: false,
     },
     {

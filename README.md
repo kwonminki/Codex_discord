@@ -445,6 +445,22 @@ Codex 요청 중에는 raw 이벤트명 대신 읽기 쉬운 한국어 상태가
 
 Discord에서 직접 요청한 Codex 및 Claude Code의 최종 답변은 agent 종류와 요청 시작 위치에 관계없이 `작업 완료` 메타데이터와 `답변` embed가 있는 같은 카드 형식으로 전송됩니다. 한 메시지 제한을 넘으면 문단과 줄바꿈을 우선해 `답변 (계속)` 카드로 나눠 순서대로 전송합니다. 코드 블록은 각 분할 메시지 안에서 닫고 다음 메시지에서 다시 열며, 모든 답변 조각을 보낸 뒤에만 operator role이 포함된 완료 알림을 보냅니다.
 
+### Discord에서 agent로 파일 보내기
+
+Direct mode의 관리 채널이나 session thread에서 Discord 메시지에 이미지, 영상, 오디오 또는 일반 파일을 첨부하면 봇이 해당 컴퓨터의 `.connect/incoming-attachments/<message-id>/` 아래에 먼저 저장합니다. Codex/Claude Code에는 원래 파일명, MIME type, 크기, 로컬 절대경로가 prompt와 함께 전달되므로 agent가 로컬 도구로 파일을 직접 열 수 있습니다. 본문 없이 파일만 보내면 `첨부된 파일을 확인해줘.`라는 기본 요청으로 처리됩니다. main/admin 채널의 첨부 메시지는 기본적으로 Codex로 보내며, Claude Code로 보내려면 본문을 `claude <요청>`으로 시작합니다.
+
+다운로드는 Discord CDN의 HTTPS 첨부 URL만 허용합니다. 기본 제한은 메시지당 10개, 파일당 100MiB, 메시지 전체 250MiB이며 Discord 서버 자체의 업로드 제한도 먼저 적용됩니다. 임시 파일은 기본 7일 동안 보관되고 다음 첨부 처리 시 만료 항목을 정리합니다. 다음 환경변수로 조정할 수 있습니다.
+
+```bash
+CONNECT_INCOMING_ATTACHMENT_ROOT=/absolute/path/to/incoming-attachments
+CONNECT_INCOMING_ATTACHMENT_MAX_FILES=10
+CONNECT_INCOMING_ATTACHMENT_MAX_BYTES=104857600
+CONNECT_INCOMING_ATTACHMENT_TOTAL_MAX_BYTES=262144000
+CONNECT_INCOMING_ATTACHMENT_TTL_MS=604800000
+```
+
+첨부 입력은 bot gateway와 worker가 같은 컴퓨터의 파일시스템을 보는 Direct mode에서 지원합니다. Hub mode처럼 gateway와 agent가 서로 다른 컴퓨터라면 gateway의 로컬 경로를 agent가 열 수 없으므로 현재 첨부 입력을 거부합니다. 파일 경로는 durable queue에 포함되므로 gateway만 재시작해도 대기 중 요청이 이어집니다.
+
 Codex가 최종 답변에 `![이미지](/로컬/절대/경로.png)` 형태의 로컬 이미지 파일을 포함하면, 봇은 해당 파일을 Discord 메시지에 첨부합니다. `https://...png` 같은 원격 이미지 URL은 메시지 본문에 함께 표시되어 Discord에서 미리보기로 볼 수 있습니다.
 
 이미지 외의 파일, 동영상, 오디오를 명시적으로 첨부하려면 Codex가 최종 답변에 아래 블록을 넣으면 됩니다. 봇은 이 제어 블록을 Discord 본문에서는 숨기고, 존재하는 로컬 파일만 첨부합니다.

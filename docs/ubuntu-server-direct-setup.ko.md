@@ -183,6 +183,12 @@ pnpm connect install --direct \
 
 `--claude-channel-id`가 있으면 봇은 `~/.claude/projects` 아래의 최근 Claude Code 세션 로그도 봅니다. VS Code, Antigravity 같은 IDE 확장에서 시작한 Claude Code 세션은 자동으로 Claude 채널 아래 Discord thread로 연결됩니다. 봇이 Discord에서 직접 시작한 Claude 세션은 중복 thread가 생기지 않도록 건너뜁니다.
 
+### Discord 첨부파일 입력
+
+관리 중인 Codex/Claude Code 채널에서 이미지, 영상, 오디오 또는 일반 파일을 메시지에 첨부하면 Ubuntu 서버의 `.connect/incoming-attachments/<message-id>/`에 내려받고 agent prompt에 로컬 절대경로를 추가합니다. 파일만 보내도 기본 확인 요청으로 처리됩니다. Codex/admin 채널에서는 Codex가 기본이며, Claude Code로 보내려면 본문을 `claude <요청>`으로 시작합니다.
+
+기본 제한은 메시지당 10개, 파일당 100MiB, 총 250MiB, 보관 기간 7일입니다. `CONNECT_INCOMING_ATTACHMENT_ROOT`, `CONNECT_INCOMING_ATTACHMENT_MAX_FILES`, `CONNECT_INCOMING_ATTACHMENT_MAX_BYTES`, `CONNECT_INCOMING_ATTACHMENT_TOTAL_MAX_BYTES`, `CONNECT_INCOMING_ATTACHMENT_TTL_MS`로 조절할 수 있습니다. bot과 worker systemd 서비스는 같은 사용자로 실행하고 같은 첨부 디렉터리를 볼 수 있어야 합니다.
+
 첫 baseline scan 이후에는 외부 IDE Claude Code 세션의 새 assistant 답변도 해당 Discord thread에 `Claude Code 작업 완료` 알림과 최종 답변으로 올라옵니다. Discord에서 봇이 직접 시작한 Claude 세션은 요청 메시지 자체에 결과가 이미 표시되므로 별도 완료 알림을 보내지 않습니다.
 
 Claude Code 완료 알림은 최신 활동이 assistant text이고, 이후 `CONNECT_CLAUDE_COMPLETION_IDLE_MS` 동안 세션이 조용할 때만 전송합니다. 그래서 tool call이 이어지는 중간 진행 문장은 최종 답변으로 처리하지 않습니다.

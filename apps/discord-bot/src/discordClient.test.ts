@@ -40,9 +40,19 @@ describe("attachDiscordMessageHandler", () => {
 
     attachDiscordMessageHandler(client, handleMessage);
     handlers.get("messageCreate")?.({
+      id: "discord-message-1",
       author: { bot: false, id: "discord-user-1" },
       channelId: "discord-channel-1",
       content: "ls",
+      attachments: new Map([
+        ["attachment-1", {
+          id: "attachment-1",
+          name: "frame.png",
+          url: "https://cdn.discordapp.com/attachments/channel/message/frame.png",
+          contentType: "image/png",
+          size: 123,
+        }],
+      ]),
       member: {
         roles: {
           cache: new Map([
@@ -62,6 +72,14 @@ describe("attachDiscordMessageHandler", () => {
       channelId: "discord-channel-1",
       content: "ls",
       roleIds: ["role-operator", "role-extra"],
+      messageId: "discord-message-1",
+      attachments: [{
+        id: "attachment-1",
+        name: "frame.png",
+        url: "https://cdn.discordapp.com/attachments/channel/message/frame.png",
+        contentType: "image/png",
+        size: 123,
+      }],
       guild: expect.any(Object),
       clearMessages: expect.any(Function),
       reply: expect.any(Function),

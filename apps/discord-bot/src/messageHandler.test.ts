@@ -1055,6 +1055,133 @@ describe("createDiscordMessageHandler", () => {
     ]);
   });
 
+  it("materializes attachment-only messages before submitting them to Codex", async () => {
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "이미지를 확인했습니다.",
+        sessionId: "codex-session-1",
+      },
+    });
+    const materializeIncomingAttachments = vi.fn().mockImplementation(async (input) => ({
+      files: [{
+        name: "frame.png",
+        localPath: "/repo/.connect/incoming-attachments/message-1/frame.png",
+        contentType: "image/png",
+        size: 123,
+      }],
+      content: `${input.content}\n\n첨부 경로: /repo/.connect/incoming-attachments/message-1/frame.png`,
+    }));
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      materializeIncomingAttachments,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      messageId: "message-1",
+      content: "",
+      roleIds: ["role-operator"],
+      attachments: [{
+        id: "attachment-1",
+        name: "frame.png",
+        url: "https://cdn.discordapp.com/attachments/channel/message/frame.png",
+        contentType: "image/png",
+        size: 123,
+      }],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    expect(materializeIncomingAttachments).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "message-1",
+      content: "첨부된 파일을 확인해줘.",
+      attachments: [expect.objectContaining({ name: "frame.png" })],
+    }));
+    expect(submitCodexPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        prompt: expect.stringContaining("/repo/.connect/incoming-attachments/message-1/frame.png"),
+      }),
+    }));
+  });
+
+  it("passes materialized attachments to Claude Code and skips downloads for unauthorized users", async () => {
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "영상을 확인했습니다.",
+        sessionId: "claude-session-1",
+      },
+    });
+    const materializeIncomingAttachments = vi.fn().mockImplementation(async (input) => ({
+      files: [{
+        name: "clip.mp4",
+        localPath: "/repo/.connect/incoming-attachments/message-2/clip.mp4",
+        contentType: "video/mp4",
+        size: 456,
+      }],
+      content: `${input.content}\n\n첨부 경로: /repo/.connect/incoming-attachments/message-2/clip.mp4`,
+    }));
+    const replies: unknown[] = [];
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => claudeChannelContext,
+      submitCommandJob: vi.fn(),
+      submitClaudePrompt,
+      materializeIncomingAttachments,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const attachment = {
+      id: "attachment-2",
+      name: "clip.mp4",
+      url: "https://cdn.discordapp.com/attachments/channel/message/clip.mp4",
+      contentType: "video/mp4",
+      size: 456,
+    };
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-channel-1",
+      messageId: "message-2",
+      content: "이 영상의 장면을 확인해줘",
+      roleIds: ["role-operator"],
+      attachments: [attachment],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    expect(submitClaudePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        prompt: expect.stringContaining("/repo/.connect/incoming-attachments/message-2/clip.mp4"),
+      }),
+    }));
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-2",
+      channelId: "claude-channel-1",
+      messageId: "message-3",
+      content: "이 파일도 확인해줘",
+      roleIds: ["role-viewer"],
+      attachments: [attachment],
+      reply: async (payload) => {
+        replies.push(payload);
+      },
+    });
+
+    expect(materializeIncomingAttachments).toHaveBeenCalledTimes(1);
+    expect(replies).toEqual([expect.objectContaining({
+      embeds: [expect.objectContaining({ title: "Permission denied" })],
+    })]);
+  });
+
   it("resolves Codex approval requests from Discord buttons while a prompt is running", async () => {
     const replies: unknown[] = [];
     const edits: unknown[] = [];

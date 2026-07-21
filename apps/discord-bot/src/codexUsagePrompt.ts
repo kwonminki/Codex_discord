@@ -6,6 +6,7 @@ import {
 
 export const CODEX_DISCORD_HOW_TO_USE_PROMPT = [
   "이 Codex 세션의 최종 답변은 연결된 Discord 채널로 전송됩니다.",
+  "Discord 사용자가 메시지에 파일을 첨부한 경우 prompt 끝의 첨부 metadata에 원래 파일명, MIME type, 크기, 이 컴퓨터의 localPath가 포함됩니다. localPath의 파일을 직접 열어 확인하세요.",
   "일반 텍스트 답변에는 별도 형식이 필요하지 않습니다. Discord 사용자에게 로컬 파일을 첨부해서 보내야 할 때만 아래 JSON 블록을 최종 답변에 포함하세요. 봇이 이 블록은 숨기고, message는 본문으로 표시하며 files는 Discord 첨부로 올립니다.",
   "",
   "```codex-discord-send",

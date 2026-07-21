@@ -15,6 +15,7 @@ import type {
 import type { SyncCodexSessionTranscriptUpdatesResult } from "./codexTranscriptSync.js";
 import type { CodexPromptApprovalDecision, CodexPromptApprovalRequest, ControlApiClient } from "./controlApiClient.js";
 import type { TranscriptSyncMode } from "./directState.js";
+import type { DiscordIncomingAttachment, MaterializedDiscordAttachment } from "./incomingAttachments.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
@@ -112,6 +113,8 @@ export interface DiscordMessageLike {
   channelId: string;
   content: string;
   roleIds: string[];
+  messageId?: string;
+  attachments?: DiscordIncomingAttachment[];
   requestId?: string;
   durableQueuedAt?: string;
   restoreOnly?: boolean;
@@ -229,6 +232,11 @@ export interface CreateDiscordMessageHandlerInput {
     createdAt?: string;
   }) => Promise<{ requestId: string; createdAt: string }>;
   completeDurableRequest?: (requestId: string) => Promise<void>;
+  materializeIncomingAttachments?: (input: {
+    messageId: string;
+    attachments: DiscordIncomingAttachment[];
+    content: string;
+  }) => Promise<{ content: string; files: MaterializedDiscordAttachment[] }>;
 }
 
 export interface DiscordMessageHandler {
@@ -2235,8 +2243,80 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
   }
 
-  const handleDiscordMessage = async (message: DiscordMessageLike): Promise<void> => {
-    if (message.authorBot) {
+  async function prepareIncomingAttachments(
+    incomingMessage: DiscordMessageLike,
+  ): Promise<DiscordMessageLike | null> {
+    const attachments = incomingMessage.attachments ?? [];
+    if (attachments.length === 0 || incomingMessage.restoreOnly) {
+      return incomingMessage;
+    }
+
+    const channelContext = await input.resolveChannelContext(incomingMessage.channelId);
+    if (!channelContext) {
+      return incomingMessage;
+    }
+
+    if (!hasAllowedRole(incomingMessage.roleIds, channelContext.allowedRoleIds)) {
+      return incomingMessage;
+    }
+
+    const defaultPrompt = "첨부된 파일을 확인해줘.";
+    let messageWithPrompt = {
+      ...incomingMessage,
+      content: incomingMessage.content.trim() || defaultPrompt,
+    };
+    let routed = routeMessage(messageWithPrompt, channelContext);
+
+    if (channelContext.channelMode === "shell-admin" && routed.type === "execute-command") {
+      messageWithPrompt = {
+        ...messageWithPrompt,
+        content: `codex ${messageWithPrompt.content}`,
+      };
+      routed = routeMessage(messageWithPrompt, channelContext);
+    }
+
+    if (!acceptsIncomingAttachments(routed.type)) {
+      await incomingMessage.reply(
+        "첨부파일은 Codex 또는 Claude Code 요청에만 전달할 수 있습니다. " +
+        "관리자 채널에서는 `codex <요청>` 또는 `claude <요청>` 형식으로 보내주세요.",
+      );
+      return null;
+    }
+
+    if (!input.materializeIncomingAttachments) {
+      await incomingMessage.reply("이 봇 실행 모드에는 Discord 첨부파일 저장 기능이 연결되어 있지 않습니다.");
+      return null;
+    }
+
+    try {
+      const materialized = await input.materializeIncomingAttachments({
+        messageId:
+          incomingMessage.messageId ??
+          incomingMessage.requestId ??
+          `${incomingMessage.channelId}-${Date.now()}`,
+        attachments,
+        content: messageWithPrompt.content,
+      });
+
+      return {
+        ...messageWithPrompt,
+        content: materialized.content,
+        attachments: [],
+      };
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "알 수 없는 첨부파일 저장 오류";
+      await incomingMessage.reply(`첨부파일을 저장하지 못했습니다: ${messageText}`);
+      return null;
+    }
+  }
+
+  const handleDiscordMessage = async (incomingMessage: DiscordMessageLike): Promise<void> => {
+    if (incomingMessage.authorBot) {
+      return;
+    }
+
+    const message = await prepareIncomingAttachments(incomingMessage);
+    if (!message) {
       return;
     }
 
@@ -2409,4 +2489,13 @@ function isDurableAgentRequest(type: string): boolean {
     type === "codex-continue-session" ||
     type === "codex-review" ||
     type === "claude-chat";
+}
+
+function acceptsIncomingAttachments(type: string): boolean {
+  return type === "codex-chat" ||
+    type === "codex-continue-session" ||
+    type === "codex-review" ||
+    type === "claude-chat" ||
+    type === "codex-steer" ||
+    type === "queue-prompt";
 }

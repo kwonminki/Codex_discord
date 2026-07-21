@@ -333,6 +333,15 @@ export function attachDiscordMessageHandler(
 ): void {
   client.on("messageCreate", (message) => {
     const discordMessage = message as Message;
+    const attachments = discordMessage.attachments
+      ? [...discordMessage.attachments.values()].map((attachment) => ({
+          id: attachment.id,
+          name: attachment.name,
+          url: attachment.url,
+          contentType: attachment.contentType,
+          size: attachment.size,
+        }))
+      : [];
 
     void handleMessage({
       authorBot: discordMessage.author.bot,
@@ -340,6 +349,8 @@ export function attachDiscordMessageHandler(
       channelId: discordMessage.channelId,
       content: discordMessage.content,
       roleIds: getRoleIds(discordMessage),
+      ...(discordMessage.id ? { messageId: discordMessage.id } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
       guild: createDiscordGuildSurface(discordMessage.guild),
       clearMessages: (clearInput) =>
         clearChannelMessages({

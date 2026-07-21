@@ -38,6 +38,10 @@ import { createDirectControlClient } from "./directControlClient.js";
 import { createDirectWorkerClient } from "./directWorkerClient.js";
 import { createDurableDiscordRequestStore } from "./durableRequestStore.js";
 import {
+  appendDiscordAttachmentsToPrompt,
+  createIncomingAttachmentStore,
+} from "./incomingAttachments.js";
+import {
   attachDiscordInteractionHandler,
   attachDiscordMessageHandler,
   createDiscordGuildSurface,
@@ -250,6 +254,7 @@ export async function startBot(): Promise<void> {
   const directStateStore = connectConfig?.mode === "direct" ? createDirectSyncStateStore() : null;
   const directWorkerClient = connectConfig?.mode === "direct" ? createDirectWorkerClient() : null;
   const durableRequestStore = connectConfig?.mode === "direct" ? createDurableDiscordRequestStore() : null;
+  const incomingAttachmentStore = connectConfig?.mode === "direct" ? createIncomingAttachmentStore() : null;
   const activelyStreamedSessionIds = new Set<string>();
 
   if (requestedMode === "direct" && connectConfig?.mode !== "direct") {
@@ -692,6 +697,18 @@ export async function startBot(): Promise<void> {
       ? async (requestId) => {
           await durableRequestStore.remove(requestId);
           await directWorkerClient?.markDelivered(requestId);
+        }
+      : undefined,
+    materializeIncomingAttachments: incomingAttachmentStore
+      ? async (input) => {
+          const files = await incomingAttachmentStore.materialize({
+            messageId: input.messageId,
+            attachments: input.attachments,
+          });
+          return {
+            files,
+            content: appendDiscordAttachmentsToPrompt(input.content, files),
+          };
         }
       : undefined,
   });

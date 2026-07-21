@@ -62,6 +62,12 @@ When `--claude-channel-id` is configured, the bot treats that channel as a Claud
 
 The bot also watches recent Claude Code session logs under `~/.claude/projects`. Sessions started by IDE surfaces such as VS Code or Antigravity are detected from their Claude entrypoint and automatically mapped to new Discord threads under `--claude-channel-id`. Connector-started Claude sessions are skipped so they do not create duplicate threads.
 
+## Incoming Discord attachments
+
+In Direct mode, attach an image, video, audio file, or ordinary file to a message in a managed Codex/Claude Code channel. The gateway downloads it into `.connect/incoming-attachments/<message-id>/` and adds its absolute local path to the agent prompt. An attachment-only message receives a default inspection prompt. In the admin channel, attached files default to Codex; start the caption with `claude ` to send them to Claude Code instead.
+
+Defaults are 10 files per message, 100MiB per file, 250MiB total, and a 7-day local TTL. Override them with `CONNECT_INCOMING_ATTACHMENT_ROOT`, `CONNECT_INCOMING_ATTACHMENT_MAX_FILES`, `CONNECT_INCOMING_ATTACHMENT_MAX_BYTES`, `CONNECT_INCOMING_ATTACHMENT_TOTAL_MAX_BYTES`, and `CONNECT_INCOMING_ATTACHMENT_TTL_MS`. The bot and worker services must run as users that can access the same attachment directory.
+
 After the first baseline scan, new assistant answers from those external Claude Code sessions are posted back to the mapped Discord thread as `Claude Code 작업 완료` notifications with the final answer. Connector-started Claude sessions are not completion-notified separately because their result is already shown in the Discord request message.
 
 Claude Code completion notifications wait until the latest session activity is an assistant text message and the session has been idle for `CONNECT_CLAUDE_COMPLETION_IDLE_MS`, so intermediate messages followed by tool calls are not treated as final answers.
