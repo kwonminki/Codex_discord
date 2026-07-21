@@ -119,6 +119,22 @@ cdc install --direct \
 
 설정이 끝나면 `.connect/config.json`과 `.env`가 생성됩니다.
 
+### Codex app-server 설정
+
+Codex 세션 fork와 실행 중 steering을 사용하려면 runner가 반드시 `app-server`여야 합니다. Direct mode의 기본값도 `app-server`지만, LaunchAgent나 systemd처럼 별도 서비스로 실행할 때는 설정 누락을 쉽게 확인할 수 있도록 아래 값을 명시하는 것을 권장합니다.
+
+```bash
+CODEX_DISCORD_CODEX_RUNNER=app-server
+```
+
+systemd unit에서는 다음처럼 설정합니다.
+
+```ini
+Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
+```
+
+`codex exec` 호환 모드에서는 `/fork`와 실행 중인 turn에 대한 일반 메시지 steering이 동작하지 않습니다. 예전 Codex CLI와의 호환성이 꼭 필요한 경우에만 `CODEX_DISCORD_CODEX_RUNNER=exec`를 명시하세요.
+
 ### 3. 봇 실행
 
 ```bash
@@ -132,6 +148,15 @@ cdc start --direct
 개인용 private Discord 서버에 컴퓨터별 관리자 채널과 Codex/Claude Code 세션 채널을 따로 만드는 구성을 권장합니다. 서버 또는 봇 전용 채널의 알림 설정은 **멘션만(Only @mentions)** 으로 두세요. 태그 없는 중간 진행 메시지는 알림 없이 쌓이고, 확인이 필요한 권한 요청과 최종 완료·실패 메시지만 operator role 멘션으로 알림이 옵니다.
 
 세션 채널이 많다면 전용 카테고리를 만들고 같은 알림 정책을 적용하면 관리하기 편합니다. operator role은 실제 알림을 받을 사용자에게만 부여하고, 각 컴퓨터의 봇 인스턴스에는 서로 겹치지 않는 관리자/세션 부모 채널 ID를 설정하세요.
+
+### 자주 쓰는 명령어
+
+| 명령어 | 용도 |
+| --- | --- |
+| `/status` | 현재 세션 연결, 실행 상태, 마지막 활동 시각과 대기열을 확인합니다. |
+| `/fork` | 현재 Codex 또는 Claude Code 세션의 맥락을 복제해 새 Discord thread로 분기합니다. Codex에서는 `app-server`가 필요합니다. |
+| `/howtouse` | 현재 agent 세션에 Discord 사용법과 이미지·영상·오디오·파일 첨부 형식을 전달합니다. |
+| `/queue prompt:<요청>` | 현재 작업에 끼어들지 않고 다음 작업으로 실행할 요청을 예약합니다. |
 
 ## 버전 호환성
 
