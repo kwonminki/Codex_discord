@@ -42,6 +42,7 @@ import {
   formatForkedSessionThreadNotice,
   formatForkSessionAck,
   formatForkSessionResult,
+  formatLiveAgentProgress,
   formatMaintenancePanel,
   formatNewChatAck,
   formatNewChatResult,
@@ -60,6 +61,7 @@ import {
   formatCodexTurnControlResult,
   formatQueueClearResult,
   formatQueueStatus,
+  getCodexResultContinuationMessages,
 } from "./responses.js";
 import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
@@ -257,6 +259,28 @@ async function updateQueuedReply(
   await fallbackReply(message);
 }
 
+async function updateQueuedResultReply(input: {
+  message: DiscordMessageLike;
+  queuedReply: DiscordReplyLike | void;
+  fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>;
+  payload: DiscordMessagePayload;
+}): Promise<void> {
+  await updateQueuedReply(input.queuedReply, input.fallbackReply, input.payload);
+
+  for (const continuation of getCodexResultContinuationMessages(input.payload)) {
+    if (input.message.guild?.sendTextMessage) {
+      try {
+        await input.message.guild.sendTextMessage(input.message.channelId, continuation);
+        continue;
+      } catch (error) {
+        console.warn("discord-bot failed to send a final-answer continuation directly", error);
+      }
+    }
+
+    await input.fallbackReply(continuation);
+  }
+}
+
 function createReplyWithOptionalRoleMentions(
   reply: DiscordMessageLike["reply"],
   roleIds: string[],
@@ -395,6 +419,23 @@ function readableProgressEvent(event: {
   return event.detail ? `${event.label ?? "작업 중"} · ${event.detail}` : (event.label ?? "작업 중");
 }
 
+const MAX_LIVE_PROGRESS_MESSAGES_PER_TASK = 40;
+
+function isConcreteProgressBoundary(event: {
+  type: string;
+  label?: string;
+  detail?: string;
+  text?: string;
+  eventType?: string;
+}): boolean {
+  if (event.type !== "operation-progress") {
+    return false;
+  }
+
+  const label = event.label?.trim() ?? "";
+  return /^(?:명령 실행|파일 수정|파일 탐색|탐색마침|웹 검색|이미지 생성|도구 |도구 실행|계획 업데이트)/.test(label);
+}
+
 function parseCodexApprovalResponse(content: string): {
   token: string;
   decision: CodexPromptApprovalDecision["decision"];
@@ -448,6 +489,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   interface ChannelQueue {
     running: boolean;
     activeMessage: DiscordMessageLike | null;
+    activeStartedAt: number | null;
+    activeLastActivityAt: number | null;
     pending: QueuedMessage[];
   }
 
@@ -465,6 +508,18 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   >();
   let nextCodexApprovalToken = 1;
 
+  function touchChannelActivity(channelId: string): void {
+    const queue = channelQueues.get(channelId);
+
+    if (queue?.activeMessage) {
+      queue.activeLastActivityAt = Date.now();
+    }
+  }
+
+  function channelWaitingForApproval(channelId: string): boolean {
+    return [...pendingCodexApprovals.values()].some((approval) => approval.channelId === channelId);
+  }
+
   function reasoningEffortForChannel(channelId: string): "low" | "xhigh" {
     const mode = codexRunModesByChannel.get(channelId);
 
@@ -480,6 +535,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     channelId: string,
     request: CodexPromptApprovalRequest,
   ): Promise<CodexPromptApprovalDecision> {
+    touchChannelActivity(channelId);
     const token = String(nextCodexApprovalToken++);
 
     const decisionPromise = new Promise<CodexPromptApprovalDecision>((resolve) => {
@@ -489,6 +545,79 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     await reply(formatCodexApprovalRequest({ token, request }));
 
     return decisionPromise;
+  }
+
+  function createLiveProgressReporter(input: {
+    message: DiscordMessageLike;
+    channelContext: ManagedDiscordChannelContext;
+    agentLabel: "Codex" | "Claude Code";
+  }): {
+    publish(event: {
+      type: string;
+      label?: string;
+      detail?: string;
+      text?: string;
+      eventType?: string;
+    }): Promise<void>;
+    finish(): void;
+  } {
+    let lastText: string | null = null;
+    let pendingAgentText: string | null = null;
+    let sentCount = 0;
+
+    const send = async (text: string) => {
+      if (
+        input.channelContext.discordDeliveryMode !== "thread" ||
+        !input.message.guild?.sendTextMessage ||
+        sentCount >= MAX_LIVE_PROGRESS_MESSAGES_PER_TASK ||
+        text === lastText
+      ) {
+        return;
+      }
+
+      lastText = text;
+      sentCount += 1;
+
+      try {
+        await input.message.guild.sendTextMessage(
+          input.message.channelId,
+          formatLiveAgentProgress({ agentLabel: input.agentLabel, text }),
+        );
+      } catch (error) {
+        console.warn("discord-bot failed to send an unmentioned progress message", error);
+      }
+    };
+
+    return {
+      async publish(event) {
+        if (event.type === "agent-message") {
+          const text = event.text?.trim() ?? "";
+
+          if (!text || text === pendingAgentText) {
+            return;
+          }
+
+          if (pendingAgentText) {
+            await send(pendingAgentText);
+          }
+
+          pendingAgentText = text;
+          return;
+        }
+
+        if (!isConcreteProgressBoundary(event)) {
+          return;
+        }
+
+        if (pendingAgentText) {
+          await send(pendingAgentText);
+          pendingAgentText = null;
+        }
+      },
+      finish() {
+        pendingAgentText = null;
+      },
+    };
   }
 
   async function processDiscordMessage(message: DiscordMessageLike): Promise<void> {
@@ -502,8 +631,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    const reply = createReplyWithOptionalRoleMentions(
-      (replyMessage) => message.reply(replyMessage),
+    const reply = (replyMessage: DiscordOutgoingMessage) => message.reply(replyMessage);
+    const replyWithRoleMentions = createReplyWithOptionalRoleMentions(
+      reply,
       channelContext.channelMode !== "shell-admin" && channelContext.discordDeliveryMode === "thread"
         ? channelContext.allowedRoleIds
         : [],
@@ -529,6 +659,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       }
 
       pendingCodexApprovals.delete(approvalResponse.token);
+      touchChannelActivity(message.channelId);
       pending.resolve({ decision: approvalResponse.decision });
       await reply(formatCodexApprovalDecision({
         decision: approvalResponse.decision,
@@ -612,6 +743,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "channel-status") {
+      const queue = channelQueues.get(message.channelId);
       const claudeSessionId =
         channelContext.channelMode === "claude-code"
           ? claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null
@@ -622,6 +754,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           ...channelContext,
           claudeSessionId,
           codexModel: codexModelsByChannel.get(message.channelId) ?? null,
+          execution: {
+            active: Boolean(queue?.activeMessage),
+            activeRequest: queue?.activeMessage ? queueMessageSummary(queue.activeMessage.content) : null,
+            startedAt: queue?.activeStartedAt ?? null,
+            lastActivityAt: queue?.activeLastActivityAt ?? null,
+            pendingCount: queue?.pending.length ?? 0,
+            waitingForApproval: channelWaitingForApproval(message.channelId),
+          },
         }),
       );
       return;
@@ -648,6 +788,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           guild: message.guild,
           limit: routed.limit,
           onProgress: async (progress) => {
+            touchChannelActivity(message.channelId);
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
@@ -838,6 +979,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           limit: routed.sessionIds.length,
           sessionIds: routed.sessionIds,
           onProgress: async (progress) => {
+            touchChannelActivity(message.channelId);
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
@@ -1006,6 +1148,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       const queuedReply = await reply(formatCodexAck(codexMessage));
       let recentEvents: string[] = [];
+      const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Codex" });
 
       try {
         const response = await input.submitCodexPrompt({
@@ -1022,8 +1165,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             controlKey: message.channelId,
           },
           onProgress: async (event) => {
+            touchChannelActivity(message.channelId);
             const status = event.type === "operation-progress" ? event.label : event.type;
             recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+            await progressReporter.publish(event);
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
@@ -1039,16 +1184,18 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }),
             );
           },
-          onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
+          onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
         });
+        progressReporter.finish();
 
         const reviewSessionId = extractCodexResponseSessionId(response);
 
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(codexMessage, response, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
+        });
         const completionMentionSent = await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1064,12 +1211,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           }
         }
       } catch (error) {
+        progressReporter.finish();
         const messageText = error instanceof Error ? error.message : "Codex review failed";
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+        });
         await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1173,7 +1322,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               reasoningEffort: reasoningEffortForChannel(message.channelId),
               controlKey: forkThread.discordChannelId,
             },
-            onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
+            onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
           });
 
           forkSessionId = extractCodexResponseSessionId(response);
@@ -1246,6 +1395,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       let recentEvents: string[] = [];
       let streamedSessionId =
         claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null;
+      const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Claude Code" });
 
       try {
         const response = await input.submitClaudePrompt({
@@ -1258,6 +1408,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             sessionId: streamedSessionId,
           },
           onProgress: async (event) => {
+            touchChannelActivity(message.channelId);
             if (event.type === "thread-started") {
               streamedSessionId = event.sessionId;
               recentEvents = appendProgressEvent(recentEvents, "생각중...");
@@ -1275,6 +1426,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
             const status = event.type === "operation-progress" ? event.label : event.type;
             recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+            await progressReporter.publish(event);
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
@@ -1292,6 +1444,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             );
           },
         });
+        progressReporter.finish();
         const responseSessionId = extractCodexResponseSessionId(response);
 
         if (responseSessionId) {
@@ -1302,11 +1455,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
+        });
         await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1314,12 +1468,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           failed: promptResponseFailed(response),
         });
       } catch (error) {
+        progressReporter.finish();
         const messageText = error instanceof Error ? error.message : "Claude Code prompt failed";
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
+        });
         await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1352,6 +1508,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       const queuedReply = await reply(formatCodexAck(codexMessage));
       const activeStreamingSessionIds = new Set<string>();
       let recentEvents: string[] = [];
+      const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Codex" });
 
       try {
         if (
@@ -1363,6 +1520,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             guild: message.guild,
             discordChannelId: message.channelId,
             trigger: "on-chat",
+            postUpdates: false,
           });
         }
 
@@ -1389,6 +1547,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             controlKey: message.channelId,
           },
           onProgress: async (event) => {
+            touchChannelActivity(message.channelId);
             if (event.type === "thread-started") {
               streamedSessionId = event.sessionId;
               recentEvents = appendProgressEvent(recentEvents, "생각중...");
@@ -1410,6 +1569,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
             if (event.type === "agent-message") {
               recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+              await progressReporter.publish(event);
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
@@ -1425,6 +1585,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
             if (event.type === "operation-progress") {
               recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+              await progressReporter.publish(event);
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
@@ -1439,6 +1600,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             }
 
             recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
+            await progressReporter.publish(event);
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
@@ -1449,8 +1611,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               }),
             );
           },
-          onApprovalRequest: (request) => requestCodexApproval(reply, message.channelId, request),
+          onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
         });
+        progressReporter.finish();
         const nextSessionId = extractCodexResponseSessionId(response);
 
         if (nextSessionId) {
@@ -1485,11 +1648,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(codexMessage, response, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
+        });
         const completionMentionSent = await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1505,6 +1669,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           }
         }
       } catch (error) {
+        progressReporter.finish();
         if (
           channelContext.channelMode === "session-linked" &&
           input.syncTranscriptUpdates &&
@@ -1519,11 +1684,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         const messageText = error instanceof Error ? error.message : "Codex prompt failed";
-        await updateQueuedReply(
+        await updateQueuedResultReply({
+          message,
           queuedReply,
-          (replyMessage) => reply(replyMessage),
-          formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
-        );
+          fallbackReply: (replyMessage) => reply(replyMessage),
+          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+        });
         await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1616,7 +1782,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     let queue = channelQueues.get(message.channelId);
 
     if (!queue) {
-      queue = { running: false, activeMessage: null, pending: [] };
+      queue = {
+        running: false,
+        activeMessage: null,
+        activeStartedAt: null,
+        activeLastActivityAt: null,
+        pending: [],
+      };
       channelQueues.set(message.channelId, queue);
     }
 
@@ -1642,6 +1814,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         queue.activeMessage = entry.message;
+        queue.activeStartedAt = Date.now();
+        queue.activeLastActivityAt = queue.activeStartedAt;
 
         try {
           await processDiscordMessage(entry.message);
@@ -1650,6 +1824,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           entry.reject(error);
         } finally {
           queue.activeMessage = null;
+          queue.activeStartedAt = null;
+          queue.activeLastActivityAt = null;
         }
       }
     } finally {
@@ -1668,6 +1844,6 @@ function queueMessageSummary(content: string): string {
 
 function isImmediateQueueControl(content: string): boolean {
   const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
-  return /^(?:queue|queue-status|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
+  return /^(?:where|status|context|target|pwd\?|queue|queue-status|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
     || /^steer\s+\S/i.test(normalized);
 }

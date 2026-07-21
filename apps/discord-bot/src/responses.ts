@@ -27,6 +27,7 @@ const BUTTON_STYLES = {
 const MAX_FIELD_VALUE_LENGTH = 1_024;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
+const MAX_SPLIT_MESSAGE_CONTENT_LENGTH = 1_800;
 const ATTACH_TEXT_THRESHOLD = 1_000;
 export const CODEX_PROGRESS_EVENT_LIMIT = 16;
 
@@ -115,6 +116,7 @@ export type CodexThoughtView =
 
 const codexProgressViews = new WeakMap<DiscordMessagePayload, CodexProgressView>();
 const collapsibleThoughtViews = new WeakMap<DiscordMessagePayload, CollapsibleThoughtView>();
+const codexResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
 
 export interface DiscordFilePayload {
   attachment: string | Buffer;
@@ -210,6 +212,82 @@ function truncateMessageContent(value: string): string {
   return `${value.slice(0, MAX_MESSAGE_CONTENT_LENGTH - suffix.length)}${suffix}`;
 }
 
+function findNaturalMessageSplit(value: string, maxLength: number): number {
+  const minimumUsefulSplit = Math.floor(maxLength * 0.4);
+  const candidates = [
+    value.lastIndexOf("\n\n", maxLength),
+    value.lastIndexOf("\n", maxLength),
+    value.lastIndexOf(" ", maxLength),
+  ];
+
+  return candidates.find((candidate) => candidate >= minimumUsefulSplit) ?? maxLength;
+}
+
+function splitRawDiscordContent(value: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let remaining = value.trim();
+
+  while (remaining.length > maxLength) {
+    const splitIndex = findNaturalMessageSplit(remaining, maxLength);
+    const chunk = remaining.slice(0, splitIndex).trimEnd();
+
+    if (chunk.length > 0) {
+      chunks.push(chunk);
+    }
+
+    remaining = remaining.slice(splitIndex).trimStart();
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
+}
+
+function nextFenceLanguage(value: string, currentLanguage: string | null): string | null {
+  const fencePattern = /(?:^|\n)```([^\n`]*)/g;
+  let nextLanguage = currentLanguage;
+
+  for (const match of value.matchAll(fencePattern)) {
+    nextLanguage = nextLanguage === null ? (match[1]?.trim().slice(0, 32) ?? "") : null;
+  }
+
+  return nextLanguage;
+}
+
+export function splitDiscordMessageContent(
+  value: string,
+  maxLength = MAX_MESSAGE_CONTENT_LENGTH,
+): string[] {
+  const sanitized = sanitizeDiscordMarkdown(value).trim();
+
+  if (sanitized.length <= maxLength) {
+    return sanitized.length > 0 ? [sanitized] : [];
+  }
+
+  const rawChunkLength = Math.max(1, Math.min(MAX_SPLIT_MESSAGE_CONTENT_LENGTH, maxLength - 64));
+  const rawChunks = splitRawDiscordContent(sanitized, rawChunkLength);
+  const chunks: string[] = [];
+  let activeFenceLanguage: string | null = null;
+
+  for (const rawChunk of rawChunks) {
+    const openingFence = activeFenceLanguage === null ? "" : `\`\`\`${activeFenceLanguage}\n`;
+    const nextLanguage = nextFenceLanguage(rawChunk, activeFenceLanguage);
+    const closingFence = nextLanguage === null ? "" : "\n```";
+    chunks.push(`${openingFence}${rawChunk}${closingFence}`);
+    activeFenceLanguage = nextLanguage;
+  }
+
+  return chunks;
+}
+
+export function getCodexResultContinuationMessages(
+  payload: DiscordMessagePayload,
+): DiscordMessagePayload[] {
+  return [...(codexResultContinuationMessages.get(payload) ?? [])];
+}
+
 function codeBlock(value: string, language: string): string {
   const sanitizedValue = sanitizeBlockDiscordText(value);
   const body = sanitizedValue.length > 0 ? sanitizedValue : "(no output)";
@@ -245,19 +323,6 @@ function previewCodeBlockWithAttachmentNotice(input: {
   const previewBody = sanitizedValue.length <= maxBodyLength ? sanitizedValue : sanitizedValue.slice(0, maxBodyLength).trimEnd();
 
   return `${fence}${previewBody || "(no output)"}${closingFence}${notice}`;
-}
-
-function previewMessageWithAttachment(input: {
-  content: string;
-  attachmentName: string;
-  notice: string;
-}): string {
-  const sanitized = sanitizeDiscordMarkdown(input.content);
-  const suffix = `\n\n${input.notice} \`${input.attachmentName}\`에서 확인하세요.`;
-  const maxPreviewLength = Math.max(0, MAX_MESSAGE_CONTENT_LENGTH - suffix.length);
-  const preview = sanitized.length <= maxPreviewLength ? sanitized : sanitized.slice(0, maxPreviewLength).trimEnd();
-
-  return `${preview}${suffix}`;
 }
 
 function messagePayload(embed: DiscordEmbedPayload, components?: DiscordActionRowPayload[]): DiscordMessagePayload {
@@ -1813,8 +1878,63 @@ export function formatChannelStatus(input: {
   claudeSessionId?: string | null;
   codexModel?: string | null;
   timeoutMs: number;
+  execution?: {
+    active: boolean;
+    activeRequest?: string | null;
+    startedAt?: number | null;
+    lastActivityAt?: number | null;
+    pendingCount: number;
+    waitingForApproval?: boolean;
+    nowMs?: number;
+  };
 }): DiscordMessagePayload {
   const isClaudeCodeChannel = input.channelMode === "claude-code";
+  const execution = input.execution ?? { active: false, pendingCount: 0 };
+  const nowMs = execution.nowMs ?? Date.now();
+  const agentName = isClaudeCodeChannel ? "Claude Code" : "Codex";
+  const executionState = execution.waitingForApproval
+    ? "waiting-for-approval"
+    : execution.active
+      ? "running"
+      : "idle";
+  const executionFields: DiscordEmbedFieldPayload[] = [
+    {
+      name: "Agent state",
+      value: wrapDiscordText(`${agentName} ${executionState}`),
+      inline: true,
+    },
+    {
+      name: "Queue",
+      value: wrapDiscordText(`${execution.pendingCount} pending`),
+      inline: true,
+    },
+  ];
+
+  if (execution.active) {
+    if (execution.activeRequest) {
+      executionFields.push({
+        name: "Active request",
+        value: wrapDiscordText(execution.activeRequest),
+        inline: false,
+      });
+    }
+
+    if (execution.startedAt) {
+      executionFields.push({
+        name: "Started",
+        value: `<t:${Math.floor(execution.startedAt / 1_000)}:F>\n${wrapDiscordText(`${formatElapsedTime(nowMs - execution.startedAt)} elapsed`)}`,
+        inline: true,
+      });
+    }
+
+    if (execution.lastActivityAt) {
+      executionFields.push({
+        name: "Last activity",
+        value: `<t:${Math.floor(execution.lastActivityAt / 1_000)}:R>\n${wrapDiscordText(`${formatElapsedTime(nowMs - execution.lastActivityAt)} ago`)}`,
+        inline: true,
+      });
+    }
+  }
   const sessionFields: DiscordEmbedFieldPayload[] = isClaudeCodeChannel
     ? [
         {
@@ -1839,8 +1959,10 @@ export function formatChannelStatus(input: {
   return messagePayload(
     {
       title: "Current channel target",
-      color: COLORS.neutral,
-      description: "이 Discord 채널이 현재 어디에 연결되어 있는지 보여줍니다.",
+      color: execution.active ? COLORS.codex : COLORS.neutral,
+      description: execution.active
+        ? "이 채널의 agent 요청이 아직 실행 중입니다. 마지막 활동 시각으로 장시간 대기 여부를 확인할 수 있습니다."
+        : "이 Discord 채널이 현재 어디에 연결되어 있는지 보여줍니다. 현재 실행 중인 agent 요청은 없습니다.",
       fields: [
         {
           name: "Mode",
@@ -1852,6 +1974,7 @@ export function formatChannelStatus(input: {
           value: wrapDiscordText(`${Math.round(input.timeoutMs / 1_000)}s`),
           inline: true,
         },
+        ...executionFields,
         {
           name: "Target",
           value: `${wrapDiscordText(input.computerDisplayName)} / ${wrapDiscordText(input.workspaceDisplayName)}`,
@@ -1885,6 +2008,25 @@ export function formatChannelStatus(input: {
       ]),
     ],
   );
+}
+
+function formatElapsedTime(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
+
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m ${seconds}s`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
 }
 
 export function formatCodexModelResult(input: { model: string }): DiscordMessagePayload {
@@ -3070,6 +3212,13 @@ export function formatCodexProgressUpdate(
   return payload;
 }
 
+export function formatLiveAgentProgress(input: {
+  agentLabel: "Codex" | "Claude Code";
+  text: string;
+}): DiscordMessagePayload {
+  return textPayload(`**${input.agentLabel} 진행**\n${input.text}`);
+}
+
 export function getCodexProgressView(payload: DiscordMessagePayload): CodexProgressView | null {
   return codexProgressViews.get(payload) ?? null;
 }
@@ -3491,25 +3640,14 @@ export function formatCodexResultUpdate(
     ]
       .filter((line) => line.trim().length > 0)
       .join("\n") || (attachedFileCount > 0 ? "첨부 파일을 보냈습니다." : finalMessage);
-    const finalAttachmentName = "codex-final-message.txt";
-    const shouldAttachFinal = finalContent.length > MAX_MESSAGE_CONTENT_LENGTH;
-    const finalTextForDiscord = shouldAttachFinal
-      ? previewMessageWithAttachment({
-          content: finalContent,
-          attachmentName: finalAttachmentName,
-          notice: "전체 답변은 첨부 파일",
-        })
-      : finalContent;
-    const finalFiles = deduplicateDiscordFiles(
-      shouldAttachFinal
-        ? [
-            textAttachment(finalAttachmentName, discordSendOutputs.hadBlocks ? finalContent : finalMessage),
-            ...discordSendOutputs.attachments,
-            ...mediaLinkOutputs.attachments,
-            ...imageOutputs.attachments,
-          ]
-        : [...discordSendOutputs.attachments, ...mediaLinkOutputs.attachments, ...imageOutputs.attachments],
-    );
+    const finalTextChunks = splitDiscordMessageContent(finalContent);
+    const finalTextForDiscord = finalTextChunks[0] ?? finalContent;
+    const continuationPayloads = finalTextChunks.slice(1).map((chunk) => textPayload(chunk));
+    const finalFiles = deduplicateDiscordFiles([
+      ...discordSendOutputs.attachments,
+      ...mediaLinkOutputs.attachments,
+      ...imageOutputs.attachments,
+    ]);
 
     if (recentEvents.length > 0) {
       const expanded = options.expanded ?? false;
@@ -3535,6 +3673,10 @@ export function formatCodexResultUpdate(
         payload.files = finalFiles;
       }
 
+      if (continuationPayloads.length > 0) {
+        codexResultContinuationMessages.set(payload, continuationPayloads);
+      }
+
       return payload;
     }
 
@@ -3547,6 +3689,10 @@ export function formatCodexResultUpdate(
 
     if (finalFiles.length > 0) {
       payload.files = finalFiles;
+    }
+
+    if (continuationPayloads.length > 0) {
+      codexResultContinuationMessages.set(payload, continuationPayloads);
     }
 
     return payload;

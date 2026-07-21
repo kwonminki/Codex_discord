@@ -27,7 +27,9 @@ import {
   formatSyncResultUpdate,
   formatScheduleResult,
   formatMaintenancePanel,
+  getCodexResultContinuationMessages,
   getCodexThoughtView,
+  splitDiscordMessageContent,
 } from "./responses.js";
 
 describe("responses", () => {
@@ -607,7 +609,7 @@ describe("responses", () => {
     ]);
   });
 
-  it("attaches long Codex final answers instead of truncating them in Discord content", () => {
+  it("splits long Codex final answers into ordered Discord messages", () => {
     const longFinalMessage = Array.from({ length: 160 }, (_, index) => `긴 답변 ${index + 1}: ${"내용 ".repeat(20)}`).join("\n");
     const payload = formatCodexResultUpdate(
       {
@@ -624,16 +626,31 @@ describe("responses", () => {
         },
       },
     );
+    const continuations = getCodexResultContinuationMessages(payload);
+    const messages = [payload, ...continuations];
 
-    expect(payload.content).toContain("전체 답변은 첨부 파일");
-    expect(payload.content).not.toContain("(truncated)");
-    expect(payload.files).toEqual([
-      expect.objectContaining({
-        name: "codex-final-message.txt",
-        attachment: expect.any(Buffer),
-      }),
+    expect(continuations.length).toBeGreaterThan(1);
+    expect(messages.every((message) => (message.content?.length ?? 0) <= 1_900)).toBe(true);
+    expect(messages.map((message) => message.content).join("\n")).toContain("긴 답변 1:");
+    expect(messages.map((message) => message.content).join("\n")).toContain("긴 답변 160:");
+    expect(messages.flatMap((message) => message.files ?? [])).not.toEqual([
+      expect.objectContaining({ name: "codex-final-message.txt" }),
     ]);
-    expect(payload.files?.[0]?.attachment.toString()).toBe(longFinalMessage);
+  });
+
+  it("keeps fenced code blocks balanced when a long answer is split", () => {
+    const chunks = splitDiscordMessageContent([
+      "코드 예시입니다.",
+      "```ts",
+      ...Array.from({ length: 240 }, (_, index) => `const value${index} = ${index};`),
+      "```",
+      "설명이 끝났습니다.",
+    ].join("\n"));
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.length <= 1_900)).toBe(true);
+    expect(chunks.every((chunk) => (chunk.match(/```/g)?.length ?? 0) % 2 === 0)).toBe(true);
+    expect(chunks.at(-1)).toContain("설명이 끝났습니다.");
   });
 
   it("keeps Codex thoughts available after the final answer is rendered", () => {
@@ -1299,6 +1316,41 @@ describe("responses", () => {
     );
     expect(JSON.stringify(payload)).not.toContain("Codex session");
     expect(JSON.stringify(payload)).not.toContain("Codex model");
+  });
+
+  it("formats active agent timing and queue details in channel status", () => {
+    const payload = formatChannelStatus({
+      channelMode: "session-linked",
+      computerDisplayName: "Local Dev",
+      workspaceDisplayName: "repo",
+      workspaceRoot: "/repo",
+      cwd: "/repo/apps",
+      codexSessionId: "session-1",
+      timeoutMs: 300_000,
+      execution: {
+        active: true,
+        activeRequest: "긴 파이프라인을 실행해줘",
+        startedAt: 60_000,
+        lastActivityAt: 115_000,
+        pendingCount: 2,
+        waitingForApproval: false,
+        nowMs: 120_000,
+      },
+    });
+
+    expect(payload.embeds).toEqual([
+      expect.objectContaining({
+        color: 0x3498db,
+        description: expect.stringContaining("아직 실행 중입니다"),
+        fields: expect.arrayContaining([
+          { name: "Agent state", value: "`Codex running`", inline: true },
+          { name: "Queue", value: "`2 pending`", inline: true },
+          { name: "Active request", value: "`긴 파이프라인을 실행해줘`", inline: false },
+          { name: "Started", value: "<t:60:F>\n`1m 0s elapsed`", inline: true },
+          { name: "Last activity", value: "<t:115:R>\n`5s ago`", inline: true },
+        ]),
+      }),
+    ]);
   });
 
   it("formats bot reload confirmation and result cards", () => {

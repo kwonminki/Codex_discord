@@ -187,7 +187,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "status",
-    description: "현재 채널의 연결 상태, 작업 위치, Codex 세션을 보여줍니다.",
+    description: "현재 채널의 연결, 세션, 실행 중 작업과 대기열 상태를 보여줍니다.",
   },
   {
     name: "diff",
