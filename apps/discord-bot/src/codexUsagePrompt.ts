@@ -5,12 +5,8 @@ import {
 } from "./discordAttachmentLimits.js";
 
 export const CODEX_DISCORD_HOW_TO_USE_PROMPT = [
-  "이 Codex 세션은 Discord 채널과 연결되어 있습니다.",
-  "Discord 사용자가 이 채널에 자연어를 보내면 지금 세션으로 이어지고, 최종 답변은 다시 Discord로 전송됩니다.",
-  "Codex 작업 중 같은 채널에 보낸 일반 메시지는 현재 turn에 즉시 steering됩니다. 다음 turn으로 남기려면 /queue prompt:<요청>을 사용하세요. prompt 없는 /queue는 상태를 보여주고, /queue-clear는 대기 요청을 비우며, /interrupt는 현재 turn을 중단합니다. /steer는 명시적 steering 별칭으로 계속 사용할 수 있습니다.",
-  "Claude Code 채널은 실행 중 steering을 지원하지 않으므로 일반 메시지는 안전하게 다음 요청으로 대기합니다. /queue prompt:<요청>으로도 명시적으로 예약할 수 있고, /steer와 /interrupt는 지원 안내를 표시합니다.",
-  "",
-  "Discord에 파일을 첨부해서 보내야 할 때는 최종 답변에 아래 JSON 블록을 포함하세요. 봇이 이 블록은 숨기고, 파일을 Discord 첨부로 올립니다.",
+  "이 Codex 세션의 최종 답변은 연결된 Discord 채널로 전송됩니다.",
+  "일반 텍스트 답변에는 별도 형식이 필요하지 않습니다. Discord 사용자에게 로컬 파일을 첨부해서 보내야 할 때만 아래 JSON 블록을 최종 답변에 포함하세요. 봇이 이 블록은 숨기고, message는 본문으로 표시하며 files는 Discord 첨부로 올립니다.",
   "",
   "```codex-discord-send",
   "{",
