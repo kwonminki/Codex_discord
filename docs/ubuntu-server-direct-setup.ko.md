@@ -38,12 +38,17 @@ Ubuntu server Codex
 
 1. Discord 서버에 Ubuntu용 private admin channel을 만듭니다.
    - 예: `#ubuntu-codex-admin`
-2. 기존 `Codex Operator` role이 그 채널을 볼 수 있게 합니다.
-3. Discord Developer Mode를 켜고 아래 값을 복사합니다.
-   - Discord bot token
-   - Discord guild/server ID
-   - Operator role ID
-   - Ubuntu admin channel ID
+2. Claude Code도 사용한다면 별도의 private Claude channel을 만듭니다.
+   - 예: `#ubuntu-claude-code`
+3. 기존 `Codex Operator` role이 두 채널을 볼 수 있게 합니다.
+4. 아래 값을 준비합니다.
+   - Discord bot token: [Discord Developer Portal](https://discord.com/developers/applications)에서 앱을 선택하고 `Bot > Reset Token/Copy`에서 가져옵니다. Public Key와 OAuth2 Client ID는 입력하지 않습니다.
+   - Discord guild/server ID: Discord `사용자 설정 > 고급 > 개발자 모드`를 켠 뒤 서버 아이콘을 우클릭하고 `서버 ID 복사`를 선택합니다.
+   - Operator role ID: `서버 설정 > 역할`에서 허용할 역할의 메뉴를 열고 `역할 ID 복사`를 선택합니다.
+   - Ubuntu Codex/admin channel ID: Codex 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
+   - Ubuntu Claude Code channel ID: Claude Code 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
+
+Codex/admin 채널과 Claude Code 채널 ID는 서로 달라야 합니다. ID 복사 메뉴가 보이지 않으면 [Discord 공식 ID 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)에서 Developer Mode 설정을 확인하세요.
 
 Bot 권한은 Mac 설치와 동일하게 필요합니다.
 

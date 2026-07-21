@@ -129,14 +129,72 @@ async function askMissing(inputValue: string | undefined, question: string): Pro
   }
 }
 
+async function askOptional(inputValue: string | undefined, question: string): Promise<string | undefined> {
+  if (inputValue !== undefined) {
+    return inputValue.trim() || undefined;
+  }
+
+  const rl = createInterface({ input, output });
+
+  try {
+    return (await rl.question(question)).trim() || undefined;
+  } finally {
+    rl.close();
+  }
+}
+
+export function discordSetupGuide(mode: ConnectMode): string[] {
+  const lines = [
+    "Discord 설정값 준비:",
+    "  1. Bot token: Discord Developer Portal (https://discord.com/developers/applications) > 앱 선택 > Bot > Reset Token/Copy",
+    "     Public Key와 OAuth2 Client ID는 connector 설정에 넣지 않습니다. Bot token은 외부에 공유하지 마세요.",
+    "  2. Server/Guild ID: Discord 사용자 설정 > 고급 > 개발자 모드 활성화 > 서버 아이콘 우클릭 > 서버 ID 복사",
+    "  3. Operator role ID: 서버 설정 > 역할 > 허용할 역할 우클릭 > 역할 ID 복사",
+    "     connector를 사용할 사람에게 이 역할을 부여하세요. 여러 역할은 쉼표로 구분합니다.",
+  ];
+
+  if (mode === "direct") {
+    lines.push(
+      "  4. Codex/admin channel ID: 전용 Codex 채널 우클릭 > 채널 ID 복사",
+      "  5. Claude Code channel ID: 전용 Claude Code 채널 우클릭 > 채널 ID 복사",
+      "     두 채널은 서로 달라야 합니다. Claude Code를 쓰지 않으면 마지막 입력에서 Enter를 누르세요.",
+    );
+  }
+
+  return lines;
+}
+
 async function setup(flags: Map<string, string | boolean>) {
   const mode = (flag(flags, "mode") ?? (flags.has("hub") ? "hub" : "direct")) as ConnectMode;
-  const token = await askMissing(flag(flags, "token") ?? process.env.DISCORD_TOKEN, "Discord bot token: ");
-  const guildId = await askMissing(flag(flags, "guild-id") ?? process.env.DISCORD_GUILD_ID, "Discord guild id: ");
+
+  console.info(discordSetupGuide(mode).join("\n"));
+  console.info("");
+
+  const token = await askMissing(
+    flag(flags, "token") ?? process.env.DISCORD_TOKEN,
+    "Discord bot token (Developer Portal > Bot): ",
+  );
+  const guildId = await askMissing(
+    flag(flags, "guild-id") ?? process.env.DISCORD_GUILD_ID,
+    "Discord server/guild ID (server icon > Copy Server ID): ",
+  );
   const roleIds = await askMissing(
     flag(flags, "role-ids") ?? process.env.DISCORD_ALLOWED_ROLE_IDS,
-    "Allowed role ids, comma-separated: ",
+    "Operator role IDs (comma-separated): ",
   );
+
+  const channelId = mode === "direct"
+    ? await askMissing(
+        flag(flags, "channel-id") ?? process.env.CODEX_CHANNEL_ID,
+        "Codex/admin channel ID (Codex channel > Copy Channel ID): ",
+      )
+    : undefined;
+  const claudeChannelId = mode === "direct"
+    ? await askOptional(
+        flag(flags, "claude-channel-id") ?? process.env.CLAUDE_CHANNEL_ID,
+        "Claude Code channel ID (Claude channel > Copy Channel ID, Enter to disable): ",
+      )
+    : undefined;
 
   const config =
     mode === "hub"
@@ -151,8 +209,8 @@ async function setup(flags: Map<string, string | boolean>) {
           token,
           guildId,
           roleIds,
-          channelId: await askMissing(flag(flags, "channel-id"), "Discord channel id: "),
-          claudeChannelId: flag(flags, "claude-channel-id"),
+          channelId: channelId!,
+          claudeChannelId,
           workspaceRoot: await askMissing(flag(flags, "workspace-root") ?? process.cwd(), "Workspace root: "),
           initialCwd: flag(flags, "initial-cwd"),
           workspaceDisplayName: flag(flags, "workspace-name"),

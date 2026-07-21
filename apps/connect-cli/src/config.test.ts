@@ -12,6 +12,7 @@ import {
   BOT_RELOAD_EXIT_CODE,
   buildManagedProcessEnv,
   buildManagedProcessCommands,
+  discordSetupGuide,
   shouldRestartManagedProcess,
 } from "./index.js";
 
@@ -69,6 +70,28 @@ describe("connect setup config", () => {
       initialCwd: "/repo/apps/web",
       workspaceDisplayName: "repo",
     });
+  });
+
+  it("describes where every Discord setup value comes from", () => {
+    const guide = discordSetupGuide("direct").join("\n");
+
+    expect(guide).toContain("Developer Portal");
+    expect(guide).toContain("Server/Guild ID");
+    expect(guide).toContain("Operator role ID");
+    expect(guide).toContain("Codex/admin channel ID");
+    expect(guide).toContain("Claude Code channel ID");
+    expect(guide).toContain("Public Key와 OAuth2 Client ID는 connector 설정에 넣지 않습니다");
+  });
+
+  it("rejects using the same Discord channel for Codex and Claude Code", () => {
+    expect(() => buildDirectConfig({
+      token: "discord-token",
+      guildId: "guild-1",
+      channelId: "shared-channel",
+      claudeChannelId: "shared-channel",
+      roleIds: "role-operator",
+      workspaceRoot: "/repo",
+    })).toThrow("Codex/admin channel ID and Claude Code channel ID must be different.");
   });
 
   it("writes generated config and env files", async () => {

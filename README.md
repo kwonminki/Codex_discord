@@ -86,15 +86,18 @@ cdc status
 cdc install --direct
 ```
 
-설치 과정에서 다음 값을 입력합니다.
+대화형 설치를 시작하면 각 값의 위치가 먼저 출력되고, 다음 값을 순서대로 입력받습니다.
 
-- Discord bot token
-- Discord guild id
-- 관리자 role id 목록
-- 관리자 채널 id
+- Discord bot token: [Discord Developer Portal](https://discord.com/developers/applications)에서 앱을 선택하고 `Bot > Reset Token/Copy`에서 가져옵니다. Public Key와 OAuth2 Client ID는 입력하지 않습니다.
+- Discord guild/server ID: Discord `사용자 설정 > 고급 > 개발자 모드`를 켠 뒤 서버 아이콘을 우클릭하고 `서버 ID 복사`를 선택합니다.
+- Operator role ID 목록: `서버 설정 > 역할`에서 connector 사용을 허용할 역할의 메뉴를 열어 `역할 ID 복사`를 선택합니다. 여러 역할은 쉼표로 구분합니다.
+- Codex/admin 채널 ID: 서버별 전용 Codex 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
+- Claude Code 채널 ID: 같은 서버의 전용 Claude Code 채널을 우클릭하고 `채널 ID 복사`를 선택합니다. Claude Code를 사용하지 않을 때만 비워둘 수 있습니다.
 - 연결할 workspace root
 - 컴퓨터 이름과 workspace 표시 이름
 - Codex home 경로, 보통 `$HOME/.codex`
+
+서버와 채널 ID를 복사하려면 Discord Developer Mode가 필요합니다. Codex/admin 채널과 Claude Code 채널은 서로 다른 채널이어야 하며, 같은 bot token을 여러 컴퓨터에서 쓸 때는 컴퓨터별 채널 ID도 겹치면 안 됩니다. 자세한 ID 복사 방법은 [Discord 공식 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)를 참고하세요.
 
 비대화형으로도 설정할 수 있습니다.
 
@@ -103,7 +106,8 @@ cdc install --direct \
   --token "DISCORD_BOT_TOKEN" \
   --guild-id "DISCORD_GUILD_ID" \
   --role-ids "ROLE_ID_1,ROLE_ID_2" \
-  --channel-id "ADMIN_CHANNEL_ID" \
+  --channel-id "CODEX_ADMIN_CHANNEL_ID" \
+  --claude-channel-id "CLAUDE_CODE_CHANNEL_ID" \
   --workspace-root "$PWD" \
   --workspace-name "CodexDiscordConnector"
 ```

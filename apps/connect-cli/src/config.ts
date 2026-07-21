@@ -71,6 +71,12 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
   const workspaceRoot = path.resolve(input.workspaceRoot);
   const initialCwd = input.initialCwd ? path.resolve(input.initialCwd) : undefined;
   const computerId = input.computerId ?? "local-dev";
+  const channelId = input.channelId.trim();
+  const claudeChannelId = input.claudeChannelId?.trim();
+
+  if (claudeChannelId && claudeChannelId === channelId) {
+    throw new Error("Codex/admin channel ID and Claude Code channel ID must be different.");
+  }
 
   return {
     mode: "direct",
@@ -86,8 +92,8 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
       workspaceRoot,
       ...(initialCwd ? { initialCwd } : {}),
       workspaceDisplayName: input.workspaceDisplayName ?? path.basename(workspaceRoot),
-      channelId: input.channelId,
-      ...(input.claudeChannelId?.trim() ? { claudeChannelId: input.claudeChannelId.trim() } : {}),
+      channelId,
+      ...(claudeChannelId ? { claudeChannelId } : {}),
       channelMode: "shell-admin",
       timeoutMs: input.timeoutMs ?? 30_000,
       codexHome: input.codexHome ?? path.join(os.homedir(), ".codex"),

@@ -18,12 +18,15 @@ This repo is intended to be run from source while customizing the connector.
    - Attach Files
    - Manage Messages, optional for `/clear`
 6. Create a dedicated operator role, for example `Codex Operator`.
-7. Create a dedicated admin channel, for example `#mac-admin`.
-8. Turn on Discord Developer Mode and copy:
-   - Bot token
-   - Guild/server ID
-   - Operator role ID
-   - Admin channel ID
+7. Create a dedicated Codex/admin channel, for example `#mac-codex`, and a separate Claude Code channel, for example `#mac-claude-code`.
+8. Gather the setup values:
+   - Bot token: open the [Discord Developer Portal](https://discord.com/developers/applications), select the application, then use `Bot > Reset Token/Copy`. The Public Key and OAuth2 Client ID are not connector inputs.
+   - Guild/server ID: enable `User Settings > Advanced > Developer Mode`, right-click the server icon, and select `Copy Server ID`.
+   - Operator role ID: open `Server Settings > Roles`, open the role menu, and select `Copy Role ID`. Assign this role to every connector operator.
+   - Codex/admin channel ID: right-click the dedicated Codex channel and select `Copy Channel ID`.
+   - Claude Code channel ID: right-click the dedicated Claude Code channel and select `Copy Channel ID`.
+
+The Codex and Claude Code channel IDs must be different. See Discord's [official ID guide](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID) if the copy-ID actions are not visible.
 
 ## Install from this source checkout
 
@@ -36,6 +39,8 @@ pnpm test
 ## Configure this Mac
 
 Use the current source checkout so local code changes apply immediately.
+
+Running `pnpm connect install --direct` without flags now prints the same lookup guide and prompts for both channel IDs. The Claude Code channel can be left blank only when Claude integration is intentionally disabled.
 
 ```bash
 pnpm connect install --direct \
