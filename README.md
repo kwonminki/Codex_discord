@@ -159,7 +159,7 @@ cdc start --direct
 | --- | --- |
 | `/status` | 현재 세션 연결, 실행 상태, 마지막 활동 시각과 대기열을 확인합니다. |
 | `/fork` | 현재 Codex 또는 Claude Code 세션의 맥락을 복제해 새 Discord thread로 분기합니다. Codex에서는 `app-server`가 필요합니다. |
-| `/howtouse` | 현재 agent 세션에 Discord 사용법과 이미지·영상·오디오·파일 첨부 형식을 전달합니다. |
+| `/howtouse` | 현재 agent 세션에 사용자의 일반 Discord 첨부 입력과 agent 결과 파일 전송 형식을 전달합니다. |
 | `/queue prompt:<요청>` | 현재 작업에 끼어들지 않고 다음 작업으로 실행할 요청을 예약합니다. |
 
 ## 버전 호환성
@@ -323,7 +323,7 @@ chat new cwd:/Users/me/project name:주간 보고서
 | `/review prompt:<관점>` | `codex exec review`로 현재 변경사항을 리뷰시킵니다. |
 | `/fix-tests` | 테스트 실행, 실패 분석, 수정, 재검증을 요청합니다. |
 | `/summarize target:<대상>` | 현재 채널 또는 지정 대상을 요약합니다. |
-| `/howtouse` | 현재 Codex 세션에 Discord 봇 사용법과 첨부 전송 형식을 안내합니다. |
+| `/howtouse` | 현재 Codex 세션에 사용자의 일반 Discord 첨부 입력과 agent 결과 파일 전송 형식을 안내합니다. |
 | `/compact prompt:<요청>` | 대화형 `/compact` passthrough가 아니라, 현재 작업 맥락을 압축 요약하도록 Codex에 요청합니다. |
 | `/skill name:<skill> prompt:<요청>` | 지정한 skill 관점으로 Codex 요청을 실행합니다. |
 | `/model model:<모델>` | 이 Discord 채널의 이후 Codex 실행에 사용할 모델을 설정합니다. |

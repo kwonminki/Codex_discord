@@ -121,4 +121,58 @@ describe("direct worker", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("keeps processing turn controls while draining an active job", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-drain-control-"));
+    const store = createDirectWorkerStore(path.join(root, "worker"));
+    const handledControls: string[] = [];
+    const worker = await startDirectWorker({
+      store,
+      pollIntervalMs: 10,
+      maxConcurrency: 1,
+      controlCodexTurn: async (control) => {
+        handledControls.push(`${control.action}:${control.content ?? ""}`);
+        return { status: "accepted", message: "Steering accepted while draining." };
+      },
+    });
+    const client = createDirectWorkerClient({ store, pollIntervalMs: 10 });
+
+    try {
+      const job = client.submit({
+        jobId: "draining-job",
+        type: "run-command",
+        queueKey: "thread-1",
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          command: "sleep 0.2",
+          timeoutMs: 5_000,
+          confirmedDangerous: true,
+        },
+      });
+
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if ((await store.readState("draining-job"))?.status === "running") {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      await expect(store.readState("draining-job")).resolves.toMatchObject({ status: "running" });
+
+      const stopping = worker.stop();
+      await expect(client.control({
+        controlKey: "thread-1",
+        action: "steer",
+        content: "새 지시",
+      })).resolves.toEqual({
+        status: "accepted",
+        message: "Steering accepted while draining.",
+      });
+      await Promise.all([job, stopping]);
+      expect(handledControls).toEqual(["steer:새 지시"]);
+    } finally {
+      await worker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

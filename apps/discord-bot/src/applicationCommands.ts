@@ -219,7 +219,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "howtouse",
-    description: "Discord 봇 사용법과 첨부 전송 형식을 현재 Codex 세션에 전달합니다.",
+    description: "Discord 첨부 입력과 결과 파일 전송법을 현재 Codex 세션에 전달합니다.",
   },
   {
     name: "where",

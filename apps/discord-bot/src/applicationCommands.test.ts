@@ -124,6 +124,9 @@ describe("Discord application commands", () => {
     expect(prompt).toEqual(expect.stringContaining("codex-discord-send"));
     expect(prompt).toEqual(expect.stringContaining("10MiB"));
     expect(prompt).toEqual(expect.stringContaining("localPath"));
+    expect(prompt).toEqual(expect.stringContaining("특별한 형식이나 JSON 없이"));
+    expect(prompt).toEqual(expect.stringContaining("사용자에게 경로 변환을 요구하지 마세요"));
+    expect(prompt).toEqual(expect.stringContaining("출력 첨부파일"));
     expect(prompt).not.toEqual(expect.stringContaining("/queue"));
     expect(prompt).not.toEqual(expect.stringContaining("steering"));
     expect(

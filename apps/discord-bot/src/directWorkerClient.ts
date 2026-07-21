@@ -109,7 +109,8 @@ export function createDirectWorkerClient(options: {
         await store.removeControl(request.controlId);
         return {
           status: "failed",
-          message: "Direct worker did not acknowledge the turn control request in time.",
+          message: "Direct worker did not acknowledge the turn control request in time. " +
+            "The worker may be restarting or draining; check the worker service logs.",
         };
       }
 

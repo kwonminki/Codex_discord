@@ -133,7 +133,9 @@ launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.bot"
 tail -f "$HOME/Library/Logs/codex-discord-connector/bot.out.log"
 ```
 
-Restarting only the bot LaunchAgent is safe for active worker jobs. Stopping the worker LaunchAgent drains active jobs when launchd honors `ExitTimeOut`; a host reboot or forced kill still interrupts them.
+Restarting only the bot LaunchAgent is safe for active worker jobs. Stopping the worker LaunchAgent drains active jobs when launchd honors `ExitTimeOut`; a host reboot or forced kill still interrupts them. While draining, the worker stops accepting new jobs but continues processing steering and interrupt controls for active turns.
+
+If `worker.out.log` shows a new `direct-worker ready with PID ...` line every few seconds, check for an old one-off refresh job with `launchctl list | grep codex-discord-connector.worker-refresh`. A submitted `worker-refresh-*` job is not part of the normal installation and can race with a newly started turn. Remove it with `launchctl remove <full-label>` while leaving the regular `com.kwonmingi.codex-discord-connector.worker` LaunchAgent loaded.
 
 ## Task completion notifications
 

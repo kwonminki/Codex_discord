@@ -111,6 +111,11 @@ export async function startDirectWorker(options: {
   store?: DirectWorkerStore;
   pollIntervalMs?: number;
   maxConcurrency?: number;
+  controlCodexTurn?: (input: {
+    controlKey: string;
+    action: "steer" | "interrupt";
+    content?: string;
+  }) => Promise<unknown>;
 } = {}): Promise<{ stop(): Promise<void> }> {
   const store = options.store ?? createDirectWorkerStore();
   const releaseLock = await acquireWorkerLock(store.rootPath);
@@ -126,6 +131,11 @@ export async function startDirectWorker(options: {
   const activeQueueKeys = new Set<string>();
   let stopping = false;
   let ticking = false;
+  let stopPromise: Promise<void> | null = null;
+  const controlCodexTurn = options.controlCodexTurn ?? (async (control) =>
+    control.action === "steer"
+      ? steerActiveCodexAppServerTurn(control.controlKey, control.content ?? "")
+      : interruptActiveCodexAppServerTurn(control.controlKey));
 
   async function recoverInterruptedJobs(): Promise<void> {
     for (const request of await store.listRequests()) {
@@ -152,24 +162,28 @@ export async function startDirectWorker(options: {
 
   async function processControls(): Promise<void> {
     for (const control of await store.listPendingControls()) {
-      const result = control.action === "steer"
-        ? await steerActiveCodexAppServerTurn(control.controlKey, control.content ?? "")
-        : await interruptActiveCodexAppServerTurn(control.controlKey);
+      const result = await controlCodexTurn(control);
       await store.completeControl(control.controlId, result);
     }
   }
 
   async function tick(): Promise<void> {
-    if (stopping || ticking) {
+    if (ticking) {
       return;
     }
 
     ticking = true;
     try {
       await processControls();
+      if (stopping) {
+        return;
+      }
       const requests = await store.listRequests();
 
       for (const request of requests) {
+        if (stopping) {
+          break;
+        }
         if (activeJobs.size >= maxConcurrency) {
           break;
         }
@@ -197,14 +211,24 @@ export async function startDirectWorker(options: {
     void tick().catch((error) => console.error("direct-worker poll failed", error));
   }, pollIntervalMs);
 
-  async function stop(): Promise<void> {
-    if (stopping) {
-      return;
+  function stop(): Promise<void> {
+    if (stopPromise) {
+      return stopPromise;
     }
     stopping = true;
-    clearInterval(timer);
-    await Promise.allSettled(activeJobs.values());
-    await releaseLock();
+    stopPromise = (async () => {
+      while (ticking) {
+        await wait(Math.min(pollIntervalMs, 25));
+      }
+      await Promise.allSettled(activeJobs.values());
+      clearInterval(timer);
+      while (ticking) {
+        await wait(Math.min(pollIntervalMs, 25));
+      }
+      await processControls();
+      await releaseLock();
+    })();
+    return stopPromise;
   }
 
   return { stop };
@@ -215,16 +239,17 @@ async function main(): Promise<void> {
   console.info(`direct-worker ready with PID ${process.pid}`);
   let stopping = false;
 
-  const stop = () => {
+  const stop = (signal: string) => {
     if (stopping) {
       return;
     }
     stopping = true;
+    console.info(`direct-worker received ${signal}; draining active jobs before exit`);
     void worker.stop().finally(() => process.exit(0));
   };
 
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  process.on("SIGINT", () => stop("SIGINT"));
+  process.on("SIGTERM", () => stop("SIGTERM"));
 }
 
 const isDirectExecution =
