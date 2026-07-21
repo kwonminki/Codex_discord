@@ -545,6 +545,70 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }) ?? false;
   }
 
+  function routeMessage(
+    message: DiscordMessageLike,
+    channelContext: ManagedDiscordChannelContext,
+  ) {
+    return routeDiscordMessage({
+      channelMode: channelContext.channelMode,
+      content: message.content,
+      userRoleIds: message.roleIds,
+      allowedRoleIds: channelContext.allowedRoleIds,
+    });
+  }
+
+  async function tryAutoSteerCodexTurn(
+    message: DiscordMessageLike,
+    channelContext: ManagedDiscordChannelContext,
+    queue: ChannelQueue,
+  ): Promise<boolean> {
+    if (
+      channelContext.channelMode !== "session-linked" ||
+      !queue.activeMessage ||
+      !input.controlCodexTurn
+    ) {
+      return false;
+    }
+
+    const routed = routeMessage(message, channelContext);
+    const activeRouted = routeMessage(queue.activeMessage, channelContext);
+    const activeCodexTurn = activeRouted.type === "codex-chat" ||
+      activeRouted.type === "codex-continue-session" ||
+      activeRouted.type === "codex-review";
+
+    if (routed.type !== "codex-chat" || !activeCodexTurn) {
+      return false;
+    }
+
+    let result: Awaited<ReturnType<NonNullable<CreateDiscordMessageHandlerInput["controlCodexTurn"]>>>;
+
+    try {
+      result = await input.controlCodexTurn({
+        computerId: channelContext.computerId,
+        controlKey: message.channelId,
+        action: "steer",
+        content: routed.content,
+      });
+    } catch (error) {
+      console.warn("discord-bot failed to auto-steer the active Codex turn; queueing the message", error);
+      return false;
+    }
+
+    if (result.status !== "accepted") {
+      return false;
+    }
+
+    touchChannelActivity(message.channelId);
+
+    try {
+      await message.reply(formatCodexTurnControlResult({ action: "steer", ...result }));
+    } catch (error) {
+      console.warn("discord-bot failed to acknowledge an accepted automatic steering message", error);
+    }
+
+    return true;
+  }
+
   function reasoningEffortForChannel(channelId: string): "low" | "xhigh" {
     const mode = codexRunModesByChannel.get(channelId);
 
@@ -690,12 +754,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    const routed = routeDiscordMessage({
-      channelMode: channelContext.channelMode,
-      content: message.content,
-      userRoleIds: message.roleIds,
-      allowedRoleIds: channelContext.allowedRoleIds,
-    });
+    const routed = routeMessage(message, channelContext);
+
+    if (routed.type === "queue-prompt") {
+      await processDiscordMessage({ ...message, content: routed.content });
+      return;
+    }
 
     if (routed.type === "queue-status") {
       const queue = channelQueues.get(message.channelId);
@@ -734,7 +798,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         await reply(formatCodexTurnControlResult({
           action,
           status: "unsupported",
-          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering/interrupt를 지원하지 않습니다. 일반 메시지는 대기열에 넣어 다음 요청으로 실행할 수 있습니다.",
+          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering/interrupt를 지원하지 않습니다. /queue prompt:<요청>으로 다음 요청을 예약할 수 있습니다.",
         }));
         return;
       }
@@ -1811,6 +1875,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     let queue = channelQueues.get(message.channelId);
+    let queuedMessage = message;
+
+    if (queue?.activeMessage || isExplicitQueuePrompt(message.content)) {
+      const channelContext = await input.resolveChannelContext(message.channelId);
+
+      if (!channelContext) {
+        return;
+      }
+
+      const routed = routeMessage(message, channelContext);
+
+      if (routed.type === "queue-prompt") {
+        queuedMessage = { ...message, content: routed.content };
+      } else if (queue?.activeMessage && await tryAutoSteerCodexTurn(message, channelContext, queue)) {
+        return;
+      }
+    }
 
     if (!queue) {
       queue = {
@@ -1824,7 +1905,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     await new Promise<void>((resolve, reject) => {
-      queue?.pending.push({ message, resolve, reject });
+      queue?.pending.push({ message: queuedMessage, resolve, reject });
       void drainChannelQueue(message.channelId, queue as ChannelQueue);
     });
   };
@@ -1875,6 +1956,11 @@ function queueMessageSummary(content: string): string {
 
 function isImmediateQueueControl(content: string): boolean {
   const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
-  return /^(?:where|status|context|target|pwd\?|queue|queue-status|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
+  return /^(?:where|status|context|target|pwd\?|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
+    || /^(?:queue|queue-status)$/i.test(normalized)
     || /^steer\s+\S/i.test(normalized);
+}
+
+function isExplicitQueuePrompt(content: string): boolean {
+  return /^\/*queue\s+prompt\s*:\s*\S/i.test(content.trim());
 }

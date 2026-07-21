@@ -209,6 +209,12 @@ describe("Discord application commands", () => {
     ).toBe("steer 테스트 대신 구현부터 진행해줘");
     expect(routeDiscordApplicationCommand({ commandName: "interrupt", options: options({}) })).toBe("interrupt");
     expect(routeDiscordApplicationCommand({ commandName: "queue", options: options({}) })).toBe("queue");
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "queue",
+        options: options({ prompt: "현재 작업 뒤에 테스트도 실행해줘" }),
+      }),
+    ).toBe("queue prompt:현재 작업 뒤에 테스트도 실행해줘");
     expect(routeDiscordApplicationCommand({ commandName: "queue-clear", options: options({}) })).toBe("queue-clear");
   });
 

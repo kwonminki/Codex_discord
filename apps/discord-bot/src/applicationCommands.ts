@@ -452,7 +452,13 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "queue",
-    description: "현재 채널의 실행 중 작업과 대기 요청을 보여줍니다.",
+    description: "요청을 다음 turn에 예약하거나, prompt를 비우면 대기열 상태를 보여줍니다.",
+    options: [
+      stringOption({
+        name: "prompt",
+        description: "현재 작업이 끝난 뒤 실행할 요청",
+      }),
+    ],
   },
   {
     name: "queue-clear",
@@ -695,8 +701,10 @@ export function routeDiscordApplicationCommand(
     }
     case "interrupt":
       return "interrupt";
-    case "queue":
-      return "queue";
+    case "queue": {
+      const prompt = interaction.options.getString("prompt")?.trim();
+      return prompt ? `queue prompt:${prompt}` : "queue";
+    }
     case "queue-clear":
       return "queue-clear";
     case "archive":

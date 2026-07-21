@@ -695,6 +695,10 @@ describe("routeDiscordMessage", () => {
     };
 
     expect(routeDiscordMessage({ ...base, content: "queue" })).toEqual({ type: "queue-status" });
+    expect(routeDiscordMessage({ ...base, content: "/queue prompt:끝난 뒤 테스트도 실행해줘" })).toEqual({
+      type: "queue-prompt",
+      content: "끝난 뒤 테스트도 실행해줘",
+    });
     expect(routeDiscordMessage({ ...base, content: "/queue-clear" })).toEqual({ type: "queue-clear" });
     expect(routeDiscordMessage({ ...base, content: "interrupt" })).toEqual({ type: "codex-interrupt" });
     expect(routeDiscordMessage({ ...base, content: "steer 구현 방향을 바꿔줘" })).toEqual({

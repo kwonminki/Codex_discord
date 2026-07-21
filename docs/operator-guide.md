@@ -56,9 +56,9 @@ Session-linked commands:
 - `/model model:<모델>` stores a per-channel model preference used by later Codex runs until the bot restarts.
 - `/archive` opens a confirmation card for the current generated session channel; use `archive confirm` to archive.
 - `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a forked agent session. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
-- `/steer prompt:<instruction>` appends an instruction to the active Codex app-server turn. Claude Code channels return an unsupported notice.
+- `/steer prompt:<instruction>` explicitly appends an instruction to the active Codex app-server turn, matching the automatic behavior of ordinary follow-up messages. Claude Code channels return an unsupported notice.
 - `/interrupt` requests interruption of the active Codex app-server turn. Claude Code channels return an unsupported notice.
-- `/queue` shows the active request and pending FIFO requests for the current Discord channel.
+- `/queue prompt:<instruction>` explicitly keeps an instruction out of the active turn and appends it to the per-channel FIFO queue. With no prompt, `/queue` shows the active and pending requests.
 - `/queue-clear` removes pending requests while leaving the active request running.
 - `/where` and `/status` show bridge channel status, including channel mode, computer, workspace, cwd, linked session, and model preference.
 - `/browse` opens the current directory browser UI.
@@ -146,7 +146,7 @@ In Codex and Claude Code threads, only agent-authored intermediate commentary is
 
 Long final answers from Discord-initiated Codex and Claude Code turns are split at paragraph, newline, or word boundaries and posted in order instead of being replaced by a text attachment. Fenced code blocks are balanced across message boundaries. Continuation messages do not mention the operator role; the completion/failure notice is sent after all answer chunks and carries the mention.
 
-Ordinary messages received while an agent turn is active remain in the channel FIFO queue; they are not treated as implicit steering. Bot-authored progress and result messages are rejected before the queue. When another agent request is pending, successful intermediate turns do not emit a completion mention; the role is mentioned once after the final queued turn. Failures and approval requests still notify immediately.
+Ordinary messages received while a Codex app-server turn is active are sent to that turn as implicit steering. Use `/queue prompt:<instruction>` when the instruction must wait for a separate next turn. If no active turn exists, or a steering attempt loses a completion race, the message falls back to the channel FIFO queue so it is not lost. Claude Code headless turns cannot be steered, so their ordinary follow-ups remain FIFO requests. Bot-authored progress and result messages are rejected before either path. When another agent request is pending, successful intermediate turns do not emit a completion mention; the role is mentioned once after the final queued turn. Failures and approval requests still notify immediately.
 
 `/status` and `where` bypass the per-channel FIFO queue. The status card reports `running`, `waiting-for-approval`, or `idle`, along with the active request summary, start time, elapsed time, latest activity, and pending request count. This makes it possible to inspect a long-running turn without waiting for that turn to finish.
 

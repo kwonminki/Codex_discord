@@ -21,6 +21,7 @@ export type RoutedDiscordMessage =
   | { type: "claude-chat"; content: string }
   | { type: "fork-session"; name: string }
   | { type: "queue-status" }
+  | { type: "queue-prompt"; content: string }
   | { type: "queue-clear" }
   | { type: "codex-steer"; content: string }
   | { type: "codex-interrupt" }
@@ -403,7 +404,14 @@ function parseForkSessionCommand(content: string): { name: string } | null {
 }
 
 function parseQueueControlCommand(content: string): RoutedDiscordMessage | null {
-  const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
+  const command = content.trim().replace(/^\/+/, "");
+  const normalized = command.replace(/\s+/g, " ");
+
+  const queuedPrompt = command.match(/^queue\s+prompt\s*:\s*([\s\S]+)$/i)?.[1]?.trim();
+
+  if (queuedPrompt) {
+    return { type: "queue-prompt", content: queuedPrompt };
+  }
 
   if (/^(?:queue|queue-status)$/i.test(normalized)) {
     return { type: "queue-status" };

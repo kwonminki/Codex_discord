@@ -1647,7 +1647,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const sessionSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Session slash commands",
     value: codeBlock(
-      "/codex prompt:README 요약해줘\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
+      "/codex prompt:README 요약해줘\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue prompt:현재 작업 뒤에 테스트 실행\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
       "text",
     ),
     inline: false,
@@ -1665,7 +1665,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Claude Code",
-      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. `/queue`와 `/queue-clear`는 사용할 수 있지만 `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. 실행 중 일반 메시지와 `/queue prompt:<요청>`은 다음 turn으로 대기합니다. prompt 없는 `/queue`는 상태를 보여주며, `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
       inline: false,
     },
     {
