@@ -1207,6 +1207,14 @@ async function runPromptAgainstAppServer(input: {
 
           if (openedThreadId) {
             await emitThreadStarted(openedThreadId);
+
+            const requestedSessionName = input.input.sessionName?.trim();
+            if (input.input.forkSession && requestedSessionName) {
+              await request("thread/name/set", {
+                threadId: openedThreadId,
+                name: requestedSessionName,
+              });
+            }
           } else if (input.input.sessionId && input.input.forkSession) {
             throw new Error("Codex app-server thread/fork did not return a forked thread ID.");
           }

@@ -1641,6 +1641,7 @@ describe("createDiscordMessageHandler", () => {
         payload: expect.objectContaining({
           sessionId: "codex-source-session-1",
           forkSession: true,
+          sessionName: "Refactor branch",
           cwd: "/repo",
           reasoningEffort: "xhigh",
         }),

@@ -438,6 +438,11 @@ describe("runCodexAppServerPrompt", () => {
             return;
           }
 
+          if (message.method === "thread/name/set") {
+            socket.send(JSON.stringify({ id: message.id, result: {} }));
+            return;
+          }
+
           if (message.method === "turn/start") {
             socket.send(
               JSON.stringify({
@@ -493,6 +498,7 @@ describe("runCodexAppServerPrompt", () => {
         timeoutMs: 5_000,
         sessionId: "source-thread-1",
         forkSession: true,
+        sessionName: "Refactor branch",
         appServerSocketPath: socketPath,
         onProgress: (event) => {
           events.push(event);
@@ -522,6 +528,13 @@ describe("runCodexAppServerPrompt", () => {
             }),
           }),
           expect.objectContaining({
+            method: "thread/name/set",
+            params: {
+              threadId: "fork-thread-1",
+              name: "Refactor branch",
+            },
+          }),
+          expect.objectContaining({
             method: "turn/start",
             params: expect.objectContaining({
               threadId: "fork-thread-1",
@@ -529,6 +542,11 @@ describe("runCodexAppServerPrompt", () => {
           }),
         ]),
       );
+      const forkIndex = received.findIndex((entry) => entry.method === "thread/fork");
+      const nameIndex = received.findIndex((entry) => entry.method === "thread/name/set");
+      const turnIndex = received.findIndex((entry) => entry.method === "turn/start");
+      expect(forkIndex).toBeLessThan(nameIndex);
+      expect(nameIndex).toBeLessThan(turnIndex);
       expect(received.some((entry) => entry.method === "thread/resume")).toBe(false);
     } finally {
       wsServer.close();

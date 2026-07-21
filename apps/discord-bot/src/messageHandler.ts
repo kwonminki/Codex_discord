@@ -1695,6 +1695,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
               sessionId: sourceSessionId,
               forkSession: true,
+              sessionName: forkThread.threadName,
               model: codexModelsByChannel.get(message.channelId) ?? null,
               reasoningEffort: reasoningEffortForChannel(message.channelId),
               controlKey: forkThread.discordChannelId,
