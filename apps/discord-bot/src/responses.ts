@@ -3135,31 +3135,6 @@ function renderProgressEvent(event: string): string {
   return trimmedEvent;
 }
 
-function isOpenableCodexSessionId(sessionId: string | null): sessionId is string {
-  return typeof sessionId === "string" && /^[0-9a-f-]{32,36}$/i.test(sessionId);
-}
-
-function codexOpenSessionActions(sessionId: string | null): DiscordActionRowPayload[] {
-  if (!isOpenableCodexSessionId(sessionId)) {
-    return [];
-  }
-
-  return [
-    actionRow([
-      button({
-        customId: `${COMPONENT_IDS.codexOpenSessionPrefix}${sessionId.toLowerCase()}`,
-        label: "Codex 앱에서 열기",
-        style: BUTTON_STYLES.primary,
-      }),
-      button({
-        customId: `${COMPONENT_IDS.codexRestartOpenSessionPrefix}${sessionId.toLowerCase()}`,
-        label: "앱 재시작 후 열기",
-        style: BUTTON_STYLES.danger,
-      }),
-    ]),
-  ];
-}
-
 function codexProgressText(
   input: CodexProgressMessageInput,
   progress: CodexProgressState,
@@ -3501,7 +3476,6 @@ export function formatCodexResultUpdate(
   const mediaLinkOutputs = failed ? { attachments: [], notices: [] } : extractLocalMediaLinkOutputs(messageAfterDiscordSendBlocks);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
   const currentAgentLabel = agentLabel(input);
-  const openSessionActions = currentAgentLabel === "Codex" ? codexOpenSessionActions(sessionId) : [];
 
   if (!failed) {
     const attachedFileCount =
@@ -3547,7 +3521,6 @@ export function formatCodexResultUpdate(
           description: finalTextForDiscord,
         },
       ],
-      ...(openSessionActions.length > 0 ? { components: openSessionActions } : {}),
     };
 
     if (finalFiles.length > 0) {
@@ -3566,7 +3539,7 @@ export function formatCodexResultUpdate(
     color: COLORS.failure,
     description: truncateDescription(sanitizeDiscordMarkdown(finalMessage)),
     fields,
-  }, openSessionActions);
+  });
 
   return payload;
 }

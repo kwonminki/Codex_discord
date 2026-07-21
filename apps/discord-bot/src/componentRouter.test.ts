@@ -20,12 +20,6 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:fs:up")).toBe("__cdc_exec cd ..");
     expect(routeDiscordComponent("cdc:fs:refresh")).toBe("__cdc_exec __cdc_ls 0");
     expect(routeDiscordComponent("cdc:fs:page:2")).toBe("__cdc_exec __cdc_ls 2");
-    expect(routeDiscordComponent("cdc:codex:open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBe(
-      "__cdc_exec open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
-    );
-    expect(routeDiscordComponent("cdc:codex:restart-open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBe(
-      "__cdc_exec confirm pkill -f '/Applications/Codex.app/Contents/MacOS/ChatGPT' || true; sleep 2; open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'; sleep 5; open 'codex://threads/019db2be-b2b3-7e82-9e61-8c84b28ad287'",
-    );
     expect(routeDiscordComponent("cdc:codex:approval:42:accept-session")).toBe(
       "__cdc_codex_approval 42 acceptForSession",
     );
@@ -38,6 +32,8 @@ describe("routeDiscordComponent", () => {
 
   it("ignores unknown component ids", () => {
     expect(routeDiscordComponent("other-app:sync")).toBeNull();
+    expect(routeDiscordComponent("cdc:codex:open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBeNull();
+    expect(routeDiscordComponent("cdc:codex:restart-open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBeNull();
   });
 
   it("maps file browser select values into safe cd commands", () => {

@@ -24,8 +24,6 @@ export const COMPONENT_IDS = {
   maintenancePanel: "cdc:maintenance:panel",
   codexAsk: "cdc:codex:ask",
   codexSubmit: "cdc:codex:submit",
-  codexOpenSessionPrefix: "cdc:codex:open:",
-  codexRestartOpenSessionPrefix: "cdc:codex:restart-open:",
   codexApprovalPrefix: "cdc:codex:approval:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
@@ -41,20 +39,6 @@ export const COMPONENT_IDS = {
 
 function componentShellCommand(command: string): string {
   return `__cdc_exec ${command}`;
-}
-
-function codexOpenShellCommand(sessionId: string): string {
-  return `open 'codex://threads/${sessionId.toLowerCase()}'`;
-}
-
-function codexRestartOpenShellCommand(sessionId: string): string {
-  return [
-    "pkill -f '/Applications/Codex.app/Contents/MacOS/ChatGPT' || true",
-    "sleep 2",
-    codexOpenShellCommand(sessionId),
-    "sleep 5",
-    codexOpenShellCommand(sessionId),
-  ].join("; ");
 }
 
 function encodedNewChatCommand(input: {
@@ -103,18 +87,6 @@ export function routeDiscordComponent(customId: string, values: string[] = []): 
   if (codexApprovalMatch) {
     const decision = codexApprovalMatch[2] === "accept-session" ? "acceptForSession" : codexApprovalMatch[2];
     return `__cdc_codex_approval ${codexApprovalMatch[1]} ${decision}`;
-  }
-
-  const codexOpenSessionMatch = customId.match(/^cdc:codex:open:([0-9a-f-]{32,36})$/i);
-
-  if (codexOpenSessionMatch) {
-    return componentShellCommand(codexOpenShellCommand(codexOpenSessionMatch[1] ?? ""));
-  }
-
-  const codexRestartOpenSessionMatch = customId.match(/^cdc:codex:restart-open:([0-9a-f-]{32,36})$/i);
-
-  if (codexRestartOpenSessionMatch) {
-    return componentShellCommand(`confirm ${codexRestartOpenShellCommand(codexRestartOpenSessionMatch[1] ?? "")}`);
   }
 
   const pageMatch = customId.match(/^cdc:fs:page:(\d+)$/);

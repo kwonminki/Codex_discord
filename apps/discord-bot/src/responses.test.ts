@@ -455,7 +455,7 @@ describe("responses", () => {
     });
   });
 
-  it("adds an open-in-Codex button when a real session id is present", () => {
+  it("does not add Codex app controls when a real session id is present", () => {
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
     const payload = formatCodexResultUpdate(
       {
@@ -473,15 +473,7 @@ describe("responses", () => {
       },
     );
 
-    expect(payload.components).toEqual([
-      {
-        type: 1,
-        components: [
-          { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
-          { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
-        ],
-      },
-    ]);
+    expect(payload.components).toBeUndefined();
   });
 
   it("splits long Codex final answers into ordered Discord messages", () => {
@@ -558,17 +550,9 @@ describe("responses", () => {
             description: "README는 Discord와 Codex를 연결하는 프로젝트입니다.",
           }),
         ],
-        components: [
-          {
-            type: 1,
-            components: [
-              { type: 2, custom_id: `cdc:codex:open:${sessionId}`, label: "Codex 앱에서 열기", style: 1 },
-              { type: 2, custom_id: `cdc:codex:restart-open:${sessionId}`, label: "앱 재시작 후 열기", style: 4 },
-            ],
-          },
-        ],
       }),
     );
+    expect(payload.components).toBeUndefined();
   });
 
   it("keeps failed Codex answers as diagnostic embeds", () => {
