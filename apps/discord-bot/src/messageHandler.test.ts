@@ -525,8 +525,19 @@ describe("createDiscordMessageHandler", () => {
     await second;
 
     expect(submitCodexPrompt).toHaveBeenCalledTimes(2);
-    expect(sendTextMessage).toHaveBeenCalledTimes(1);
-    expect(sendTextMessage).toHaveBeenCalledWith(
+    expect(sendTextMessage).toHaveBeenCalledTimes(3);
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      1,
+      "thread-1",
+      expect.objectContaining({ content: expect.stringContaining("첫 번째 요청을 처리했습니다.") }),
+    );
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      2,
+      "thread-1",
+      expect.objectContaining({ content: expect.stringContaining("두 번째 요청까지 처리했습니다.") }),
+    );
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      3,
       "thread-1",
       "**Codex 작업 완료**",
       { mentionRoleIds: ["role-operator"] },
@@ -1796,6 +1807,7 @@ describe("createDiscordMessageHandler", () => {
 
   it("posts Codex progress without mentions and mentions the role only on completion", async () => {
     const replies: unknown[] = [];
+    const edits: unknown[] = [];
     const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
     const submitCodexPrompt = vi.fn(async (input) => {
       await input.onProgress?.({ type: "thread-started", sessionId: "session-1" });
@@ -1820,7 +1832,6 @@ describe("createDiscordMessageHandler", () => {
         jobId: "job-1",
         result: {
           status: "completed",
-          finalMessage: "수정을 완료했습니다.",
           sessionId: "session-1",
         },
       };
@@ -1850,7 +1861,7 @@ describe("createDiscordMessageHandler", () => {
       },
       reply: async (payload) => {
         replies.push(payload);
-        return { edit: async () => undefined };
+        return { edit: async (editedPayload) => { edits.push(editedPayload); } };
       },
     });
 
@@ -1858,7 +1869,10 @@ describe("createDiscordMessageHandler", () => {
       allowedMentions: { parse: [] },
       content: expect.not.stringContaining("<@&role-operator>"),
     }));
-    expect(sendTextMessage).toHaveBeenCalledTimes(2);
+    expect(edits.at(-1)).toEqual(expect.objectContaining({
+      content: expect.stringContaining("최종 답변을 아래 새 메시지에 표시했습니다."),
+    }));
+    expect(sendTextMessage).toHaveBeenCalledTimes(3);
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       1,
       "thread-1",
@@ -1869,6 +1883,13 @@ describe("createDiscordMessageHandler", () => {
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       2,
+      "thread-1",
+      expect.objectContaining({
+        content: expect.stringContaining("수정을 완료했습니다."),
+      }),
+    );
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      3,
       "thread-1",
       "**Codex 작업 완료**",
       { mentionRoleIds: ["role-operator"] },
@@ -1925,6 +1946,13 @@ describe("createDiscordMessageHandler", () => {
     );
     expect(sendTextMessage).toHaveBeenNthCalledWith(
       2,
+      "claude-thread-1",
+      expect.objectContaining({
+        content: expect.stringContaining("로그 확인을 마쳤습니다."),
+      }),
+    );
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      3,
       "claude-thread-1",
       "**Claude Code 작업 완료**",
       { mentionRoleIds: ["role-operator"] },

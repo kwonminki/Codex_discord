@@ -42,6 +42,7 @@ import {
   formatForkedSessionThreadNotice,
   formatForkSessionAck,
   formatForkSessionResult,
+  formatAgentResultPosted,
   formatLiveAgentProgress,
   formatMaintenancePanel,
   formatNewChatAck,
@@ -264,9 +265,42 @@ async function updateQueuedResultReply(input: {
   queuedReply: DiscordReplyLike | void;
   fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>;
   payload: DiscordMessagePayload;
+  postAsNewMessage?: boolean;
+  terminalPayload?: DiscordMessagePayload;
 }): Promise<void> {
-  await updateQueuedReply(input.queuedReply, input.fallbackReply, input.payload);
+  if (input.postAsNewMessage && input.message.guild?.sendTextMessage) {
+    if (input.terminalPayload) {
+      try {
+        await updateQueuedReply(input.queuedReply, input.fallbackReply, input.terminalPayload);
+      } catch (error) {
+        console.warn("discord-bot failed to close the progress message before posting the final answer", error);
+      }
+    }
 
+    let postedFinalAnswer = false;
+
+    try {
+      await input.message.guild.sendTextMessage(input.message.channelId, input.payload);
+      postedFinalAnswer = true;
+    } catch (error) {
+      console.warn("discord-bot failed to post the final answer as a new message; falling back to the progress message", error);
+    }
+
+    if (postedFinalAnswer) {
+      await sendResultContinuations(input);
+      return;
+    }
+  }
+
+  await updateQueuedReply(input.queuedReply, input.fallbackReply, input.payload);
+  await sendResultContinuations(input);
+}
+
+async function sendResultContinuations(input: {
+  message: DiscordMessageLike;
+  fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>;
+  payload: DiscordMessagePayload;
+}): Promise<void> {
   for (const continuation of getCodexResultContinuationMessages(input.payload)) {
     if (input.message.guild?.sendTextMessage) {
       try {
@@ -277,7 +311,11 @@ async function updateQueuedResultReply(input: {
       }
     }
 
-    await input.fallbackReply(continuation);
+    try {
+      await input.fallbackReply(continuation);
+    } catch (error) {
+      console.warn("discord-bot failed to send a final-answer continuation", error);
+    }
   }
 }
 
@@ -366,6 +404,31 @@ function extractCodexResponseFinalMessage(response: { result?: unknown; error?: 
     typeof (response.result as { finalMessage?: unknown }).finalMessage === "string"
     ? (response.result as { finalMessage: string }).finalMessage
     : null;
+}
+
+function withAgentMessageFallback<T extends { result?: unknown; error?: unknown }>(
+  response: T,
+  latestAgentMessage: string | null,
+): T {
+  const fallback = latestAgentMessage?.trim();
+
+  if (!fallback || response.error || typeof response.result !== "object" || response.result === null) {
+    return response;
+  }
+
+  const finalMessage = (response.result as { finalMessage?: unknown }).finalMessage;
+
+  if (typeof finalMessage === "string" && finalMessage.trim().length > 0) {
+    return response;
+  }
+
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      finalMessage: fallback,
+    },
+  };
 }
 
 function claudeForkPrompt(name: string): string {
@@ -1480,6 +1543,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       const queuedReply = await reply(formatCodexAck(claudeMessage));
       let recentEvents: string[] = [];
+      let latestAgentMessage: string | null = null;
       let streamedSessionId =
         claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null;
       const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Claude Code" });
@@ -1496,6 +1560,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           },
           onProgress: async (event) => {
             touchChannelActivity(message.channelId);
+            if (event.type === "agent-message" && event.text?.trim()) {
+              latestAgentMessage = event.text.trim();
+            }
+
             if (event.type === "thread-started") {
               streamedSessionId = event.sessionId;
               recentEvents = appendProgressEvent(recentEvents, "생각중...");
@@ -1532,7 +1600,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           },
         });
         progressReporter.finish();
+        const responseForDisplay = withAgentMessageFallback(response, latestAgentMessage);
         const responseSessionId = extractCodexResponseSessionId(response);
+        const responseFailed = promptResponseFailed(response);
 
         if (responseSessionId) {
           claudeSessionIdsByChannel.set(message.channelId, responseSessionId);
@@ -1546,9 +1616,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(claudeMessage, response, { recentEvents }),
+          payload: formatCodexResultUpdate(claudeMessage, responseForDisplay, { recentEvents }),
+          postAsNewMessage: channelContext.discordDeliveryMode === "thread",
+          terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: responseFailed }),
         });
-        const responseFailed = promptResponseFailed(response);
         await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1564,6 +1635,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }, { recentEvents }),
+          postAsNewMessage: channelContext.discordDeliveryMode === "thread",
+          terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: true }),
         });
         await sendThreadCompletionMention({
           message,
@@ -1597,6 +1670,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       const queuedReply = await reply(formatCodexAck(codexMessage));
       const activeStreamingSessionIds = new Set<string>();
       let recentEvents: string[] = [];
+      let latestAgentMessage: string | null = null;
       const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Codex" });
 
       try {
@@ -1657,6 +1731,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             }
 
             if (event.type === "agent-message") {
+              if (event.text?.trim()) {
+                latestAgentMessage = event.text.trim();
+              }
               recentEvents = appendProgressEvent(recentEvents, readableProgressEvent(event));
               await progressReporter.publish(event);
               await updateQueuedReply(
@@ -1703,6 +1780,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           onApprovalRequest: (request) => requestCodexApproval(replyWithRoleMentions, message.channelId, request),
         });
         progressReporter.finish();
+        const responseForDisplay = withAgentMessageFallback(response, latestAgentMessage);
         const nextSessionId = extractCodexResponseSessionId(response);
 
         if (nextSessionId) {
@@ -1737,13 +1815,15 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
+        const responseFailed = promptResponseFailed(response);
         await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, response, { recentEvents }),
+          payload: formatCodexResultUpdate(codexMessage, responseForDisplay, { recentEvents }),
+          postAsNewMessage: channelContext.discordDeliveryMode === "thread",
+          terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: responseFailed }),
         });
-        const responseFailed = promptResponseFailed(response);
         const completionDelivery = await sendThreadCompletionMention({
           message,
           channelContext,
@@ -1780,6 +1860,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }, { recentEvents }),
+          postAsNewMessage: channelContext.discordDeliveryMode === "thread",
+          terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: true }),
         });
         await sendThreadCompletionMention({
           message,

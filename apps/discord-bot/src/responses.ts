@@ -3219,6 +3219,16 @@ export function formatLiveAgentProgress(input: {
   return textPayload(`**${input.agentLabel} 진행**\n${input.text}`);
 }
 
+export function formatAgentResultPosted(input: {
+  agentLabel: "Codex" | "Claude Code";
+  failed: boolean;
+}): DiscordMessagePayload {
+  return textPayload([
+    `**${input.agentLabel} 요청 처리 ${input.failed ? "실패" : "완료"}**`,
+    input.failed ? "오류 내용을 아래 새 메시지에 표시했습니다." : "최종 답변을 아래 새 메시지에 표시했습니다.",
+  ].join("\n"));
+}
+
 export function getCodexProgressView(payload: DiscordMessagePayload): CodexProgressView | null {
   return codexProgressViews.get(payload) ?? null;
 }
