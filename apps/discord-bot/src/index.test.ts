@@ -27,6 +27,7 @@ describe("bot entrypoint", () => {
       recordBackgroundPollResult,
       resolveBackgroundMaxNormalizedLoad,
       resolveRealtimeIntervalMs,
+      shouldDeferBotRestart,
       shouldRunBackgroundPoll,
       shouldRunRealtimeSessionAutosync,
       shouldSkipBackgroundPolling,
@@ -41,6 +42,9 @@ describe("bot entrypoint", () => {
     expect(resolveBackgroundMaxNormalizedLoad("2", 0.7)).toBe(2);
     expect(shouldSkipBackgroundPolling({ loadAverage: 7, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(true);
     expect(shouldSkipBackgroundPolling({ loadAverage: 3, cpuCount: 10, maxNormalizedLoad: 0.7 })).toBe(false);
+    expect(shouldDeferBotRestart({ activeCount: 1, pendingCount: 0 })).toBe(true);
+    expect(shouldDeferBotRestart({ activeCount: 0, pendingCount: 1 })).toBe(true);
+    expect(shouldDeferBotRestart({ activeCount: 0, pendingCount: 0 })).toBe(false);
 
     const pollState = createBackgroundPollState(1_000, 5_000);
     expect(shouldRunBackgroundPoll(pollState, 1_000)).toBe(true);

@@ -2757,7 +2757,11 @@ describe("createDiscordMessageHandler", () => {
       },
     });
 
-    expect(reloadBot).toHaveBeenCalledWith({ mode: "commands" });
+    expect(reloadBot).toHaveBeenCalledWith({
+      mode: "commands",
+      execution: { activeCount: 0, pendingCount: 0 },
+      force: false,
+    });
     expect(replies).toEqual([
       expect.objectContaining({
         embeds: [expect.objectContaining({ title: "Bot reload started" })],
@@ -2801,6 +2805,173 @@ describe("createDiscordMessageHandler", () => {
         components: expect.any(Array),
       }),
     ]);
+  });
+
+  it("defers a confirmed restart until active work and queued requests finish", async () => {
+    let finishActiveCommand: (value: unknown) => void = () => {
+      throw new Error("active command was not started");
+    };
+    const submitCommandJob = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          finishActiveCommand = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        jobId: "job-2",
+        result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+      });
+    const reloadBot = vi.fn().mockImplementation(
+      async ({ mode, execution }: {
+        mode: "commands" | "restart";
+        execution: { activeCount: number; pendingCount: number };
+      }) => {
+        const deferred = mode === "restart" && (execution.activeCount > 0 || execution.pendingCount > 0);
+        return {
+          mode,
+          commandCount: 18,
+          restarting: mode === "restart" && !deferred,
+          deferred,
+          ...execution,
+          startedAt: "2026-04-23T12:00:00.000Z",
+        };
+      },
+    );
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      reloadBot,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const message = (channelId: string, content: string, replies: unknown[] = []) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId,
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return {
+          edit: async (nextPayload: unknown) => {
+            replies.push(nextPayload);
+          },
+        };
+      },
+    });
+
+    const active = handleMessage(message("work-thread", "pwd"));
+    await vi.waitFor(() => expect(submitCommandJob).toHaveBeenCalledTimes(1));
+    const pending = handleMessage(message("work-thread", "ls"));
+    const reloadReplies: unknown[] = [];
+
+    await handleMessage(message("admin-thread", "reload restart confirm", reloadReplies));
+
+    expect(reloadBot).toHaveBeenNthCalledWith(1, {
+      mode: "restart",
+      execution: { activeCount: 1, pendingCount: 1 },
+      force: false,
+    });
+    expect(reloadReplies).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Bot restart deferred" })],
+      }),
+    ]));
+
+    const blockedReplies: unknown[] = [];
+    await handleMessage(message("new-thread", "echo should-not-run", blockedReplies));
+    expect(blockedReplies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Bot restart pending" })],
+      }),
+    ]);
+
+    finishActiveCommand({
+      jobId: "job-1",
+      result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+    });
+    await active;
+    await pending;
+    await vi.waitFor(() => expect(reloadBot).toHaveBeenCalledTimes(2));
+
+    expect(reloadBot).toHaveBeenNthCalledWith(2, {
+      mode: "restart",
+      execution: { activeCount: 0, pendingCount: 0 },
+      force: false,
+    });
+    expect(submitCommandJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a forced restart to override a deferred restart while work is active", async () => {
+    let finishActiveCommand: (value: unknown) => void = () => {
+      throw new Error("active command was not started");
+    };
+    const submitCommandJob = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        finishActiveCommand = resolve;
+      }),
+    );
+    const reloadBot = vi.fn().mockImplementation(
+      async ({ mode, execution, force }: {
+        mode: "commands" | "restart";
+        execution: { activeCount: number; pendingCount: number };
+        force: boolean;
+      }) => {
+        const deferred = mode === "restart" && !force && execution.activeCount > 0;
+        return {
+          mode,
+          commandCount: 18,
+          restarting: mode === "restart" && !deferred,
+          deferred,
+          forced: force,
+          ...execution,
+          startedAt: "2026-04-23T12:00:00.000Z",
+        };
+      },
+    );
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt: vi.fn(),
+      syncCodexSessions: vi.fn(),
+      reloadBot,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const message = (channelId: string, content: string) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId,
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    const active = handleMessage(message("work-thread", "pwd"));
+    await vi.waitFor(() => expect(submitCommandJob).toHaveBeenCalledTimes(1));
+    await handleMessage(message("admin-thread", "reload restart confirm"));
+    await handleMessage(message("admin-thread", "reload restart force confirm"));
+
+    expect(reloadBot).toHaveBeenNthCalledWith(1, {
+      mode: "restart",
+      execution: { activeCount: 1, pendingCount: 0 },
+      force: false,
+    });
+    expect(reloadBot).toHaveBeenNthCalledWith(2, {
+      mode: "restart",
+      execution: { activeCount: 1, pendingCount: 0 },
+      force: true,
+    });
+
+    finishActiveCommand({
+      jobId: "job-1",
+      result: { status: "completed", stdout: "", stderr: "", exitCode: 0 },
+    });
+    await active;
+    expect(reloadBot).toHaveBeenCalledTimes(2);
   });
 
   it("shows a selectable Codex session sync picker", async () => {

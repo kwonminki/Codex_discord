@@ -162,7 +162,7 @@ Use `/sync-mode`, `sync mode on-chat`, or `sync mode realtime` to choose transcr
 
 For orientation, run `/where` in any managed channel before executing commands. In an admin channel, run `/sync-status` or `sync status` to check whether state cleanup or selective sync is needed. In a session channel, run `/status` to confirm the linked Codex session and model preference.
 
-To update the bot from Discord, run `reload` for a safe slash-command refresh. Run `reload restart` first if you want the confirmation card, or `reload restart confirm` to restart immediately. Restart automation is handled by `pnpm connect start --direct` and `pnpm connect start --hub`; a bot launched directly with `pnpm dev:bot` will exit and must be started again from the terminal.
+To update the bot from Discord, run `reload` for a slash-command refresh. Run `reload restart` for the confirmation card or `reload restart confirm` to request a draining restart. A draining restart rejects new work, keeps approval/status/queue/interrupt controls available, and restarts automatically after active work and queued requests finish. Use `reload restart force confirm` only when interrupting those jobs is intentional. Direct `systemctl restart`, `launchctl kickstart -k`, and host reboot bypass this guard. Restart automation is handled by `pnpm connect start --direct` and `pnpm connect start --hub`; a bot launched directly with `pnpm dev:bot` will exit and must be started again from the terminal.
 
 For Discord-only bot maintenance, use the admin `유지보수` panel: open `봇 개발 채팅`, ask Codex to make the change in the created session channel, run `타입체크`, run `테스트 실행`, then use `명령어 재등록` for slash-command-only changes or `봇 재시작` for code changes.
 

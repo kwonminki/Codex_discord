@@ -490,7 +490,7 @@ Git과 테스트 결과에도 작업 버튼이 붙습니다.
 - `타입체크`: `pnpm typecheck`를 실행합니다.
 - `테스트 실행`: `pnpm test`를 실행합니다.
 - `명령어 재등록`: 코드 변경 없이 slash command만 다시 등록합니다.
-- `봇 재시작`: 실행 중인 봇 프로세스를 재시작 요청합니다. `cdc start` 또는 `pnpm connect start`로 실행 중일 때 사용하세요.
+- `봇 재시작`: 새 작업 유입을 막고 실행 중 작업과 대기열이 끝난 뒤 봇 프로세스를 재시작합니다. `cdc start` 또는 `pnpm connect start`로 실행 중일 때 사용하세요.
 
 ## 봇 업데이트
 
@@ -507,6 +507,15 @@ reload
 reload restart confirm
 /reload mode:restart confirm:true
 ```
+
+기본 재시작은 다른 채널의 활성 작업과 대기열이 모두 끝날 때까지 자동으로 보류되며, 보류 중에는 권한 응답과 `/status`, `/queue`, `/interrupt` 같은 제어 명령만 받습니다. 작업 손실을 감수하고 즉시 재시작해야 한다면 아래 강제 명령을 사용합니다.
+
+```text
+reload restart force confirm
+/reload mode:restart force:true confirm:true
+```
+
+`systemctl restart`, `launchctl kickstart -k`, 서버 재부팅은 이 drain 보호를 거치지 않으며 실행 중인 Codex/Claude와 하위 프로세스를 종료할 수 있습니다.
 
 자동 재시작은 `cdc start --direct`, `cdc start --hub`, `pnpm connect start --direct`, `pnpm connect start --hub`로 실행 중일 때 동작합니다. `pnpm dev:bot`로 직접 실행 중이면 프로세스가 종료되므로 터미널에서 다시 시작해야 합니다.
 
@@ -641,6 +650,8 @@ where
 ```text
 reload restart confirm
 ```
+
+이 명령은 실행 중 작업이 있으면 완료될 때까지 기다립니다. 즉시 중단하고 재시작하려면 `reload restart force confirm`을 사용합니다.
 
 ## 참고 문서
 

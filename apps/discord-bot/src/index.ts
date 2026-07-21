@@ -43,7 +43,7 @@ import {
   registerDiscordApplicationCommands,
 } from "./discordClient.js";
 import { createDiscordMessageHandler } from "./messageHandler.js";
-import type { DiscordOutgoingMessage } from "./messageHandler.js";
+import type { BotReloadExecutionState, DiscordOutgoingMessage } from "./messageHandler.js";
 import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js";
 
 export const BOT_RELOAD_EXIT_CODE = 42;
@@ -100,6 +100,10 @@ export function shouldSkipBackgroundPolling(input: {
   }
 
   return input.loadAverage / input.cpuCount >= input.maxNormalizedLoad;
+}
+
+export function shouldDeferBotRestart(execution: BotReloadExecutionState): boolean {
+  return execution.activeCount > 0 || execution.pendingCount > 0;
 }
 
 export interface BackgroundPollState {
@@ -478,10 +482,15 @@ export async function startBot(): Promise<void> {
           return { mode };
         }
       : undefined;
-  const reloadBot = async (input: { mode: "commands" | "restart" }) => {
+  const reloadBot = async (input: {
+    mode: "commands" | "restart";
+    execution: BotReloadExecutionState;
+    force: boolean;
+  }) => {
     await registerDiscordApplicationCommands(client, connectConfig?.discord.guildId);
+    const deferred = input.mode === "restart" && !input.force && shouldDeferBotRestart(input.execution);
 
-    if (input.mode === "restart") {
+    if (input.mode === "restart" && !deferred) {
       setTimeout(() => {
         process.exit(BOT_RELOAD_EXIT_CODE);
       }, 1_500).unref();
@@ -490,7 +499,11 @@ export async function startBot(): Promise<void> {
     return {
       mode: input.mode,
       commandCount: DISCORD_APPLICATION_COMMANDS.length,
-      restarting: input.mode === "restart",
+      restarting: input.mode === "restart" && !deferred,
+      deferred,
+      forced: input.mode === "restart" && input.force,
+      activeCount: input.execution.activeCount,
+      pendingCount: input.execution.pendingCount,
       startedAt,
     };
   };

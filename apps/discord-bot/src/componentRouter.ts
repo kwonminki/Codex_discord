@@ -39,6 +39,7 @@ export const COMPONENT_IDS = {
   verifyTypecheck: "cdc:verify:typecheck",
   reloadCommands: "cdc:reload:commands",
   reloadRestartConfirm: "cdc:reload:restart:confirm",
+  reloadRestartForceConfirm: "cdc:reload:restart:force:confirm",
 } as const;
 
 function componentShellCommand(command: string): string {
@@ -242,6 +243,8 @@ export function routeDiscordComponent(customId: string, values: string[] = []): 
       return "reload commands";
     case COMPONENT_IDS.reloadRestartConfirm:
       return "reload restart confirm";
+    case COMPONENT_IDS.reloadRestartForceConfirm:
+      return "reload restart force confirm";
     default:
       return null;
   }

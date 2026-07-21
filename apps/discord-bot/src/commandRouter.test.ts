@@ -544,6 +544,7 @@ describe("routeDiscordMessage", () => {
       type: "bot-reload",
       mode: "commands",
       confirmed: true,
+      force: false,
     });
 
     expect(
@@ -557,6 +558,7 @@ describe("routeDiscordMessage", () => {
       type: "bot-reload",
       mode: "restart",
       confirmed: false,
+      force: false,
     });
 
     expect(
@@ -570,6 +572,21 @@ describe("routeDiscordMessage", () => {
       type: "bot-reload",
       mode: "restart",
       confirmed: true,
+      force: false,
+    });
+
+    expect(
+      routeDiscordMessage({
+        channelMode: "shell-admin",
+        content: "reload restart force confirm",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "bot-reload",
+      mode: "restart",
+      confirmed: true,
+      force: true,
     });
   });
 

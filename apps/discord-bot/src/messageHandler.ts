@@ -50,6 +50,7 @@ import {
   formatReloadAck,
   formatReloadConfirmation,
   formatReloadResult,
+  formatRestartDrainPending,
   formatSyncSelection,
   formatSyncSelectionAck,
   formatSyncAck,
@@ -67,6 +68,20 @@ import {
 import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
 export const DEFAULT_CODEX_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
+
+export interface BotReloadExecutionState {
+  activeCount: number;
+  pendingCount: number;
+}
+
+export interface BotReloadResult extends BotReloadExecutionState {
+  mode: "commands" | "restart";
+  commandCount: number;
+  restarting: boolean;
+  deferred?: boolean;
+  forced?: boolean;
+  startedAt: string;
+}
 
 export function resolveCodexPromptTimeoutMs(
   channelTimeoutMs: number,
@@ -172,12 +187,11 @@ export interface CreateDiscordMessageHandlerInput {
     sessionId: string,
     options?: { discordChannelId?: string | null; completionMentionSent?: boolean },
   ) => Promise<void> | void;
-  reloadBot?: (input: { mode: "commands" | "restart" }) => Promise<{
+  reloadBot?: (input: {
     mode: "commands" | "restart";
-    commandCount: number;
-    restarting: boolean;
-    startedAt: string;
-  }>;
+    execution: BotReloadExecutionState;
+    force: boolean;
+  }) => Promise<BotReloadResult>;
   previewSyncedChannelsDelete?: (input: {
     mode: SyncedDeleteMode;
     sessionId?: string | null;
@@ -600,6 +614,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   const claudeSessionIdsByChannel = new Map<string, string>();
   const codexModelsByChannel = new Map<string, string>();
   const codexRunModesByChannel = new Map<string, "fast" | "task">();
+  let deferredRestartRequested = false;
+  let restartScheduled = false;
+  let deferredRestartCheckRunning = false;
+  let deferredRestartNotice: {
+    channelId: string;
+    guild?: DiscordGuildSurface | null;
+    reply: DiscordMessageLike["reply"];
+  } | null = null;
   const pendingCodexApprovals = new Map<
     string,
     {
@@ -608,6 +630,69 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
   >();
   let nextCodexApprovalToken = 1;
+
+  function executionState(excludeActiveMessage?: DiscordMessageLike): BotReloadExecutionState {
+    let activeCount = 0;
+    let pendingCount = 0;
+
+    for (const queue of channelQueues.values()) {
+      if (queue.activeMessage && queue.activeMessage !== excludeActiveMessage) {
+        activeCount += 1;
+      }
+
+      pendingCount += queue.pending.length;
+    }
+
+    return { activeCount, pendingCount };
+  }
+
+  async function sendDeferredRestartNotice(payload: DiscordMessagePayload): Promise<void> {
+    const notice = deferredRestartNotice;
+
+    if (!notice) {
+      return;
+    }
+
+    if (notice.guild?.sendTextMessage) {
+      await notice.guild.sendTextMessage(notice.channelId, payload);
+      return;
+    }
+
+    await notice.reply(payload);
+  }
+
+  async function restartAfterQueueDrain(): Promise<void> {
+    if (
+      !deferredRestartRequested ||
+      restartScheduled ||
+      deferredRestartCheckRunning ||
+      !input.reloadBot
+    ) {
+      return;
+    }
+
+    const execution = executionState();
+
+    if (execution.activeCount > 0 || execution.pendingCount > 0) {
+      return;
+    }
+
+    deferredRestartCheckRunning = true;
+    restartScheduled = true;
+
+    try {
+      const result = await input.reloadBot({ mode: "restart", execution, force: false });
+      await sendDeferredRestartNotice(formatReloadResult({ result }));
+    } catch (error) {
+      restartScheduled = false;
+      deferredRestartRequested = false;
+      await sendDeferredRestartNotice(formatReloadResult({
+        error: { message: error instanceof Error ? error.message : "Deferred bot restart failed" },
+      }));
+    } finally {
+      deferredRestartCheckRunning = false;
+    }
+  }
 
   function touchChannelActivity(channelId: string): void {
     const queue = channelQueues.get(channelId);
@@ -1071,14 +1156,31 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         return;
       }
 
-      const queuedReply = await reply(formatReloadAck({ mode: routed.mode }));
+      const queuedReply = await reply(formatReloadAck({ mode: routed.mode, force: routed.force }));
 
       try {
         if (!input.reloadBot) {
           throw new Error("Bot reload is not connected for this bot mode.");
         }
 
-        const result = await input.reloadBot({ mode: routed.mode });
+        const result = await input.reloadBot({
+          mode: routed.mode,
+          execution: executionState(message),
+          force: routed.force,
+        });
+
+        if (result.deferred) {
+          deferredRestartRequested = true;
+          deferredRestartNotice = {
+            channelId: message.channelId,
+            guild: message.guild,
+            reply: message.reply,
+          };
+        } else if (result.restarting) {
+          deferredRestartRequested = false;
+          restartScheduled = true;
+        }
+
         await updateQueuedReply(
           queuedReply,
           (replyMessage) => reply(replyMessage),
@@ -2073,7 +2175,16 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
-    if (parseCodexApprovalResponse(message.content) || isImmediateQueueControl(message.content)) {
+    const immediateControl = Boolean(
+      parseCodexApprovalResponse(message.content) || isImmediateQueueControl(message.content),
+    );
+
+    if ((deferredRestartRequested || restartScheduled) && !immediateControl) {
+      await message.reply(formatRestartDrainPending());
+      return;
+    }
+
+    if (immediateControl) {
       await processDiscordMessage(message);
       return;
     }
@@ -2149,6 +2260,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       if (queue.pending.length === 0 && channelQueues.get(channelId) === queue) {
         channelQueues.delete(channelId);
       }
+
+      await restartAfterQueueDrain();
     }
   }
 }
@@ -2162,6 +2275,7 @@ function isImmediateQueueControl(content: string): boolean {
   const normalized = content.replace(/\s+/g, " ").trim().replace(/^\/+/, "");
   return /^(?:where|status|context|target|pwd\?|queue-clear|clear-queue|interrupt|stop-current)(?:\s|$)/i.test(normalized)
     || /^(?:queue|queue-status)$/i.test(normalized)
+    || /^(?:bot )?reload restart force confirm$/i.test(normalized)
     || /^steer\s+\S/i.test(normalized);
 }
 

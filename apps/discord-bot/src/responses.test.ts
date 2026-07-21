@@ -1357,7 +1357,13 @@ describe("responses", () => {
           type: 1,
           components: [
             { type: 2, custom_id: "cdc:reload:commands", label: "명령어만 재등록", style: 1 },
-            { type: 2, custom_id: "cdc:reload:restart:confirm", label: "봇 재시작", style: 4 },
+            { type: 2, custom_id: "cdc:reload:restart:confirm", label: "작업 후 재시작", style: 1 },
+            {
+              type: 2,
+              custom_id: "cdc:reload:restart:force:confirm",
+              label: "강제 재시작",
+              style: 4,
+            },
           ],
         },
       ],
@@ -1392,6 +1398,32 @@ describe("responses", () => {
             { name: "Mode", value: "`restart`", inline: true },
             { name: "Slash commands", value: "`18`", inline: true },
             { name: "Restarting", value: "`yes`", inline: true },
+          ]),
+        }),
+      ],
+    });
+
+    expect(
+      formatReloadResult({
+        result: {
+          mode: "restart",
+          commandCount: 18,
+          restarting: false,
+          deferred: true,
+          activeCount: 2,
+          pendingCount: 3,
+          startedAt: "2026-04-23T12:00:00.000Z",
+        },
+      }),
+    ).toEqual({
+      allowedMentions: { parse: [] },
+      embeds: [
+        expect.objectContaining({
+          title: "Bot restart deferred",
+          color: 0xf1c40f,
+          fields: expect.arrayContaining([
+            { name: "Active", value: "`2`", inline: true },
+            { name: "Pending", value: "`3`", inline: true },
           ]),
         }),
       ],

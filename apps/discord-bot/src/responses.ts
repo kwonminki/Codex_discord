@@ -1700,7 +1700,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Careful operations",
       value: codeBlock(
-        "schedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\nschedule weekly mon,wed,fri at 09:30 command:shell pnpm test\nschedule delete <id>\nsync all 25\nsync delete preview\nsync delete session <session-id>\nsync delete session <session-id> confirm\nsync delete all confirm\nreload restart confirm\nconfirm rm path/to/file",
+        "schedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\nschedule weekly mon,wed,fri at 09:30 command:shell pnpm test\nschedule delete <id>\nsync all 25\nsync delete preview\nsync delete session <session-id>\nsync delete session <session-id> confirm\nsync delete all confirm\nreload restart confirm\nreload restart force confirm\nconfirm rm path/to/file",
         "text",
       ),
       inline: false,
@@ -2166,7 +2166,7 @@ export function formatReloadConfirmation(): DiscordMessagePayload {
       title: "Bot restart confirmation",
       color: COLORS.queued,
       description:
-        "봇 프로세스 재시작은 현재 응답을 보낸 뒤 연결을 잠시 끊습니다. `pnpm connect start`로 실행 중이면 자동으로 다시 올라오고, 직접 `pnpm dev:bot`로 실행 중이면 터미널에서 다시 시작해야 합니다.",
+        "기본 재시작은 실행 중 작업과 대기열이 끝날 때까지 기다립니다. 강제 재시작은 Codex/Claude와 그 하위 프로세스를 중단할 수 있습니다.",
       fields: [
         {
           name: "Safer option",
@@ -2189,7 +2189,12 @@ export function formatReloadConfirmation(): DiscordMessagePayload {
         }),
         button({
           customId: COMPONENT_IDS.reloadRestartConfirm,
-          label: "봇 재시작",
+          label: "작업 후 재시작",
+          style: BUTTON_STYLES.primary,
+        }),
+        button({
+          customId: COMPONENT_IDS.reloadRestartForceConfirm,
+          label: "강제 재시작",
           style: BUTTON_STYLES.danger,
         }),
       ]),
@@ -2197,13 +2202,15 @@ export function formatReloadConfirmation(): DiscordMessagePayload {
   );
 }
 
-export function formatReloadAck(input: { mode: "commands" | "restart" }): DiscordMessagePayload {
+export function formatReloadAck(input: { mode: "commands" | "restart"; force?: boolean }): DiscordMessagePayload {
   return messagePayload({
     title: "Bot reload started",
     color: COLORS.queued,
     description:
       input.mode === "restart"
-        ? "Discord slash command를 재등록한 뒤 봇 재시작을 예약합니다."
+        ? input.force
+          ? "Discord slash command를 재등록한 뒤 실행 중 작업을 무시하고 봇을 강제로 재시작합니다."
+          : "Discord slash command를 재등록한 뒤, 기존 작업이 모두 끝나면 봇을 재시작합니다."
         : "Discord slash command를 현재 실행 중인 봇 코드 기준으로 다시 등록합니다.",
     fields: [
       {
@@ -2220,6 +2227,10 @@ export function formatReloadResult(response: {
     mode: "commands" | "restart";
     commandCount: number;
     restarting: boolean;
+    deferred?: boolean;
+    forced?: boolean;
+    activeCount?: number;
+    pendingCount?: number;
     startedAt: string;
   };
   error?: { message: string };
@@ -2232,11 +2243,39 @@ export function formatReloadResult(response: {
     });
   }
 
+  if (response.result.deferred) {
+    return messagePayload({
+      title: "Bot restart deferred",
+      color: COLORS.queued,
+      description:
+        "실행 중이거나 대기 중인 Discord 작업이 있어 재시작을 보류했습니다. 새 작업은 받지 않고 기존 대기열이 모두 끝나면 자동으로 재시작합니다.",
+      fields: [
+        {
+          name: "Active",
+          value: wrapDiscordText(String(response.result.activeCount ?? 0)),
+          inline: true,
+        },
+        {
+          name: "Pending",
+          value: wrapDiscordText(String(response.result.pendingCount ?? 0)),
+          inline: true,
+        },
+        {
+          name: "Process started",
+          value: wrapDiscordText(response.result.startedAt),
+          inline: false,
+        },
+      ],
+    });
+  }
+
   return messagePayload({
     title: "Bot reload complete",
     color: COLORS.success,
     description: response.result.restarting
-      ? "재시작 요청을 보냈습니다. `pnpm connect start`로 실행 중이면 곧 새 프로세스로 돌아옵니다."
+      ? response.result.forced
+        ? "강제 재시작 요청을 보냈습니다. 실행 중 작업과 대기 요청은 중단될 수 있습니다."
+        : "재시작 요청을 보냈습니다. `pnpm connect start`로 실행 중이면 곧 새 프로세스로 돌아옵니다."
       : "Discord slash command 재등록이 완료되었습니다.",
     fields: [
       {
@@ -2254,12 +2293,28 @@ export function formatReloadResult(response: {
         value: wrapDiscordText(response.result.restarting ? "yes" : "no"),
         inline: true,
       },
+      ...(response.result.mode === "restart"
+        ? [{
+            name: "Forced",
+            value: wrapDiscordText(response.result.forced ? "yes" : "no"),
+            inline: true,
+          }]
+        : []),
       {
         name: "Process started",
         value: wrapDiscordText(response.result.startedAt),
         inline: false,
       },
     ],
+  });
+}
+
+export function formatRestartDrainPending(): DiscordMessagePayload {
+  return messagePayload({
+    title: "Bot restart pending",
+    color: COLORS.queued,
+    description:
+      "기존 작업이 끝난 뒤 봇을 재시작하도록 예약되어 있어 새 작업을 받을 수 없습니다. `/status`, `/queue`, `/interrupt`와 권한 응답은 계속 사용할 수 있습니다.",
   });
 }
 

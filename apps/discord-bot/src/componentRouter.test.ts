@@ -72,6 +72,7 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:test:fix")).toBe("codex 테스트 실패를 분석하고 수정해줘. 수정 후 테스트도 다시 실행해줘");
     expect(routeDiscordComponent("cdc:reload:commands")).toBe("reload commands");
     expect(routeDiscordComponent("cdc:reload:restart:confirm")).toBe("reload restart confirm");
+    expect(routeDiscordComponent("cdc:reload:restart:force:confirm")).toBe("reload restart force confirm");
   });
 
   it("maps selected Codex session ids into a selected sync request", () => {

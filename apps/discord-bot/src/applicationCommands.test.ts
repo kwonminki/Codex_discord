@@ -352,6 +352,12 @@ describe("Discord application commands", () => {
     ).toBe("reload restart confirm");
     expect(
       routeDiscordApplicationCommand({
+        commandName: "reload",
+        options: options({ mode: "restart", force: true, confirm: true }),
+      }),
+    ).toBe("reload restart force confirm");
+    expect(
+      routeDiscordApplicationCommand({
         commandName: "clear",
         options: options({ count: 25 }),
       }),

@@ -40,7 +40,7 @@ export type RoutedDiscordMessage =
   | { type: "codex-model"; model: string }
   | { type: "codex-run-mode"; mode: "default" | "fast" | "task" }
   | { type: "codex-review"; prompt: string }
-  | { type: "bot-reload"; mode: "commands" | "restart"; confirmed: boolean }
+  | { type: "bot-reload"; mode: "commands" | "restart"; confirmed: boolean; force: boolean }
   | { type: "admin-clear-messages"; mode: "all" | "count"; count?: number; confirmed: boolean }
   | { type: "admin-sync-delete"; mode: "all" | "channels" | "session"; sessionId?: string | null; confirmed: boolean }
   | { type: "archive-session"; sessionId: string | null; confirmed: boolean }
@@ -582,19 +582,29 @@ function parseAdminSyncMode(content: string): { mode: TranscriptSyncMode } | nul
   };
 }
 
-function parseBotReload(content: string): { mode: "commands" | "restart"; confirmed: boolean } | null {
+function parseBotReload(content: string): {
+  mode: "commands" | "restart";
+  confirmed: boolean;
+  force: boolean;
+} | null {
   const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
-  const match = normalized.match(/^(?:bot )?reload(?: (commands|restart))?(?: (confirm))?$/);
+  const match = normalized.match(/^(?:bot )?reload(?: (commands|restart))?(?: (force))?(?: (confirm))?$/);
 
   if (!match) {
     return null;
   }
 
   const mode = match[1] === "restart" ? "restart" : "commands";
+  const force = mode === "restart" && match[2] === "force";
+
+  if (match[2] === "force" && mode !== "restart") {
+    return null;
+  }
 
   return {
     mode,
-    confirmed: mode === "commands" || match[2] === "confirm",
+    force,
+    confirmed: mode === "commands" || match[3] === "confirm",
   };
 }
 

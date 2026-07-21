@@ -241,6 +241,10 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
         name: "confirm",
         description: "restart 모드 실행을 확정합니다.",
       }),
+      booleanOption({
+        name: "force",
+        description: "실행 중 작업과 대기열을 무시하고 강제로 재시작합니다.",
+      }),
     ],
   },
   {
@@ -613,7 +617,9 @@ export function routeDiscordApplicationCommand(
       }
 
       if (mode === "restart") {
-        return interaction.options.getBoolean?.("confirm") ? "reload restart confirm" : "reload restart";
+        const force = Boolean(interaction.options.getBoolean?.("force"));
+        const confirm = Boolean(interaction.options.getBoolean?.("confirm"));
+        return `reload restart${force ? " force" : ""}${confirm ? " confirm" : ""}`;
       }
 
       return "reload commands";

@@ -263,6 +263,8 @@ connector를 Docker 안에서 돌린다면 host에서 GPU가 보여도 container
 sudo systemctl restart codex-discord-connector
 ```
 
+이 명령은 Discord 봇의 drain 보호를 우회하고 systemd service cgroup의 Codex/Claude 및 하위 프로세스를 종료할 수 있습니다. 작업이 없음을 확인했거나 강제 중단이 필요한 경우에만 직접 사용하세요.
+
 ## 업데이트
 
 Ubuntu 서버에서 connector 코드를 업데이트할 때:
@@ -272,13 +274,18 @@ cd "$HOME/Codes/Codex_discord"
 git pull --ff-only
 pnpm install
 pnpm typecheck
-sudo systemctl restart codex-discord-connector
 ```
 
-Discord에서도 Ubuntu admin channel에서 아래 명령을 사용할 수 있습니다.
+코드를 받은 뒤 Ubuntu admin channel에서 안전 재시작을 요청합니다. 실행 중 작업이나 대기열이 있으면 새 작업을 막고 모두 끝난 뒤 자동으로 재시작합니다.
 
 ```text
 reload restart confirm
+```
+
+작업 손실을 감수하고 즉시 적용해야 할 때만 강제 재시작을 사용합니다.
+
+```text
+reload restart force confirm
 ```
 
 단, 같은 bot token을 여러 서버가 공유 중이면 반드시 Ubuntu 전용 admin channel에서 실행하세요.
