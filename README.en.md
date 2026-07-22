@@ -1,6 +1,14 @@
 # AI Agent Discord Connector
 
+[![Version](https://img.shields.io/github/v/tag/kwonminki/ai-agent-discord-connector?sort=semver&label=version)](https://github.com/kwonminki/ai-agent-discord-connector/tags)
+[![Windows compatibility](https://github.com/kwonminki/ai-agent-discord-connector/actions/workflows/windows-compatibility.yml/badge.svg)](https://github.com/kwonminki/ai-agent-discord-connector/actions/workflows/windows-compatibility.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-%5E20.19%20%7C%7C%20%3E%3D22.12-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Ubuntu-555555)](#multiple-computers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 [한국어](README.md) | English
+
+**Current stable version: v1.0.0**
 
 A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads**.
 
