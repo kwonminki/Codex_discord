@@ -14,6 +14,8 @@ A personal bridge for using **AI agents such as Codex and Claude Code running on
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
+Connect Codex only, Claude Code only, or both. The connector does not assume either one is the fixed primary agent; when both are enabled, the parent channel receiving the message determines which agent handles it.
+
 > This bot can modify files and execute commands on connected computers. Use it only in a trusted private Discord server and on machines you control.
 
 ## Get started
@@ -27,7 +29,7 @@ Read this repository's AI Agent Guide first, then install and configure it on my
 Ask me only for required account actions, one step at a time, and configure and verify everything else yourself.
 ```
 
-The agent detects the conversation language and operating system, then configures Discord resources and local services. After the first computer is ready, it will ask whether you want to connect any additional macOS, Windows, or Ubuntu machines.
+The agent detects the conversation language and operating system, asks whether to connect Codex, Claude Code, or both, then configures only the required Discord channels and local services. After the first computer is ready, it will ask whether you want to connect any additional macOS, Windows, or Ubuntu machines.
 
 ## Supported languages
 
@@ -45,6 +47,8 @@ The installation agent selects the language automatically from the conversation.
 ### New chat
 
 Run `/chat-new` in a Codex or Claude Code parent channel to create a Discord thread and agent session.
+
+When both are enabled, a thread created under the Codex parent continues with Codex, while one created under the Claude Code parent continues with Claude Code. There is no global primary agent.
 
 ```text
 /chat-new name:Fix login bug
@@ -122,7 +126,7 @@ One private Discord server can connect several macOS, Windows, and Ubuntu machin
 Connect another Windows computer to this Discord connector.
 ```
 
-The agent asks for the machine type, connection method, workspace, and whether to enable Codex and Claude Code. It then reuses the existing Discord setup while creating separate channels and services for that machine.
+The agent asks for the machine type, connection method, workspace, and agent combination: Codex only, Claude Code only, or both. It then reuses the existing Discord setup while creating the required channels and services for that machine.
 
 ## Important notes
 

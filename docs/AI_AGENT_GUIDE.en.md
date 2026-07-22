@@ -16,13 +16,14 @@ When a user gives you this repository URL, work in this order:
 2. Inspect the current branch, commit, dirty worktree, running bot and worker services, and active jobs before changing anything.
 3. Compare this guide with the current code, `package.json`, `.env.example`, `.connect/config.json`, and installed service definitions.
 4. Prefer Direct mode. It does not expose an inbound Control API.
-5. Use `CODEX_DISCORD_CODEX_RUNNER=app-server` unless an old Codex CLI requires compatibility mode.
-6. Run the Discord gateway and Direct Worker as separate LaunchAgent, systemd, or Windows Scheduled Task services. Restarting the bot must not kill active agent jobs.
-7. Preserve user changes, secrets, state, queues, transcripts, and active jobs. Never commit `.env`, `.connect/`, tokens, or transcripts.
-8. Ask the user only for account actions or values that cannot be discovered safely. Never echo a token in output, logs, or commit messages.
-9. Run `pnpm typecheck` and the platform test suite after installation: `pnpm test` on macOS/Linux and `pnpm test:windows` on native Windows. Also verify services, the Discord ready log, and a short round trip.
-10. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
-11. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
+5. Before planning channels or CLIs, determine whether the user wants Codex only, Claude Code only, or both. Never assume either one is the fixed primary agent.
+6. When Codex is enabled, use `CODEX_DISCORD_CODEX_RUNNER=app-server` unless an old Codex CLI requires compatibility mode.
+7. Run the Discord gateway and Direct Worker as separate LaunchAgent, systemd, or Windows Scheduled Task services. Restarting the bot must not kill active agent jobs.
+8. Preserve user changes, secrets, state, queues, transcripts, and active jobs. Never commit `.env`, `.connect/`, tokens, or transcripts.
+9. Ask the user only for account actions or values that cannot be discovered safely. Never echo a token in output, logs, or commit messages.
+10. Run `pnpm typecheck` and the platform test suite after installation: `pnpm test` on macOS/Linux and `pnpm test:windows` on native Windows. Also verify services, the Discord ready log, and a short round trip for every enabled agent.
+11. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
+12. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
 
 ## Language selection
 
@@ -91,8 +92,8 @@ After the bot has joined, use the Discord API and the existing token to configur
 1. Query bot identity and joined guilds. Auto-select only when there is one; otherwise ask the user to choose by server name.
 2. Identify the Discord user who should receive the Operator role.
 3. Reuse or create an `AI Agent Operator` role and assign it. A legacy `Codex Operator` role from an existing installation may be reused instead of creating a duplicate. Verify that the bot role is above it.
-4. Ask only for the computer display name, workspace root, and whether Claude Code is needed.
-5. Create a computer category, AI agent/admin parent channel, and optional Claude Code parent channel.
+4. Ask only for the computer display name, workspace root, and agent combination: Codex only, Claude Code only, or both. Do not force either agent to be designated as primary.
+5. Create a computer category and generic AI agent/admin channel. Use that admin channel as the Codex parent when Codex is enabled, and create a separate Claude Code parent when Claude Code is enabled. A Claude-only installation still keeps the generic admin channel for operations.
 6. Apply permission overwrites for the bot and Operator role. Do not expose execution channels to unrelated members.
 7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
 8. Register guild slash commands.
@@ -103,7 +104,7 @@ Before creating anything, search for matching roles, categories, channels, and w
 
 ### 5. Install services
 
-Clone the repository, install dependencies, generate Direct mode configuration, verify Codex and optional Claude Code, register separate bot and worker services, and run smoke tests. Use LaunchAgent on macOS, systemd on Ubuntu, and separate Scheduled Tasks on native Windows.
+Clone the repository, install dependencies, generate Direct mode configuration, verify the selected Codex and/or Claude Code CLI, register separate bot and worker services, and run smoke tests. Do not install or log in to an agent the user did not select. Use LaunchAgent on macOS, systemd on Ubuntu, and separate Scheduled Tasks on native Windows.
 
 On a dedicated private server, the agent sets the guild default notification level to **Only @mentions**, so there is normally no final manual notification step. A bot cannot change a user's per-channel notification override. Ask the user to reset a channel manually only when an existing override still enables all-message notifications.
 
@@ -114,28 +115,28 @@ For an existing manually managed Discord layout:
 - Discord Bot Token
 - Guild/Server ID
 - One or more Operator Role IDs
-- Per-machine AI agent/admin Channel ID
+- Per-machine AI agent/admin Channel ID; this also serves as the Codex parent when Codex is enabled
 - Workspace root and initial working directory
 
 Optional:
 
-- Per-machine Claude Code Channel ID
+- Per-machine Claude Code Channel ID when Claude Code is enabled
 - Computer and workspace display names
-- A custom `CODEX_HOME`
+- A custom `CODEX_HOME` when Codex is enabled
 - A narrower sandbox and approval policy
 
-The same bot token may be used by multiple computers, but their Codex and Claude parent channel IDs must never overlap.
+The same bot token may be used by multiple computers, but enabled agent parent channel IDs must never overlap. There is no global primary-agent setting; the parent channel determines Codex or Claude Code routing.
 
 ### Installation completion criteria
 
 - `.connect/config.json` and `.env` exist and are ignored by Git.
-- `codex --version` works; `claude --version` works when Claude is enabled.
-- Codex app-server can start.
+- Every enabled agent CLI works: `codex --version` for Codex and `claude --version` for Claude Code.
+- Codex app-server can start when Codex is enabled.
 - Bot and worker have different services and PIDs.
 - Bot log contains `Discord bot ready as ...`.
 - Worker log contains `direct-worker ready with PID ...`.
-- `/status`, `/chat-new`, and a short Codex round trip work.
-- Steering, `/queue prompt:...`, `/howtouse`, and `/fork` pass smoke tests.
+- `/status`, `/chat-new`, and a short round trip work for every enabled agent.
+- `/queue prompt:...`, `/howtouse`, and `/fork` pass for every enabled agent; live steering is tested only for Codex, which supports it.
 - Restarting only the bot preserves the worker PID and any active job.
 
 ## Additional-machine onboarding
@@ -149,19 +150,19 @@ If so, I will ask for its type and connection method one step at a time, then re
 
 When the user wants another installation, collect details one machine at a time in this order:
 
-1. Determine whether it is macOS, Windows, or Ubuntu and whether it is a physical machine, VM, or container. On Windows, choose native PowerShell or WSL2 according to where the project and Codex sessions actually live.
+1. Determine whether it is macOS, Windows, or Ubuntu and whether it is a physical machine, VM, or container. On Windows, choose native PowerShell or WSL2 according to where the project and selected agent sessions actually live.
 2. Ask whether to reuse the same private Discord server and bot application. Reuse the existing Guild, bot token, and Operator role unless the user requests a separate Discord server.
 3. Ask for a recognizable computer display name and its primary purpose, such as `Personal Mac`, `B200 8GPU`, or `Build Server`.
 4. Determine the connection method. Use the current shell for a local machine; for a remote machine, request an existing SSH host alias, `user@host`, or an already authorized PowerShell Remoting path. Check whether VPN, a bastion, or a specific SSH key is required.
 5. Prefer existing SSH key or agent authentication. Never ask the user to send a password, token, or private key through Discord; ask them to complete interactive authentication in their local terminal.
-6. Ask for the default workspace root and whether the machine needs Codex only or both Codex and Claude Code.
-7. Connect and inspect the OS, CPU/GPU, Node.js, pnpm, Codex and Claude CLI versions, login state, existing connector installation, services, and active jobs before changing anything.
+6. Ask for the default workspace root and agent combination: Codex only, Claude Code only, or both.
+7. Connect and inspect the OS, CPU/GPU, Node.js, pnpm, selected agent CLI versions and login state, existing connector installation, services, and active jobs before changing anything.
 8. Install the same repository commit and verified CLI combination, then create machine-local config, secrets, and separate bot and worker services.
-9. Use the Discord API to create that machine's category, AI agent/admin parent channel, optional Claude Code parent channel, and permission overwrites. Never reuse a parent channel ID owned by another connector instance.
-10. Apply the same verification criteria as the first machine: separate service PIDs, ready logs, `/status`, `/chat-new`, a short agent round trip, and preservation of the worker during a bot-only restart.
+9. Use the Discord API to create that machine's category, generic AI agent/admin channel, enabled agent parent channels, and permission overwrites. Never reuse a parent channel ID owned by another connector instance.
+10. Apply the same verification criteria as the first machine: separate service PIDs, ready logs, `/status`, `/chat-new`, a short round trip for every enabled agent, and preservation of the worker during a bot-only restart.
 11. Report the result for that machine, then ask whether there is another machine to connect.
 
-Roll out one machine at a time so a failure cannot disturb active work elsewhere. When an existing installation is found, inspect its branch, commit, configuration, services, and active jobs and perform a safe update or repair instead of overwriting it. Multiple instances may share one bot token only when every instance owns distinct Codex and Claude parent channels.
+Roll out one machine at a time so a failure cannot disturb active work elsewhere. When an existing installation is found, inspect its branch, commit, configuration, services, and active jobs and perform a safe update or repair instead of overwriting it. Multiple instances may share one bot token only when every instance owns distinct agent parent channels.
 
 ## Discord permissions
 
@@ -247,8 +248,7 @@ Requirements:
 
 - Node.js `^20.19.0` or `>=22.12.0`
 - pnpm `9.15.0`
-- Logged-in Codex CLI
-- Optional logged-in Claude Code CLI
+- At least one logged-in agent CLI: Codex, Claude Code, or both
 
 ```bash
 git clone https://github.com/kwonminki/ai-agent-discord-connector.git
@@ -284,9 +284,9 @@ pnpm connect install --direct \
   --initial-cwd "/home/user/projects/current-app"
 ```
 
-## Codex runner
+## Agent runners
 
-Direct mode defaults to app-server. Make it explicit in services:
+When Codex is enabled, Direct mode defaults to app-server. Make it explicit in services:
 
 ```bash
 CODEX_DISCORD_CODEX_RUNNER=app-server
@@ -297,6 +297,8 @@ Compatibility mode `CODEX_DISCORD_CODEX_RUNNER=exec` does not support session fo
 On macOS and Linux, the connector uses a temporary Unix domain socket for app-server. Native Windows automatically uses an ephemeral loopback WebSocket on `127.0.0.1`; it is never bound to an external interface and closes with the app-server process. If `codex.exe app-server --listen ws://127.0.0.1:<port>` fails, compare `codex --version` and `codex app-server --help` with a verified host.
 
 Codex prompt timeout defaults to five hours. Set `CONNECT_CODEX_PROMPT_TIMEOUT_MS=0` to disable the overall timeout.
+
+When Claude Code is enabled, the connector uses its headless stream JSON runner. Codex runner settings do not affect Claude Code requests. A Claude-only installation skips Codex CLI and app-server verification.
 
 ## Service topology
 
@@ -432,14 +434,14 @@ Start-ScheduledTask -TaskName "CodexDiscordConnector-Bot"
 
 ## Launch checklist
 
-- Service user matches the user who owns Codex and Claude sessions.
-- The service principal matches the OS user that owns the Codex and Claude sessions.
-- `HOME`/`USERPROFILE`, `CODEX_HOME`, and the Claude projects directory match IDE and CLI usage.
+- Service user matches the user who owns the enabled agent sessions.
+- The service principal matches the OS user that owns those agent sessions.
+- `HOME`/`USERPROFILE` and the enabled agents' state directories match IDE and CLI usage.
 - Workspace root is broad enough but not unnecessarily permissive.
 - Service user can read and write the workspace and `.connect` directories.
 - GPU access works as the same service user before testing through the connector.
 - Guild and parent channel IDs belong to the intended machine.
-- Codex and Claude parent channels differ.
+- Parent channels for enabled agents are distinct.
 - No other connector instance owns the same channels.
 - Operator role is assigned and channel overwrites allow the bot and operator.
 - `.env` and `.connect/config.json` are mode `600` where practical and ignored by Git.
@@ -451,11 +453,11 @@ Smoke test sequence:
 1. Confirm worker ready log and PID.
 2. Confirm bot ready log and identity.
 3. Run `/status`.
-4. Create a test thread with `/chat-new`.
-5. Run a short file-read request.
-6. Test ordinary-message steering and `/queue prompt:`.
+4. Create a test thread with `/chat-new` under every enabled agent parent.
+5. Run a short file-read request with every enabled agent.
+6. Test `/queue prompt:` for every enabled agent; test ordinary-message steering only for Codex.
 7. Run `/howtouse` and send a small attachment both directions.
-8. Test one approval or `request_user_input` flow.
+8. When Codex is enabled, test one approval or `request_user_input` flow; skip this Codex-specific step for a Claude-only installation.
 9. Restart only the bot and confirm that worker PID and active work survive.
 
 ## Safe updates

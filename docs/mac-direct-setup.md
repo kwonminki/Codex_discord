@@ -4,7 +4,7 @@ This repo is intended to be run from source while customizing the connector.
 
 ## Discord setup
 
-1. Create a private Discord server for Codex operations.
+1. Create a private Discord server for AI agent operations.
 2. Create a Discord application and bot in the Discord Developer Portal.
 3. Enable the bot's `Message Content Intent`.
 4. Invite the bot to the private server with scopes:
@@ -22,15 +22,15 @@ This repo is intended to be run from source while customizing the connector.
    - Attach Files
    - Manage Messages, optional for `/clear`
 6. Create a dedicated operator role, preferably `AI Agent Operator`. An existing `Codex Operator` role may be reused.
-7. Create a dedicated AI agent/admin channel, for example `#mac-agent-admin`, and a separate Claude Code channel, for example `#mac-claude-code`.
+7. Choose Codex only, Claude Code only, or both. Create a dedicated AI agent/admin channel, for example `#mac-agent-admin`, and create a separate Claude Code channel such as `#mac-claude-code` when Claude Code is enabled.
 8. Gather the setup values:
    - Bot token: open the [Discord Developer Portal](https://discord.com/developers/applications), select the application, then use `Bot > Reset Token/Copy`. The Public Key and OAuth2 Client ID are not connector inputs.
    - Guild/server ID: enable `User Settings > Advanced > Developer Mode`, right-click the server icon, and select `Copy Server ID`.
    - Operator role ID: open `Server Settings > Roles`, open the role menu, and select `Copy Role ID`. Assign this role to every connector operator.
    - AI agent/admin channel ID: right-click the dedicated agent admin channel and select `Copy Channel ID`.
-   - Claude Code channel ID: right-click the dedicated Claude Code channel and select `Copy Channel ID`.
+   - Claude Code channel ID when enabled: right-click the dedicated Claude Code channel and select `Copy Channel ID`.
 
-The Codex and Claude Code channel IDs must be different. See Discord's [official ID guide](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID) if the copy-ID actions are not visible.
+When Claude Code is enabled, the AI agent/admin and Claude Code channel IDs must be different. The connector has no fixed primary agent; each configured parent channel routes to its own agent. See Discord's [official ID guide](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID) if the copy-ID actions are not visible.
 
 ## Install from this source checkout
 
@@ -44,7 +44,7 @@ pnpm test
 
 Use the current source checkout so local code changes apply immediately.
 
-Running `pnpm connect install --direct` without flags now prints the same lookup guide and prompts for both channel IDs. The Claude Code channel can be left blank only when Claude integration is intentionally disabled.
+Running `pnpm connect install --direct` without flags prints the same lookup guide and prompts for the applicable channel IDs. Leave the Claude Code channel blank for a Codex-only installation; provide it for Claude-only or dual-agent use.
 
 ```bash
 pnpm connect install --direct \
@@ -55,12 +55,12 @@ pnpm connect install --direct \
   --claude-channel-id "MAC_CLAUDE_CHANNEL_ID" \
   --workspace-root "/Users/me/Documents/Codex" \
   --initial-cwd "/Users/me/Documents/AI/ai-agent-discord-connector" \
-  --workspace-name "My Mac Codex" \
+  --workspace-name "My Mac Workspace" \
   --computer-name "My Mac" \
   --codex-home "$HOME/.codex"
 ```
 
-This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the AI agent/admin channel, which uses Codex as its default agent, and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
+This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is always the AI agent/admin channel and also serves as the Codex parent when Codex is enabled. `--claude-channel-id` is the Claude Code parent when Claude Code is enabled. A Claude-only installation keeps the admin channel for operations and sends agent work through the Claude Code parent.
 
 When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session. Inside a linked Codex or Claude Code thread, `/fork` asks for a new thread name and creates a sibling Discord thread. Claude Code forks use `claude --resume <session> --fork-session`; Codex forks use Codex app-server `thread/fork`.
 
@@ -179,9 +179,9 @@ CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
 CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
 ```
 
-On macOS LaunchAgent services, set `CODEX_DISCORD_CODEX_COMMAND` to the absolute Codex CLI path because login services do not inherit the same `PATH` as an interactive terminal.
+When Codex is enabled on macOS LaunchAgent services, set `CODEX_DISCORD_CODEX_COMMAND` to the absolute Codex CLI path because login services do not inherit the same `PATH` as an interactive terminal. Do the same with `CODEX_DISCORD_CLAUDE_COMMAND` when Claude Code is enabled.
 
-Discord Codex prompts use `xhigh` reasoning by default, and Claude Code prompts use `max` effort by default. Set persistent computer defaults with `/model`, `/effort`, and `/settings` in each agent main channel. A session thread can override both values and use `default` to inherit the main setting again. `fast` remains a Codex-only alias for a quick low-reasoning pass; `task` uses `xhigh`.
+Discord Codex prompts use `xhigh` reasoning by default, and Claude Code prompts use `max` effort by default. Set persistent computer defaults with `/model`, `/effort`, and `/settings` in each agent parent channel. A session thread can override both values and use `default` to inherit the parent setting again. `fast` remains a Codex-only alias for a quick low-reasoning pass; `task` uses `xhigh`.
 
 Claude Code can be launched from a session channel in direct mode:
 

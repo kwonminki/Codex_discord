@@ -1,30 +1,30 @@
 # Ubuntu Server Direct Mode Setup
 
-이 문서는 SSH로 접속해서 쓰는 Ubuntu 서버에서도 Codex 작업 완료 알림을 같은 Discord 서버로 받기 위한 설치 절차입니다.
+이 문서는 SSH로 접속해서 쓰는 Ubuntu 서버에서 Codex, Claude Code 또는 둘 다를 같은 Discord 서버와 연결하기 위한 설치 절차입니다.
 
 목표는 단순합니다.
 
 ```text
-Ubuntu server Codex
-  -> Ubuntu server ~/.codex session log
+Ubuntu server Codex and/or Claude Code
+  -> Ubuntu server agent session
   -> Ubuntu server AI Agent Discord Connector
   -> Discord 완료 알림
 ```
 
 ## 중요한 전제
 
-- Ubuntu 서버에서 실행한 Codex 기록은 보통 그 서버의 `$HOME/.codex`에 저장됩니다.
-- Mac에서 실행 중인 connector는 Ubuntu 서버의 `$HOME/.codex`를 볼 수 없습니다.
-- 따라서 Ubuntu 서버에서 끝난 Codex 작업 완료 알림을 받으려면 Ubuntu 서버에도 connector를 하나 실행해야 합니다.
-- systemd 서비스는 SSH IDE에서 Codex를 실행하는 같은 Linux user로 띄우는 것을 권장합니다. user가 다르면 connector가 다른 `$HOME/.codex`를 보게 됩니다.
+- Ubuntu 서버의 Codex 기록은 보통 `$HOME/.codex`, Claude Code 기록은 `$HOME/.claude`에 저장됩니다.
+- Mac에서 실행 중인 connector는 Ubuntu 서버의 agent session 파일과 프로세스를 볼 수 없습니다.
+- 따라서 Ubuntu 서버의 agent 작업을 Discord와 연결하려면 Ubuntu 서버에도 connector를 하나 실행해야 합니다.
+- systemd 서비스는 SSH IDE에서 선택한 agent를 실행하는 같은 Linux user로 띄우는 것을 권장합니다. user가 다르면 connector가 다른 session 경로를 보게 됩니다.
 
 ## 같은 Discord bot token 사용 시 주의
 
 서버가 한두 대라면 같은 Discord bot token을 써도 운영은 가능합니다. 다만 아래 규칙을 지키세요.
 
 - Mac과 Ubuntu가 같은 Discord admin channel을 쓰지 않게 합니다.
-- Ubuntu 전용 admin channel을 새로 만듭니다. 예: `#ubuntu-codex-admin`.
-- Claude Code도 쓸 서버라면 서버별 Claude channel도 따로 만듭니다. 예: `#ubuntu-claude-code`.
+- Ubuntu 전용 admin channel을 새로 만듭니다. 예: `#ubuntu-agent-admin`.
+- Claude Code를 활성화한다면 서버별 Claude channel도 따로 만듭니다. 예: `#ubuntu-claude-code`.
 - Mac connector의 `--channel-id`와 Ubuntu connector의 `--channel-id`는 달라야 합니다.
 - Mac connector의 `--claude-channel-id`와 Ubuntu connector의 `--claude-channel-id`도 서로 달라야 합니다.
 - operator role은 같은 role을 써도 됩니다.
@@ -36,9 +36,9 @@ Ubuntu server Codex
 
 이미 Mac용 bot을 만들어 초대한 상태라면 새 bot을 만들 필요는 없습니다.
 
-1. Discord 서버에 Ubuntu용 private admin channel을 만듭니다.
-   - 예: `#ubuntu-codex-admin`
-2. Claude Code도 사용한다면 별도의 private Claude channel을 만듭니다.
+1. Codex만, Claude Code만, 둘 다 중 이 서버에서 사용할 agent 조합을 정하고 Discord 서버에 Ubuntu용 private admin channel을 만듭니다.
+   - 예: `#ubuntu-agent-admin`
+2. Claude Code를 활성화한다면 별도의 private Claude channel을 만듭니다.
    - 예: `#ubuntu-claude-code`
 3. 기존 `AI Agent Operator` role이 두 채널을 볼 수 있게 합니다. 이전 설치의 `Codex Operator` role도 그대로 재사용할 수 있습니다.
 4. 아래 값을 준비합니다.
@@ -48,7 +48,7 @@ Ubuntu server Codex
    - Ubuntu AI agent/admin channel ID: agent 관리 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
    - Ubuntu Claude Code channel ID: Claude Code 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
 
-AI agent/admin 채널과 Claude Code 채널 ID는 서로 달라야 합니다. ID 복사 메뉴가 보이지 않으면 [Discord 공식 ID 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)에서 Developer Mode 설정을 확인하세요.
+Claude Code를 활성화했다면 AI agent/admin 채널과 Claude Code 채널 ID는 서로 달라야 합니다. 고정된 메인 agent는 없으며 각 부모 채널이 해당 agent로 라우팅합니다. ID 복사 메뉴가 보이지 않으면 [Discord 공식 ID 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)에서 Developer Mode 설정을 확인하세요.
 
 Bot 권한은 Mac 설치와 동일하게 필요합니다.
 
@@ -91,16 +91,16 @@ pnpm --version
 
 현재 connector의 Node 지원 범위는 `^20.19.0 || >=22.12.0`이고, Ubuntu 권장 조합은 Node.js 22 LTS와 pnpm `9.15.0`입니다. Node 22라도 `22.12.0`보다 오래된 버전이면 먼저 업데이트하세요.
 
-Codex도 같은 user에서 동작해야 합니다.
+Codex를 활성화한다면 같은 user에서 확인합니다.
 
 ```bash
 codex --version
 ls -la "$HOME/.codex"
 ```
 
-`$HOME/.codex`가 없으면, 먼저 이 Ubuntu user로 Codex를 한 번 실행하거나 IDE에서 Codex 로그인을 완료하세요.
+`$HOME/.codex`가 없으면, 먼저 이 Ubuntu user로 Codex를 한 번 실행하거나 IDE에서 Codex 로그인을 완료하세요. Claude Code만 쓰는 설치에서는 이 단계를 생략합니다.
 
-Claude Code 채널도 사용할 서버라면 같은 user에서 Claude CLI를 확인합니다.
+Claude Code를 활성화한다면 같은 user에서 Claude CLI를 확인합니다.
 
 ```bash
 claude --version
@@ -136,7 +136,7 @@ Environment=CODEX_DISCORD_CODEX_COMMAND=/absolute/path/to/codex
 Environment=CODEX_DISCORD_CLAUDE_COMMAND=/absolute/path/to/claude
 ```
 
-CLI를 업데이트할 때는 서버 한 대에서 짧은 Codex 요청, 짧은 Claude 요청, `/fork`, bot 재시작 후 job 재연결을 먼저 확인한 뒤 나머지 서버에 적용하세요. 문제가 생기면 정상 서버와 위 버전 및 실행 경로를 비교하고 마지막 정상 CLI 버전으로 되돌립니다.
+CLI를 업데이트할 때는 서버 한 대에서 활성화한 agent별 짧은 요청, `/fork`, bot 재시작 후 job 재연결을 먼저 확인한 뒤 나머지 서버에 적용하세요. 문제가 생기면 정상 서버와 위 버전 및 실행 경로를 비교하고 마지막 정상 CLI 버전으로 되돌립니다.
 
 ## repo clone
 
