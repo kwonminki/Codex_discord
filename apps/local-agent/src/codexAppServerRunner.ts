@@ -652,6 +652,60 @@ async function startAppServer(input: RunCodexAppServerPromptInput, transport: Ap
   return { child, stderrChunks };
 }
 
+async function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return true;
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), Math.max(1, timeoutMs));
+
+    child.once("exit", onExit);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish(true);
+    }
+  });
+}
+
+export async function terminateManagedAppServer(
+  child: ChildProcess | null,
+  gracefulTimeoutMs = 500,
+  forceTimeoutMs = 1_000,
+): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return;
+  }
+
+  if (await waitForChildExit(child, gracefulTimeoutMs)) {
+    return;
+  }
+
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    return;
+  }
+
+  await waitForChildExit(child, forceTimeoutMs);
+}
+
 function appServerFailure(input: {
   message: string;
   sessionId: string | null;
@@ -1022,7 +1076,7 @@ export async function runCodexAppServerPrompt(
       stderr: Buffer.concat(server.stderrChunks).toString("utf8"),
     });
   } finally {
-    server.child?.kill("SIGTERM");
+    await terminateManagedAppServer(server.child);
 
     if (transport.tempRoot) {
       await rm(transport.tempRoot, { recursive: true, force: true });

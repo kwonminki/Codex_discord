@@ -255,7 +255,7 @@ pwd
 ```bash
 sudo tee /etc/systemd/system/codex-discord-worker.service >/dev/null <<'EOF'
 [Unit]
-Description=Codex Discord durable execution worker
+Description=AI Agent Discord durable execution worker
 After=network-online.target
 Wants=network-online.target
 
@@ -267,6 +267,7 @@ Environment=NODE_ENV=production
 Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
 Environment=CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
 Environment=CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
+Environment=CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS=5000
 ExecStart=/usr/bin/env node --import tsx apps/local-agent/src/directWorker.ts
 Restart=always
 RestartSec=5
@@ -279,7 +280,7 @@ EOF
 
 sudo tee /etc/systemd/system/codex-discord-bot.service >/dev/null <<'EOF'
 [Unit]
-Description=Codex Discord gateway and notifications
+Description=AI Agent Discord gateway and notifications
 After=network-online.target codex-discord-worker.service
 Wants=network-online.target codex-discord-worker.service
 
@@ -303,6 +304,8 @@ EOF
 ```
 
 `node`와 `tsx`가 systemd의 PATH에서 보이지 않으면 `command -v node`로 확인한 절대 Node 경로를 `ExecStart`에 사용하세요. repo의 `node_modules`가 설치돼 있어야 합니다.
+
+Direct Worker는 새 job, steering, 권한 응답과 agent 질문 응답이 기록되면 filesystem wake 신호로 즉시 깨어납니다. `CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS`는 file watch가 동작하지 않을 때의 fallback 주기이므로, 기본 5초로 두어도 일반 interaction 반응은 느려지지 않습니다.
 
 서비스를 활성화합니다.
 

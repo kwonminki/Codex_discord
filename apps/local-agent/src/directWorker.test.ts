@@ -8,6 +8,33 @@ import { startDirectWorker } from "./directWorker.js";
 import { createDirectWorkerStore } from "./directWorkerStore.js";
 
 describe("direct worker", () => {
+  it("wakes immediately for a new job while retaining a slow polling fallback", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-wake-"));
+    const store = createDirectWorkerStore(path.join(root, "worker"));
+    const worker = await startDirectWorker({ store, pollIntervalMs: 10_000, maxConcurrency: 1 });
+    const client = createDirectWorkerClient({ store, pollIntervalMs: 10 });
+
+    try {
+      const startedAt = Date.now();
+      await expect(client.submit({
+        jobId: "wake-job",
+        type: "run-command",
+        queueKey: "thread-1",
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          command: "printf woke",
+          timeoutMs: 5_000,
+          confirmedDangerous: true,
+        },
+      })).resolves.toMatchObject({ result: { status: "completed", stdout: "woke" } });
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+    } finally {
+      await worker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps executing a durable job while a second client reconnects to the same job id", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-"));
     const workspace = path.join(root, "workspace");
@@ -72,10 +99,12 @@ describe("direct worker", () => {
         queueKey: "thread-1",
         payload: { ...basePayload, command: `printf 'second\\n' >> '${outputPath}'` },
       });
-      const worker = await startDirectWorker({ store, pollIntervalMs: 10, maxConcurrency: 4 });
+      const startedAt = Date.now();
+      const worker = await startDirectWorker({ store, pollIntervalMs: 1_500, maxConcurrency: 4 });
 
       try {
         await Promise.all([first, second]);
+        expect(Date.now() - startedAt).toBeLessThan(1_000);
         await expect(readFile(outputPath, "utf8")).resolves.toBe("first\nsecond\n");
       } finally {
         await worker.stop();
@@ -97,6 +126,7 @@ describe("direct worker", () => {
         payload: {},
       });
       await store.appendProgress("cursor-job", { type: "agent-message", text: "first" });
+      await expect(store.readEvents("cursor-job")).resolves.toHaveLength(1);
       await store.appendProgress("cursor-job", { type: "agent-message", text: "second" });
       await store.writeDeliveryCursor("cursor-job", 1);
       await store.complete("cursor-job", { status: "completed" });

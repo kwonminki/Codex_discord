@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,10 +15,15 @@ import {
   type CodexUserInputResponse,
   type RunCodexPromptInput,
 } from "./codexRunner.js";
-import { createDirectWorkerStore, type DirectWorkerJobRequest, type DirectWorkerStore } from "./directWorkerStore.js";
+import {
+  createDirectWorkerStore,
+  DIRECT_WORKER_WAKE_FILE,
+  type DirectWorkerJobRequest,
+  type DirectWorkerStore,
+} from "./directWorkerStore.js";
 import { runWorkspaceCommand, type RunWorkspaceCommandInput } from "./runner.js";
 
-const DEFAULT_POLL_INTERVAL_MS = 250;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_CONCURRENCY = 4;
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -46,13 +52,14 @@ async function waitForApproval(
   store: DirectWorkerStore,
   jobId: string,
   approvalId: string,
+  waitForWake: () => Promise<void>,
 ): Promise<CodexApprovalDecision> {
   for (;;) {
     const decision = await store.readApprovalDecision(jobId, approvalId);
     if (decision) {
       return decision;
     }
-    await wait(250);
+    await waitForWake();
   }
 }
 
@@ -60,17 +67,22 @@ async function waitForUserInput(
   store: DirectWorkerStore,
   jobId: string,
   userInputId: string,
+  waitForWake: () => Promise<void>,
 ): Promise<CodexUserInputResponse> {
   for (;;) {
     const response = await store.readUserInputResponse(jobId, userInputId);
     if (response) {
       return response;
     }
-    await wait(250);
+    await waitForWake();
   }
 }
 
-async function runWorkerJob(store: DirectWorkerStore, request: DirectWorkerJobRequest): Promise<unknown> {
+async function runWorkerJob(
+  store: DirectWorkerStore,
+  request: DirectWorkerJobRequest,
+  waitForWake: () => Promise<void>,
+): Promise<unknown> {
   if (request.type === "run-command") {
     return runWorkspaceCommand(request.payload as RunWorkspaceCommandInput);
   }
@@ -92,11 +104,11 @@ async function runWorkerJob(store: DirectWorkerStore, request: DirectWorkerJobRe
     onProgress: (event) => store.appendProgress(request.jobId, event),
     onApprovalRequest: async (approvalRequest) => {
       const approvalId = await store.requestApproval(request.jobId, approvalRequest);
-      return waitForApproval(store, request.jobId, approvalId);
+      return waitForApproval(store, request.jobId, approvalId, waitForWake);
     },
     onUserInputRequest: async (userInputRequest) => {
       const userInputId = await store.requestUserInput(request.jobId, userInputRequest);
-      return waitForUserInput(store, request.jobId, userInputId);
+      return waitForUserInput(store, request.jobId, userInputId, waitForWake);
     },
   };
 
@@ -154,11 +166,41 @@ export async function startDirectWorker(options: {
   const activeQueueKeys = new Set<string>();
   let stopping = false;
   let ticking = false;
+  let rerunRequested = false;
   let stopPromise: Promise<void> | null = null;
+  let wakeWatcher: FSWatcher | null = null;
+  const wakeWaiters = new Set<() => void>();
   const controlCodexTurn = options.controlCodexTurn ?? (async (control) =>
     control.action === "steer"
       ? steerActiveCodexAppServerTurn(control.controlKey, control.content ?? "")
       : interruptActiveCodexAppServerTurn(control.controlKey));
+
+  await store.initialize();
+
+  function notifyWakeWaiters(): void {
+    for (const wake of [...wakeWaiters]) {
+      wake();
+    }
+  }
+
+  function waitForWorkerWake(): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer: NodeJS.Timeout;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        wakeWaiters.delete(finish);
+        resolve();
+      };
+
+      timer = setTimeout(finish, pollIntervalMs);
+      wakeWaiters.add(finish);
+    });
+  }
 
   async function recoverInterruptedJobs(): Promise<void> {
     for (const request of await store.listRequests()) {
@@ -174,12 +216,15 @@ export async function startDirectWorker(options: {
     await store.markRunning(request.jobId);
 
     try {
-      await store.complete(request.jobId, await runWorkerJob(store, request));
+      await store.complete(request.jobId, await runWorkerJob(store, request, waitForWorkerWake));
     } catch (error) {
       await store.fail(request.jobId, error);
     } finally {
       activeQueueKeys.delete(request.queueKey);
       activeJobs.delete(request.jobId);
+      if (!stopping) {
+        requestTick();
+      }
     }
   }
 
@@ -225,13 +270,41 @@ export async function startDirectWorker(options: {
       }
     } finally {
       ticking = false;
+      if (rerunRequested && !stopping) {
+        rerunRequested = false;
+        queueMicrotask(requestTick);
+      }
     }
   }
 
+  function requestTick(): void {
+    if (ticking) {
+      rerunRequested = true;
+      return;
+    }
+
+    void tick().catch((error) => console.error("direct-worker poll failed", error));
+  }
+
   await recoverInterruptedJobs();
+  try {
+    wakeWatcher = watch(store.rootPath, { persistent: false }, (_eventType, filename) => {
+      if (filename?.toString() === DIRECT_WORKER_WAKE_FILE) {
+        notifyWakeWaiters();
+        requestTick();
+      }
+    });
+    wakeWatcher.on("error", (error) => {
+      console.warn("direct-worker wake watcher failed; periodic polling remains active", error);
+      wakeWatcher?.close();
+      wakeWatcher = null;
+    });
+  } catch (error) {
+    console.warn("direct-worker wake watcher unavailable; periodic polling remains active", error);
+  }
   await tick();
   const timer = setInterval(() => {
-    void tick().catch((error) => console.error("direct-worker poll failed", error));
+    requestTick();
   }, pollIntervalMs);
 
   function stop(): Promise<void> {
@@ -239,12 +312,14 @@ export async function startDirectWorker(options: {
       return stopPromise;
     }
     stopping = true;
+    clearInterval(timer);
+    wakeWatcher?.close();
+    wakeWatcher = null;
     stopPromise = (async () => {
       while (ticking) {
         await wait(Math.min(pollIntervalMs, 25));
       }
       await Promise.allSettled(activeJobs.values());
-      clearInterval(timer);
       while (ticking) {
         await wait(Math.min(pollIntervalMs, 25));
       }

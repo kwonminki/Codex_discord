@@ -3,6 +3,7 @@ import {
   appendFile,
   link,
   mkdir,
+  open,
   readFile,
   readdir,
   rename,
@@ -23,6 +24,7 @@ import type {
 
 export type DirectWorkerJobType = "run-command" | "run-codex-prompt" | "run-claude-prompt";
 export type DirectWorkerJobStatus = "queued" | "running" | "completed" | "failed";
+export const DIRECT_WORKER_WAKE_FILE = "wake";
 
 export interface DirectWorkerJobRequest {
   version: 1;
@@ -65,6 +67,13 @@ export interface DirectWorkerControlResult {
   controlId: string;
   result: unknown;
   completedAt: string;
+}
+
+interface CachedDirectWorkerEvents {
+  mtimeMs: number;
+  size: number;
+  events: DirectWorkerJobEvent[];
+  trailingText: string;
 }
 
 function validId(value: string): string {
@@ -135,6 +144,39 @@ async function createJsonOnce(filePath: string, value: unknown): Promise<boolean
   }
 }
 
+function parseDirectWorkerEventText(text: string): {
+  events: DirectWorkerJobEvent[];
+  trailingText: string;
+} {
+  const lastNewline = text.lastIndexOf("\n");
+  const completeText = lastNewline >= 0 ? text.slice(0, lastNewline) : "";
+  const trailingText = lastNewline >= 0 ? text.slice(lastNewline + 1) : text;
+  const events = completeText
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as DirectWorkerJobEvent];
+      } catch {
+        return [];
+      }
+    });
+
+  return { events, trailingText };
+}
+
+async function readTextSlice(filePath: string, position: number, length: number): Promise<string> {
+  const handle = await open(filePath, "r");
+
+  try {
+    const buffer = Buffer.alloc(Math.max(0, length));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
 export function defaultDirectWorkerRoot(): string {
   return path.resolve(process.env.CONNECT_WORKER_ROOT ?? ".connect/worker");
 }
@@ -143,6 +185,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
   const root = path.resolve(rootPath);
   const jobsRoot = path.join(root, "jobs");
   const controlsRoot = path.join(root, "controls");
+  const eventCache = new Map<string, CachedDirectWorkerEvents>();
 
   function jobDirectory(jobId: string): string {
     return path.join(jobsRoot, validId(jobId));
@@ -152,8 +195,18 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
     return path.join(controlsRoot, validId(controlId));
   }
 
+  async function signalWorker(): Promise<void> {
+    await writeFile(path.join(root, DIRECT_WORKER_WAKE_FILE), `${Date.now()}\n`, "utf8").catch(() => undefined);
+  }
+
   return {
     rootPath: root,
+    async initialize(): Promise<void> {
+      await Promise.all([
+        mkdir(jobsRoot, { recursive: true }),
+        mkdir(controlsRoot, { recursive: true }),
+      ]);
+    },
     async enqueue(input: {
       jobId?: string;
       type: DirectWorkerJobType;
@@ -187,6 +240,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         status: "queued",
         updatedAt: request.createdAt,
       } satisfies DirectWorkerJobState);
+      await signalWorker();
       return request;
     },
     async listRequests(): Promise<DirectWorkerJobRequest[]> {
@@ -290,26 +344,48 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
       return userInputId;
     },
     async readEvents(jobId: string): Promise<DirectWorkerJobEvent[]> {
-      let raw: string;
+      const normalizedJobId = validId(jobId);
+      const filePath = path.join(jobDirectory(normalizedJobId), "events.jsonl");
+      let fileStat: Awaited<ReturnType<typeof stat>>;
+
       try {
-        raw = await readFile(path.join(jobDirectory(jobId), "events.jsonl"), "utf8");
+        fileStat = await stat(filePath);
       } catch (error) {
         if (isMissing(error)) {
+          eventCache.delete(normalizedJobId);
           return [];
         }
         throw error;
       }
 
-      return raw
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .flatMap((line) => {
-          try {
-            return [JSON.parse(line) as DirectWorkerJobEvent];
-          } catch {
-            return [];
-          }
-        });
+      const cached = eventCache.get(normalizedJobId);
+
+      if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
+        return cached.events;
+      }
+
+      if (cached && fileStat.size > cached.size) {
+        const appendedText = await readTextSlice(filePath, cached.size, fileStat.size - cached.size);
+        const parsed = parseDirectWorkerEventText(`${cached.trailingText}${appendedText}`);
+        const nextCache: CachedDirectWorkerEvents = {
+          mtimeMs: fileStat.mtimeMs,
+          size: fileStat.size,
+          events: [...cached.events, ...parsed.events],
+          trailingText: parsed.trailingText,
+        };
+        eventCache.set(normalizedJobId, nextCache);
+        return nextCache.events;
+      }
+
+      const parsed = parseDirectWorkerEventText(await readFile(filePath, "utf8"));
+      const nextCache: CachedDirectWorkerEvents = {
+        mtimeMs: fileStat.mtimeMs,
+        size: fileStat.size,
+        events: parsed.events,
+        trailingText: parsed.trailingText,
+      };
+      eventCache.set(normalizedJobId, nextCache);
+      return nextCache.events;
     },
     async readDeliveryCursor(jobId: string): Promise<number> {
       const cursor = await readJson<{ eventCount?: unknown }>(
@@ -325,22 +401,24 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         updatedAt: new Date().toISOString(),
       });
     },
-    writeApprovalDecision(jobId: string, approvalId: string, decision: CodexApprovalDecision) {
-      return writeJsonAtomic(
+    async writeApprovalDecision(jobId: string, approvalId: string, decision: CodexApprovalDecision) {
+      await writeJsonAtomic(
         path.join(jobDirectory(jobId), "approvals", `${validId(approvalId)}.json`),
         decision,
       );
+      await signalWorker();
     },
     readApprovalDecision(jobId: string, approvalId: string) {
       return readJson<CodexApprovalDecision>(
         path.join(jobDirectory(jobId), "approvals", `${validId(approvalId)}.json`),
       );
     },
-    writeUserInputResponse(jobId: string, userInputId: string, response: CodexUserInputResponse) {
-      return writeJsonAtomic(
+    async writeUserInputResponse(jobId: string, userInputId: string, response: CodexUserInputResponse) {
+      await writeJsonAtomic(
         path.join(jobDirectory(jobId), "user-input", `${validId(userInputId)}.json`),
         response,
       );
+      await signalWorker();
     },
     readUserInputResponse(jobId: string, userInputId: string) {
       return readJson<CodexUserInputResponse>(
@@ -352,12 +430,14 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         jobId,
         deliveredAt: new Date().toISOString(),
       });
+      eventCache.delete(validId(jobId));
       await rm(jobDirectory(jobId), { recursive: true, force: true });
     },
     isDelivered(jobId: string) {
       return pathExists(path.join(jobDirectory(jobId), "delivered.json"));
     },
     async removeJob(jobId: string): Promise<void> {
+      eventCache.delete(validId(jobId));
       await rm(jobDirectory(jobId), { recursive: true, force: true });
     },
     async enqueueControl(input: {
@@ -375,6 +455,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         createdAt: new Date().toISOString(),
       };
       await writeJsonAtomic(path.join(controlDirectory(controlId), "request.json"), request);
+      await signalWorker();
       return request;
     },
     async listPendingControls(): Promise<DirectWorkerControlRequest[]> {

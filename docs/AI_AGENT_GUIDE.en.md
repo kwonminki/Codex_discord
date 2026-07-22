@@ -371,6 +371,7 @@ Environment=CONNECT_STATE_PATH=REPO_DIR/.connect/state.json
 Environment=CONNECT_WORKER_ROOT=REPO_DIR/.connect/worker
 Environment=CONNECT_DISCORD_QUEUE_ROOT=REPO_DIR/.connect/discord-queue
 Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
+Environment=CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS=5000
 ExecStart=/absolute/path/to/node --import tsx apps/local-agent/src/directWorker.ts
 Restart=always
 RestartSec=5
@@ -386,6 +387,8 @@ sudo systemctl enable --now codex-discord-worker codex-discord-bot
 sudo systemctl status codex-discord-worker codex-discord-bot --no-pager
 journalctl -u codex-discord-worker -u codex-discord-bot -f
 ```
+
+The worker watches `.connect/worker/wake` and responds immediately to new jobs, steering, approvals, and agent answers. The default five-second `CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS` is only a fallback for missed or unsupported filesystem notifications, replacing the old 250 ms full spool scan while idle. Empty job and control spool directories are created once at startup so idle polls do not raise repeated `ENOENT` exceptions. Progress JSONL uses an `mtime`/size cache and parses only appended byte ranges. Managed Codex app-server children are awaited after each turn and force-stopped after a short graceful timeout so completed jobs cannot accumulate orphan processes.
 
 ### Windows Scheduled Tasks
 

@@ -583,7 +583,7 @@ macOS 개인정보 보호 때문에 `Documents`, `Desktop`, 외장 디스크 접
 
 ```ini
 [Unit]
-Description=Codex Discord durable worker
+Description=AI Agent Discord durable worker
 After=network-online.target
 Wants=network-online.target
 
@@ -604,6 +604,7 @@ Environment=CODEX_DISCORD_CODEX_COMMAND=/absolute/path/to/codex
 Environment=CODEX_DISCORD_CLAUDE_COMMAND=/absolute/path/to/claude
 Environment=CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
 Environment=CODEX_DISCORD_CODEX_SANDBOX=danger-full-access
+Environment=CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS=5000
 ExecStart=/absolute/path/to/node --import tsx apps/local-agent/src/directWorker.ts
 Restart=always
 RestartSec=5
@@ -618,7 +619,7 @@ bot unit 예시:
 
 ```ini
 [Unit]
-Description=Codex Discord gateway
+Description=AI Agent Discord gateway
 After=network-online.target codex-discord-worker.service
 Wants=network-online.target codex-discord-worker.service
 
@@ -644,6 +645,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
+
+worker는 `.connect/worker/wake` 변경을 감시해 새 job, steering, 권한 응답과 agent 질문 응답을 즉시 처리합니다. `CONNECT_DIRECT_WORKER_POLL_INTERVAL_MS`의 기본 5초는 file watch 누락이나 미지원 filesystem을 위한 fallback일 뿐이며, idle 상태에서 250ms 전체 spool scan을 반복하지 않습니다. 시작할 때 빈 job/control spool을 한 번 생성해 idle poll에서 `ENOENT` 예외도 만들지 않습니다. 진행 event JSONL은 `mtime`과 크기가 같으면 다시 읽지 않고 append된 byte range만 파싱합니다. managed Codex app-server는 turn 종료 후 실제 child exit를 확인하고, graceful timeout을 넘기면 강제 종료해 orphan process 누적을 막습니다.
 
 설치와 확인:
 

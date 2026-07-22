@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -9,6 +11,7 @@ import {
   interruptActiveCodexAppServerTurn,
   runCodexAppServerPrompt,
   steerActiveCodexAppServerTurn,
+  terminateManagedAppServer,
 } from "./codexAppServerRunner.js";
 
 async function listenOnLoopback(httpServer: ReturnType<typeof createServer>): Promise<string> {
@@ -30,6 +33,19 @@ describe("runCodexAppServerPrompt", () => {
     expect(defaultAppServerTransportKind("win32")).toBe("tcp");
     expect(defaultAppServerTransportKind("darwin")).toBe("unix");
     expect(defaultAppServerTransportKind("linux")).toBe("unix");
+  });
+
+  it("force-stops a managed app-server child that ignores graceful termination", async () => {
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
+      { stdio: "ignore" },
+    );
+    await once(child, "spawn");
+
+    await terminateManagedAppServer(child, 20, 1_000);
+
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 
   it("steers and interrupts an active turn through its control key", async () => {
