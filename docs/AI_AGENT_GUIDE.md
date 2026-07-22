@@ -21,15 +21,87 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 9. worker 업데이트가 필요하면 활성 job을 확인합니다. 정상 `SIGTERM` drain을 우선하고, 사용자가 명시적으로 허용한 경우에만 강제 종료합니다.
 10. 완료 보고에는 설치 경로, commit, 서비스 이름, 로그 경로, 적용한 권한, 검증 결과와 남은 수동 작업만 적습니다.
 
+## 첫 설치 대화형 온보딩
+
+처음 설치하는 사용자에게 token과 여러 ID를 한꺼번에 요구하지 않습니다. 아래 단계를 **한 번에 하나씩** 안내하고, 사용자가 각 단계를 완료했다고 답한 뒤 다음 단계로 진행합니다. Discord 계정 소유자의 로그인과 승인이 필요한 작업만 사용자에게 맡기고, bot이 서버에 들어온 이후의 반복 작업은 에이전트가 수행합니다.
+
+먼저 `.connect/config.json`, `.env`, 기존 service를 확인해 진짜 첫 설치인지 판별합니다. 기존 설치나 추가 서버 배포라면 이 절차로 Discord resource를 다시 만들지 말고 기존 Guild/Role/Channel ID를 재사용합니다.
+
+### 1. 사용자에게 private Discord 서버 준비 요청
+
+첫 질문은 다음 정도로 짧게 합니다.
+
+```text
+Codex connector를 넣을 본인 전용 private Discord 서버가 이미 있나요?
+없다면 Discord에서 서버 추가(+) > 직접 만들기 순서로 하나 만든 뒤 알려주세요.
+```
+
+Discord application은 서버가 아니라 사용자 계정에 속하며, bot은 나중에 그 서버로 초대합니다. “채널에 bot을 초대”한다고 안내하지 말고 “서버에 bot을 초대”한다고 정확히 설명합니다.
+
+### 2. 사용자에게 Discord application과 bot 생성 요청
+
+서버가 준비되면 [Discord Developer Portal](https://discord.com/developers/applications)에서 아래 작업을 한 단계씩 안내합니다.
+
+1. `New Application`으로 application 생성
+2. `Bot` 화면에서 bot user 생성
+3. `Message Content Intent` 활성화
+4. Bot Token 발급
+
+Token은 비밀번호입니다. 가능하면 사용자가 현재 로컬 설치 환경의 secret prompt나 환경 변수에 직접 입력하게 하고, 대화 본문에 반복해서 붙여넣게 하지 않습니다. 에이전트는 token을 확인했다는 사실만 말하고 값 일부도 다시 출력하지 않습니다. Public Key는 필요하지 않습니다. Application/Client ID는 초대 URL을 만드는 동안 사용할 수 있지만 connector runtime 설정에는 저장하지 않습니다.
+
+### 3. 사용자에게 bot 서버 초대 요청
+
+`Installation` 또는 `OAuth2 URL Generator`에서 `bot`, `applications.commands` scope를 선택하게 합니다. 첫 개인 서버 설치에서는 자동 구성을 위해 임시 `Administrator` 권한으로 초대하는 방법이 가장 단순합니다. 사용자가 최소 권한을 원하면 아래 permission 표를 기준으로 초대하고, 역할·채널·webhook 자동 생성에 필요한 `Manage Roles`, `Manage Channels`, `Manage Webhooks`도 포함합니다.
+
+사용자가 OAuth2 승인, 로그인, 2단계 인증, CAPTCHA를 직접 완료하고 bot이 서버 멤버 목록에 나타났다고 확인할 때까지 기다립니다. 이 단계 전에는 Discord API resource 생성을 시도하지 않습니다.
+
+### 4. 초대 이후에는 에이전트가 Discord를 구성
+
+bot이 서버에 들어온 뒤에는 사용자가 채널과 역할 ID를 일일이 만들고 복사하게 하지 않습니다. 기존 `DISCORD_BOT_TOKEN`으로 Discord API를 호출해 다음 작업을 멱등적으로 수행합니다.
+
+1. bot identity와 참여 guild 목록을 조회합니다. 대상 서버가 하나면 자동 선택하고, 여러 개면 서버 이름을 보여준 뒤 사용자에게 하나만 선택하게 합니다.
+2. 사용자가 알림을 받을 Discord user를 확인합니다. user ID를 한 번 요청하거나, role 생성 뒤 사용자가 직접 role을 부여하도록 선택지를 줍니다.
+3. 기존 `Codex Operator` 역할을 재사용하거나 새로 만들고 operator user에게 부여합니다. bot의 역할이 대상 역할보다 위에 있는지 확인합니다.
+4. 컴퓨터 표시 이름, workspace root, Claude Code 사용 여부만 사용자에게 순서대로 묻습니다.
+5. 컴퓨터용 category와 Codex/admin parent channel을 만들고, Claude Code를 쓰면 별도 Claude parent channel을 만듭니다.
+6. bot role과 Operator role에 필요한 channel permission overwrite를 설정합니다. 일반 사용자에게 shell/agent 실행 채널이 노출되지 않게 합니다.
+7. 생성 또는 발견한 Guild/Role/Channel ID를 직접 `.connect/config.json`과 `.env` 설치 입력으로 사용합니다. 이미 API로 얻은 ID를 사용자에게 다시 복사해 달라고 하지 않습니다.
+8. slash command를 대상 guild에 등록합니다.
+9. 버전 공지를 원하는지 묻습니다. 원하면 `#codex-releases` 같은 채널과 `Codex Releases` webhook을 만들고, GitHub 인증 후 `DISCORD_RELEASE_WEBHOOK_URL` repository secret까지 설정합니다.
+
+resource를 만들기 전에 같은 이름과 용도의 기존 category, channel, role, webhook을 조회합니다. 이름만 같고 ownership이 불명확하면 자동 삭제하거나 덮어쓰지 말고 사용자에게 확인합니다. 중간 실패 후 다시 실행해도 중복 채널과 webhook이 늘어나지 않아야 합니다.
+
+### 5. 에이전트가 로컬 설치와 서비스 등록
+
+Discord resource 구성이 끝나면 에이전트가 저장소 clone, dependency 설치, Direct mode config 생성, Codex/Claude CLI 확인, bot/worker 분리 서비스 등록, slash command 등록과 smoke test를 수행합니다. Mac은 LaunchAgent, Ubuntu는 systemd user 또는 system service를 환경에 맞게 선택합니다.
+
+사용자에게 남기는 마지막 Discord 수동 작업은 각 운영 채널의 개인 알림 설정을 **멘션만(Only @mentions)** 으로 바꾸는 것입니다. Discord의 개인 알림 설정은 bot API로 대신 변경하지 않습니다.
+
+### 6. 대화 진행 예시
+
+```text
+에이전트: 연결할 private Discord 서버가 이미 있나요?
+사용자: 만들었어.
+에이전트: 이제 Developer Portal에서 application과 bot을 만들고 Message Content Intent를 켜주세요.
+사용자: 했어.
+에이전트: bot을 방금 만든 서버에 초대하고, 서버 멤버 목록에 보이면 알려주세요.
+사용자: 초대했어.
+에이전트: 좋아요. 이제부터 역할, category, Codex/Claude 채널, 권한, slash command는 제가 구성하겠습니다. 알림 받을 사용자와 이 컴퓨터 이름부터 확인할게요.
+```
+
+이 대화 흐름을 건너뛰고 사용자가 이해하지 못하는 ID 목록부터 요구하지 않습니다. 다만 조직 정책상 bot에게 `Manage Roles`, `Manage Channels`, `Manage Webhooks`를 줄 수 없다면 해당 resource만 사용자가 만들게 하고 ID를 받아 이어갑니다.
+
 ### 사용자에게 받아야 하는 값
 
-필수:
+기존 Discord resource를 재사용하는 설치에서 필수:
 
 - Discord Bot Token
 - Discord Guild/Server ID
 - 허용할 Operator Role ID 하나 이상
 - 이 컴퓨터 전용 Codex/admin Channel ID
 - 허용할 workspace root와 시작 cwd
+
+첫 자동 설치에서는 Operator Role ID와 Codex/Claude Channel ID를 에이전트가 생성하거나 API로 발견합니다. 대신 operator user 지정과 컴퓨터/channel 이름을 사용자에게 확인합니다. API로 확인할 수 없는 값만 한 번에 하나씩 요청합니다.
 
 선택:
 
@@ -90,18 +162,24 @@ Developer Portal의 `Installation` 또는 `OAuth2 URL Generator`에서 Guild Ins
 | Create Public Threads | `/chat-new`, session thread 생성 |
 | Manage Threads | thread 보관 상태와 운영 처리 |
 | Manage Channels | workspace category, 동기화 채널 생성·삭제 |
+| Manage Roles | Operator 역할 자동 생성·부여와 channel permission 구성 |
+| Manage Webhooks | GitHub 버전 공지용 incoming webhook 자동 생성 |
 | Manage Messages | `/clear`를 사용할 때만 필요 |
 
 Discord thread에서는 일반 `Send Messages`와 별도로 `Send Messages in Threads`가 필요합니다. 부모 채널의 permission overwrite가 bot role을 막고 있지 않은지도 확인합니다.
 
 ### 3. 서버 구조와 ID
 
+첫 설치에서는 bot 초대 후 AI 에이전트가 Discord API로 아래 구조를 만드는 것이 기본입니다.
+
 1. `Codex Operator` 역할을 만들고 connector를 사용할 사람에게 부여합니다.
 2. 컴퓨터마다 Codex/admin parent 채널을 만듭니다. 예: `#mac-codex`, `#b200-codex`.
 3. Claude Code를 쓸 컴퓨터에는 별도 parent 채널을 만듭니다. 예: `#mac-claude-code`.
-4. Discord `사용자 설정 > 고급 > 개발자 모드`를 켭니다.
-5. 서버, 역할, 각 채널을 우클릭해 ID를 복사합니다.
-6. 채널 알림은 **Only @mentions**로 설정합니다. 진행 메시지는 mention하지 않고 질문·권한·완료·실패만 Operator role을 mention합니다.
+4. bot role과 Operator role의 channel permission overwrite를 설정합니다.
+5. API 응답의 Guild/Role/Channel ID를 connector 설정에 직접 사용합니다.
+6. 사용자에게 각 채널 알림을 **Only @mentions**로 바꾸도록 요청합니다. 진행 메시지는 mention하지 않고 질문·권한·완료·실패만 Operator role을 mention합니다.
+
+bot permission이 부족하거나 기존 수동 구성을 재사용할 때만 Discord `사용자 설정 > 고급 > 개발자 모드`를 켜고 서버, 역할, 각 채널을 우클릭해 ID를 복사하도록 안내합니다.
 
 Slash command는 bot 시작 시 대상 guild에 등록됩니다. 보이지만 실행되지 않는다면 channel ownership filter, guild ID, bot permission, command 재등록 로그 순서로 확인합니다.
 
