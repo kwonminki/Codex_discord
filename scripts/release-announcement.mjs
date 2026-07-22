@@ -22,7 +22,7 @@ export function parseVersionCommit(commit) {
     url: commit.url,
     version: match[1],
     title: match[2]?.trim() || null,
-    details: bodyLines.join("\n").trim() || null,
+    details: bodyLines.join("\n").trim().replaceAll("\\n", "\n") || null,
   };
 }
 

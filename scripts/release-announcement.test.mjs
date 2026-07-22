@@ -30,6 +30,10 @@ describe("release announcement", () => {
     );
     assert.equal(parseVersionCommit(commit("ordinary", "Add release workflow")), null);
     assert.equal(parseVersionCommit(commit("joined", "v1.0feature")), null);
+    assert.equal(
+      parseVersionCommit(commit("escaped", "v1.3: Escaped body\n\n- first\\n- second")).details,
+      "- first\n- second",
+    );
   });
 
   it("collects every version commit from one push and ignores ordinary commits", () => {
