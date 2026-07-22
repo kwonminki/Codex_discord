@@ -220,6 +220,25 @@ Codex Desktop, VS Code, Antigravity 같은 IDE에서 이미 같은 세션이 작
 
 같은 Discord bot token을 여러 서버에서 함께 사용해도 됩니다. 각 인스턴스가 담당하는 Codex/Claude 채널 ID만 서로 다르게 설정하세요. 같은 채널을 두 인스턴스에 연결하면 중복 실행과 interaction 경합이 생길 수 있습니다.
 
+## 버전 업데이트 공지
+
+이 저장소는 서버 봇이 GitHub를 polling하지 않습니다. 대신 `master`에 push가 발생할 때 GitHub Actions가 커밋을 확인하고, **첫 줄이 버전으로 시작하는 커밋만** 지정된 Discord 채널에 한 번 공지합니다. 여러 컴퓨터에서 같은 봇을 실행해도 공지는 GitHub에서 직접 전송되므로 중복되지 않습니다.
+
+Discord 공지를 설정하려면:
+
+1. 공지를 받을 Discord 채널의 `채널 편집 > 연동 > 웹후크`에서 webhook을 하나 만듭니다.
+2. GitHub 저장소의 `Settings > Secrets and variables > Actions`에 `DISCORD_RELEASE_WEBHOOK_URL`이라는 repository secret으로 webhook URL을 등록합니다.
+3. 버전 커밋의 첫 줄을 아래 형식으로 작성합니다. 커밋 본문은 Discord의 변경 내용으로 그대로 표시됩니다.
+
+```text
+v1.0: 첫 공개 버전
+
+- 버전 업데이트 자동 공지
+- 여러 서버를 사용해도 공지는 한 번만 전송
+```
+
+`v1.0`, `v1.2.3: 제목`, `v2.0-beta.1 Release candidate` 형식을 지원합니다. 일반 커밋은 workflow가 실행되더라도 Discord 메시지를 보내지 않습니다. Webhook URL은 비밀번호처럼 취급하고 코드, `.env`, 로그에 넣지 마세요.
+
 ## 실행 권한
 
 기본 Direct mode는 개인 자동화 용도로 Codex를 넓은 권한으로 실행합니다.

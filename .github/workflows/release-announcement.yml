@@ -1,0 +1,25 @@
+name: Discord release announcement
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discord-release-announcement-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out announcement script
+        uses: actions/checkout@v4
+
+      - name: Announce version commits
+        env:
+          DISCORD_RELEASE_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_URL }}
+        run: node scripts/release-announcement.mjs

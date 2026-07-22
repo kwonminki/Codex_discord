@@ -58,7 +58,7 @@
     "tsconfig.base.json"
   ],
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests && node --test scripts/release-announcement.test.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "pnpm test && pnpm typecheck && npm pack --dry-run",

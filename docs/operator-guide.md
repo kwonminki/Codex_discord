@@ -174,6 +174,21 @@ To update the bot from Discord, run `reload` for a slash-command refresh. Run `r
 
 For Discord-only bot maintenance, use the admin `유지보수` panel: open `봇 개발 채팅`, ask Codex to make the change in the created session channel, run `타입체크`, run `테스트 실행`, then use `명령어 재등록` for slash-command-only changes or `봇 재시작` for code changes.
 
+## Release Announcements
+
+Release announcements are event-driven and do not run inside any connector process. The GitHub Actions workflow at `.github/workflows/release-announcement.yml` runs on pushes to `master`, ignores ordinary commits, and sends version commits directly to one Discord channel through a webhook. This avoids polling, leader election, and duplicate announcements when the same bot application runs on multiple computers.
+
+Create a Discord webhook for the announcement channel and store its URL as the GitHub Actions repository secret `DISCORD_RELEASE_WEBHOOK_URL`. A release commit must start with a supported version on its first line:
+
+```text
+v1.2.0: Media survey improvements
+
+- Add image and video choices
+- Keep completion notifications quiet until the final result
+```
+
+The subject becomes the announcement title and the remaining commit body becomes the feature description. Supported examples include `v1.0`, `v1.2.3: Summary`, and `v2.0-beta.1 Release candidate`. Never commit the Discord webhook URL.
+
 ## Safety Rules
 
 - Only users with an approved Discord role can run operator actions.
