@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
-  DEFAULT_CODEX_PROMPT_TIMEOUT_MS,
+  DEFAULT_AGENT_PROMPT_TIMEOUT_MS,
   createDiscordMessageHandler,
-  resolveCodexPromptTimeoutMs,
+  resolveAgentPromptTimeoutMs,
   type ManagedDiscordChannelContext,
 } from "./messageHandler.js";
 
@@ -34,10 +34,10 @@ const claudeChannelContext: ManagedDiscordChannelContext = {
 
 describe("createDiscordMessageHandler", () => {
   it("uses a long Codex prompt timeout by default while allowing explicit override", () => {
-    expect(resolveCodexPromptTimeoutMs(3_000, undefined)).toBe(DEFAULT_CODEX_PROMPT_TIMEOUT_MS);
-    expect(resolveCodexPromptTimeoutMs(3_000, "7200000")).toBe(7_200_000);
-    expect(resolveCodexPromptTimeoutMs(3_000, "0")).toBe(0);
-    expect(resolveCodexPromptTimeoutMs(10_000, "1000")).toBe(10_000);
+    expect(resolveAgentPromptTimeoutMs(3_000, undefined)).toBe(DEFAULT_AGENT_PROMPT_TIMEOUT_MS);
+    expect(resolveAgentPromptTimeoutMs(3_000, "7200000")).toBe(7_200_000);
+    expect(resolveAgentPromptTimeoutMs(3_000, "0")).toBe(0);
+    expect(resolveAgentPromptTimeoutMs(10_000, "1000")).toBe(10_000);
   });
 
   it("submits an authorized shell command to the control api and edits the queued reply with the result", async () => {
@@ -1030,7 +1030,7 @@ describe("createDiscordMessageHandler", () => {
           workspaceRoot: "/repo",
           cwd: "/repo",
           prompt: "이 프로젝트 설명해줘",
-          timeoutMs: DEFAULT_CODEX_PROMPT_TIMEOUT_MS,
+          timeoutMs: DEFAULT_AGENT_PROMPT_TIMEOUT_MS,
           sessionId: null,
         }),
         onProgress: expect.any(Function),

@@ -9,9 +9,9 @@ import {
   createDiscordGuildSurface,
 } from "./discordClient.js";
 import {
-  formatCodexAck,
-  formatCodexProgressUpdate,
-  formatCodexResultUpdate,
+  formatAgentAck,
+  formatAgentProgressUpdate,
+  formatAgentResultUpdate,
   withRoleMentions,
 } from "./responses.js";
 
@@ -164,7 +164,7 @@ describe("attachDiscordMessageHandler", () => {
     };
 
     try {
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "repo",
@@ -226,19 +226,19 @@ describe("attachDiscordMessageHandler", () => {
       prompt: "작업해줘",
     };
     const queuedReply = await adaptedMessage.reply(
-      withRoleMentions(formatCodexAck(input), ["operator-role"]),
+      withRoleMentions(formatAgentAck(input), ["operator-role"]),
     );
 
     await queuedReply.edit(
       withRoleMentions(
-        formatCodexProgressUpdate(input, { status: "item.started", recentEvents: ["파일 확인 중"] }),
+        formatAgentProgressUpdate(input, { status: "item.started", recentEvents: ["파일 확인 중"] }),
         ["operator-role"],
       ),
     );
 
     await queuedReply.edit(
       withRoleMentions(
-        formatCodexResultUpdate(
+        formatAgentResultUpdate(
           { ...input, agentLabel: "Claude Code" },
           {
             result: {
@@ -851,7 +851,7 @@ describe("attachDiscordInteractionHandler", () => {
       };
       const handleMessage = vi.fn(async (message) => {
         const queued = await message.reply(
-          formatCodexProgressUpdate(
+          formatAgentProgressUpdate(
             {
               computerDisplayName: "Local Dev",
               workspaceDisplayName: "CodexDiscordConnector",
@@ -867,7 +867,7 @@ describe("attachDiscordInteractionHandler", () => {
         );
 
         await queued?.edit(
-          formatCodexResultUpdate(
+          formatAgentResultUpdate(
             {
               computerDisplayName: "Local Dev",
               workspaceDisplayName: "CodexDiscordConnector",

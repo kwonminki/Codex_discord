@@ -29,7 +29,7 @@ const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
 const MAX_SPLIT_MESSAGE_CONTENT_LENGTH = 1_800;
 const ATTACH_TEXT_THRESHOLD = 1_000;
-export const CODEX_PROGRESS_EVENT_LIMIT = 16;
+export const AGENT_PROGRESS_EVENT_LIMIT = 16;
 
 type ChannelMode = "shell-admin" | "session-linked" | "claude-code";
 
@@ -58,7 +58,7 @@ export interface DiscordMessagePayload {
   files?: DiscordFilePayload[];
 }
 
-export interface CodexProgressMessageInput {
+export interface AgentProgressMessageInput {
   computerDisplayName: string;
   workspaceDisplayName: string;
   cwd: string;
@@ -94,14 +94,14 @@ export interface CodexUserInputQuestionMessage {
   options: Array<{ label: string; description: string }> | null;
 }
 
-export interface CodexProgressState {
+export interface AgentProgressState {
   status: string;
   sessionId?: string | null;
   latestMessage?: string | null;
   recentEvents?: string[];
 }
 
-const codexResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
+const agentResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
 const answerCopyTextByPayload = new WeakMap<DiscordMessagePayload, string>();
 
 export interface DiscordFilePayload {
@@ -268,13 +268,13 @@ export function splitDiscordMessageContent(
   return chunks;
 }
 
-export function getCodexResultContinuationMessages(
+export function getAgentResultContinuationMessages(
   payload: DiscordMessagePayload,
 ): DiscordMessagePayload[] {
-  return [...(codexResultContinuationMessages.get(payload) ?? [])];
+  return [...(agentResultContinuationMessages.get(payload) ?? [])];
 }
 
-export function appendCodexResultContinuationMessages(
+export function appendAgentResultContinuationMessages(
   payload: DiscordMessagePayload,
   continuations: DiscordMessagePayload[],
 ): void {
@@ -282,8 +282,8 @@ export function appendCodexResultContinuationMessages(
     return;
   }
 
-  codexResultContinuationMessages.set(payload, [
-    ...(codexResultContinuationMessages.get(payload) ?? []),
+  agentResultContinuationMessages.set(payload, [
+    ...(agentResultContinuationMessages.get(payload) ?? []),
     ...continuations,
   ]);
 }
@@ -3233,7 +3233,7 @@ export function formatArchiveResult(response: {
   });
 }
 
-export function formatCodexAck(input: {
+export function formatAgentAck(input: {
   computerDisplayName: string;
   workspaceDisplayName: string;
   cwd: string;
@@ -3241,14 +3241,14 @@ export function formatCodexAck(input: {
   agentLabel?: string;
 }): DiscordMessagePayload {
   const progress = { status: "thinking" };
-  return textPayload(codexProgressText(input, progress, `${agentLabel(input)} 작업 시작`));
+  return textPayload(agentProgressText(input, progress, `${agentLabel(input)} 작업 시작`));
 }
 
 function agentLabel(input: { agentLabel?: string }): string {
   return input.agentLabel?.trim() || "Codex";
 }
 
-function codexStatusLabel(status: string): string {
+function agentStatusLabel(status: string): string {
   switch (status) {
     case "thinking":
       return "요청 접수됨";
@@ -3282,8 +3282,8 @@ function compactMultiline(value: string): string {
     .join("\n");
 }
 
-function codexActivitySummary(status: string): string {
-  const label = codexStatusLabel(status);
+function agentActivitySummary(status: string): string {
+  const label = agentStatusLabel(status);
 
   if (label === "요청 접수됨") {
     return "생각중...";
@@ -3318,13 +3318,13 @@ function renderProgressEvent(event: string): string {
   return trimmedEvent;
 }
 
-function codexProgressText(
-  input: CodexProgressMessageInput,
-  progress: CodexProgressState,
+function agentProgressText(
+  input: AgentProgressMessageInput,
+  progress: AgentProgressState,
   title = "Codex 작업 중",
 ): string {
   const prompt = compactMultiline(input.prompt);
-  const lines = [`**${title}**`, `진행: ${codexStatusLabel(progress.status)}`];
+  const lines = [`**${title}**`, `진행: ${agentStatusLabel(progress.status)}`];
 
   if (prompt.length > 0) {
     lines.push("", "**요청**", `>>> ${prompt}`);
@@ -3339,13 +3339,13 @@ function codexProgressText(
   }
 
   const recentEvents =
-    progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-CODEX_PROGRESS_EVENT_LIMIT) ?? [];
+    progress.recentEvents?.filter((event) => event.trim().length > 0).slice(-AGENT_PROGRESS_EVENT_LIMIT) ?? [];
 
   const latestEvent = recentEvents.at(-1);
-  lines.push("", codexActivitySummary(progress.status));
+  lines.push("", agentActivitySummary(progress.status));
   if (
     latestEvent &&
-    latestEvent !== codexActivitySummary(progress.status)
+    latestEvent !== agentActivitySummary(progress.status)
   ) {
     lines.push(renderProgressEvent(latestEvent));
   }
@@ -3353,11 +3353,11 @@ function codexProgressText(
   return lines.join("\n");
 }
 
-export function formatCodexProgressUpdate(
-  input: CodexProgressMessageInput,
-  progress: CodexProgressState,
+export function formatAgentProgressUpdate(
+  input: AgentProgressMessageInput,
+  progress: AgentProgressState,
 ): DiscordMessagePayload {
-  return textPayload(codexProgressText(input, progress, `${agentLabel(input)} 작업 중`));
+  return textPayload(agentProgressText(input, progress, `${agentLabel(input)} 작업 중`));
 }
 
 export function formatLiveAgentProgress(input: {
@@ -3580,8 +3580,8 @@ export function formatCommandResult(response: {
   );
 }
 
-export function formatCodexResultUpdate(
-  input: CodexProgressMessageInput,
+export function formatAgentResultUpdate(
+  input: AgentProgressMessageInput,
   response: {
     result?: unknown;
     error?: { message: string };
@@ -3707,7 +3707,7 @@ export function formatCodexResultUpdate(
     };
 
     registerAnswerCopyText(payload, finalContent);
-    appendCodexResultContinuationMessages(payload, [
+    appendAgentResultContinuationMessages(payload, [
       ...continuationPayloads,
       ...discordFileOnlyPayloads(finalFiles),
     ]);

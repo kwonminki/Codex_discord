@@ -1,4 +1,5 @@
 import type { DiscordGuildSurface } from "./codexSessionSync.js";
+import { prepareAgentCompletionAnswer } from "./agentCompletionAnswer.js";
 import type { DiscoveredClaudeCodeSession } from "./claudeSessionSync.js";
 import { isExternallyStartedClaudeCodeSession } from "./claudeSessionSync.js";
 import type {
@@ -7,18 +8,14 @@ import type {
   DirectSyncStateStore,
 } from "./directState.js";
 import {
-  appendCodexResultContinuationMessages,
+  appendAgentResultContinuationMessages,
   discordFileOnlyPayloads,
-  extractCodexDiscordSendOutputs,
-  extractLocalMediaLinkOutputs,
-  getCodexResultContinuationMessages,
+  getAgentResultContinuationMessages,
   registerAnswerCopyText,
-  type DiscordFilePayload,
   type DiscordMessagePayload,
 } from "./responses.js";
 
 const MAX_FIELD_CHARS = 180;
-const MAX_ANSWER_EMBED_CHARS = 3_800;
 const ANSWER_ATTACHMENT_NAME = "claude-answer.txt";
 const ANSWER_EMBED_COLOR = 0x8e44ad;
 const CLAUDE_COMPLETION_NOTIFICATION_SCOPE = "external-claude-code-idle-assistant-messages-v2";
@@ -49,58 +46,8 @@ function sanitizeInline(value: string | null | undefined): string {
     .slice(0, MAX_FIELD_CHARS);
 }
 
-function sanitizeDiscordText(value: string): string {
-  return value.replace(/@/g, "[at]").trimEnd();
-}
-
 function normalizedSessionId(sessionId: string): string {
   return sessionId.trim().toLowerCase();
-}
-
-function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
-  const sanitizedAnswer = sanitizeDiscordText(answer);
-
-  if (sanitizedAnswer.length <= MAX_ANSWER_EMBED_CHARS) {
-    return { description: sanitizedAnswer, clipped: false };
-  }
-
-  const suffix = `\n\n... (전체 답변은 첨부 파일 \`${ANSWER_ATTACHMENT_NAME}\`에서 확인하세요.)`;
-  return {
-    description: `${sanitizedAnswer.slice(0, MAX_ANSWER_EMBED_CHARS - suffix.length).trimEnd()}${suffix}`,
-    clipped: true,
-  };
-}
-
-function answerAttachment(answer: string): DiscordFilePayload {
-  return {
-    attachment: Buffer.from(answer, "utf8"),
-    name: ANSWER_ATTACHMENT_NAME,
-  };
-}
-
-function answerOutputs(answer: string): {
-  previewAnswer: string;
-  files: DiscordFilePayload[];
-} {
-  const discordSendOutputs = extractCodexDiscordSendOutputs(answer);
-  const mediaLinkOutputs = extractLocalMediaLinkOutputs(discordSendOutputs.cleanedText);
-  const files = [...discordSendOutputs.attachments, ...mediaLinkOutputs.attachments];
-
-  if (!discordSendOutputs.hadBlocks && mediaLinkOutputs.notices.length === 0) {
-    return { previewAnswer: answer, files };
-  }
-
-  const previewAnswer =
-    [
-      discordSendOutputs.cleanedText,
-      ...discordSendOutputs.messages,
-      ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
-      ...mediaLinkOutputs.notices.map((notice) => `주의: ${notice}`),
-    ]
-      .filter((line) => line.trim().length > 0)
-      .join("\n") || (files.length > 0 ? "첨부 파일을 보냈습니다." : answer);
-
-  return { previewAnswer, files };
 }
 
 function nextNotificationState(input: {
@@ -135,9 +82,10 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
   const cwd = sanitizeInline(session.cwd);
   const updatedAt = sanitizeInline(session.updatedAt);
   const rawAnswer = session.latestAssistantMessage ?? "";
-  const parsedAnswer = answerOutputs(rawAnswer);
-  const answer = parsedAnswer.previewAnswer;
-  const answerPreview = formatAnswerPreview(answer);
+  const preparedAnswer = prepareAgentCompletionAnswer({
+    answer: rawAnswer,
+    attachmentName: ANSWER_ATTACHMENT_NAME,
+  });
   const lines = [
     "**Claude Code 작업 완료**",
     `세션: \`${threadName}\``,
@@ -153,20 +101,17 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
       {
         title: "답변",
         color: ANSWER_EMBED_COLOR,
-        description: answerPreview.description,
+        description: preparedAnswer.description,
       },
     ],
     components: [],
   };
 
-  registerAnswerCopyText(payload, answer);
-  const files = [
-    ...(answerPreview.clipped ? [answerAttachment(answer)] : []),
-    ...parsedAnswer.files,
-  ];
+  registerAnswerCopyText(payload, preparedAnswer.answer);
+  const files = preparedAnswer.files;
 
   if (files.length > 0) {
-    appendCodexResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+    appendAgentResultContinuationMessages(payload, discordFileOnlyPayloads(files));
   }
 
   return payload;
@@ -278,7 +223,7 @@ export async function notifyClaudeCodeTaskCompletions(
       await input.guild.sendTextMessage(syncedChannel.discordChannelId, notification);
     }
 
-    for (const continuation of getCodexResultContinuationMessages(notification)) {
+    for (const continuation of getAgentResultContinuationMessages(notification)) {
       await input.guild.sendTextMessage(syncedChannel.discordChannelId, continuation);
     }
 

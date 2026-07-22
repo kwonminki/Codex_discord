@@ -4,9 +4,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  formatCodexAck,
-  formatCodexProgressUpdate,
-  formatCodexResultUpdate,
+  formatAgentAck,
+  formatAgentProgressUpdate,
+  formatAgentResultUpdate,
   formatBlockedCommand,
   formatChannelStatus,
   formatCommandAck,
@@ -25,7 +25,7 @@ import {
   formatSyncResultUpdate,
   formatScheduleResult,
   formatMaintenancePanel,
-  getCodexResultContinuationMessages,
+  getAgentResultContinuationMessages,
   splitDiscordMessageContent,
 } from "./responses.js";
 
@@ -357,7 +357,7 @@ describe("responses", () => {
 
   it("formats Codex prompts as readable plain text progress", () => {
     expect(
-      formatCodexAck({
+      formatAgentAck({
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
         cwd: "/repo",
@@ -368,7 +368,7 @@ describe("responses", () => {
       content: expect.stringContaining("**Codex 작업 시작**"),
       embeds: [],
     }));
-    expect(formatCodexAck({
+    expect(formatAgentAck({
       computerDisplayName: "Local Dev",
       workspaceDisplayName: "CodexDiscordConnector",
       cwd: "/repo",
@@ -377,7 +377,7 @@ describe("responses", () => {
   });
 
   it("formats Codex progress as Korean plain text instead of raw event names", () => {
-    const payload = formatCodexProgressUpdate(
+    const payload = formatAgentProgressUpdate(
       {
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
@@ -406,7 +406,7 @@ describe("responses", () => {
   });
 
   it("renders file edit progress with filename-only diff stats", () => {
-    const payload = formatCodexProgressUpdate(
+    const payload = formatAgentProgressUpdate(
       {
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
@@ -427,7 +427,7 @@ describe("responses", () => {
 
   it("formats successful Codex answers as completion cards", () => {
     expect(
-      formatCodexResultUpdate(
+      formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "CodexDiscordConnector",
@@ -457,7 +457,7 @@ describe("responses", () => {
 
   it("does not add Codex app controls when a real session id is present", () => {
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
-    const payload = formatCodexResultUpdate(
+    const payload = formatAgentResultUpdate(
       {
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
@@ -478,7 +478,7 @@ describe("responses", () => {
 
   it("splits long Codex final answers into ordered Discord messages", () => {
     const longFinalMessage = Array.from({ length: 160 }, (_, index) => `긴 답변 ${index + 1}: ${"내용 ".repeat(20)}`).join("\n");
-    const payload = formatCodexResultUpdate(
+    const payload = formatAgentResultUpdate(
       {
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
@@ -493,7 +493,7 @@ describe("responses", () => {
         },
       },
     );
-    const continuations = getCodexResultContinuationMessages(payload);
+    const continuations = getAgentResultContinuationMessages(payload);
     const messages = [payload, ...continuations];
     const answerText = messages
       .flatMap((message) => message.embeds.map((embed) => embed.description ?? ""))
@@ -525,7 +525,7 @@ describe("responses", () => {
 
   it("keeps only useful session actions after the final answer is rendered", () => {
     const sessionId = "019db2be-b2b3-7e82-9e61-8c84b28ad287";
-    const payload = formatCodexResultUpdate(
+    const payload = formatAgentResultUpdate(
       {
         computerDisplayName: "Local Dev",
         workspaceDisplayName: "CodexDiscordConnector",
@@ -557,7 +557,7 @@ describe("responses", () => {
 
   it("keeps failed Codex answers as diagnostic embeds", () => {
     expect(
-      formatCodexResultUpdate(
+      formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "CodexDiscordConnector",
@@ -586,7 +586,7 @@ describe("responses", () => {
 
   it("shows Codex runner error codes on failed diagnostic embeds", () => {
     expect(
-      formatCodexResultUpdate(
+      formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "CodexDiscordConnector",
@@ -626,7 +626,7 @@ describe("responses", () => {
     try {
       await writeFile(imagePath, "fake image");
 
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -648,7 +648,7 @@ describe("responses", () => {
         }),
       );
       expect(payload.files).toBeUndefined();
-      expect(getCodexResultContinuationMessages(payload)).toEqual([
+      expect(getAgentResultContinuationMessages(payload)).toEqual([
         {
           allowedMentions: { parse: [] },
           embeds: [],
@@ -669,7 +669,7 @@ describe("responses", () => {
       await writeFile(videoPath, "fake video");
       await writeFile(audioPath, "fake audio");
 
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -708,7 +708,7 @@ describe("responses", () => {
         }),
       );
       expect(payload.files).toBeUndefined();
-      expect(getCodexResultContinuationMessages(payload)).toEqual([
+      expect(getAgentResultContinuationMessages(payload)).toEqual([
         {
           allowedMentions: { parse: [] },
           embeds: [],
@@ -730,7 +730,7 @@ describe("responses", () => {
     try {
       await writeFile(videoPath, "fake video");
 
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -757,7 +757,7 @@ describe("responses", () => {
         }),
       );
       expect(payload.files).toBeUndefined();
-      expect(getCodexResultContinuationMessages(payload)).toEqual([
+      expect(getAgentResultContinuationMessages(payload)).toEqual([
         {
           allowedMentions: { parse: [] },
           embeds: [],
@@ -775,7 +775,7 @@ describe("responses", () => {
 
     try {
       await Promise.all(filePaths.map((filePath, index) => writeFile(filePath, `result ${index + 1}`)));
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "CodexDiscordConnector",
@@ -796,7 +796,7 @@ describe("responses", () => {
           },
         },
       );
-      const filePayloads = getCodexResultContinuationMessages(payload);
+      const filePayloads = getAgentResultContinuationMessages(payload);
 
       expect(filePayloads).toHaveLength(2);
       expect(filePayloads[0]?.files).toHaveLength(10);
@@ -815,7 +815,7 @@ describe("responses", () => {
     try {
       await writeFile(largePath, Buffer.alloc(10 * 1024 * 1024 + 1));
 
-      const payload = formatCodexResultUpdate(
+      const payload = formatAgentResultUpdate(
         {
           computerDisplayName: "Local Dev",
           workspaceDisplayName: "CodexDiscordConnector",

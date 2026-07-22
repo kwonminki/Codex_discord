@@ -1,5 +1,6 @@
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
 import type { ControlApiClient } from "./controlApiClient.js";
+import { prepareAgentCompletionAnswer } from "./agentCompletionAnswer.js";
 import {
   codexSessionDiscordThreadName,
   sessionTopic,
@@ -14,18 +15,14 @@ import type {
   SyncedSessionChannelState,
 } from "./directState.js";
 import {
-  appendCodexResultContinuationMessages,
+  appendAgentResultContinuationMessages,
   discordFileOnlyPayloads,
-  extractCodexDiscordSendOutputs,
-  extractLocalMediaLinkOutputs,
-  getCodexResultContinuationMessages,
+  getAgentResultContinuationMessages,
   registerAnswerCopyText,
-  type DiscordFilePayload,
   type DiscordMessagePayload,
 } from "./responses.js";
 
 const MAX_FIELD_CHARS = 180;
-const MAX_ANSWER_EMBED_CHARS = 3_800;
 const ANSWER_ATTACHMENT_NAME = "codex-answer.txt";
 const ANSWER_EMBED_COLOR = 0x2ecc71;
 const TASK_COMPLETION_NOTIFICATION_SCOPE = "all-nonarchived";
@@ -58,10 +55,6 @@ function sanitizeInline(value: string | null | undefined): string {
     .slice(0, MAX_FIELD_CHARS);
 }
 
-function sanitizeDiscordText(value: string): string {
-  return value.replace(/@/g, "[at]").trimEnd();
-}
-
 function latestTaskCompleteEvent(session: DiscoveredCodexSession): { key: string } | null {
   return (
     session.realtimeEvents
@@ -90,51 +83,6 @@ function latestAssistantAnswer(session: DiscoveredCodexSession): string | null {
   return realtimeAnswer?.trim() || null;
 }
 
-function formatAnswerPreview(answer: string): { description: string; clipped: boolean } {
-  const sanitizedAnswer = sanitizeDiscordText(answer);
-
-  if (sanitizedAnswer.length <= MAX_ANSWER_EMBED_CHARS) {
-    return { description: sanitizedAnswer, clipped: false };
-  }
-
-  const suffix = `\n\n... (전체 답변은 첨부 파일 \`${ANSWER_ATTACHMENT_NAME}\`에서 확인하세요.)`;
-  return {
-    description: `${sanitizedAnswer.slice(0, MAX_ANSWER_EMBED_CHARS - suffix.length).trimEnd()}${suffix}`,
-    clipped: true,
-  };
-}
-
-function answerAttachment(answer: string): DiscordFilePayload {
-  return {
-    attachment: Buffer.from(answer, "utf8"),
-    name: ANSWER_ATTACHMENT_NAME,
-  };
-}
-
-function answerOutputs(answer: string): {
-  previewAnswer: string;
-  files: DiscordFilePayload[];
-} {
-  const discordSendOutputs = extractCodexDiscordSendOutputs(answer);
-  const mediaLinkOutputs = extractLocalMediaLinkOutputs(discordSendOutputs.cleanedText);
-  const files = [...discordSendOutputs.attachments, ...mediaLinkOutputs.attachments];
-
-  if (!discordSendOutputs.hadBlocks && mediaLinkOutputs.notices.length === 0) {
-    return { previewAnswer: answer, files };
-  }
-
-  const previewAnswer = [
-    discordSendOutputs.cleanedText,
-    ...discordSendOutputs.messages,
-    ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
-    ...mediaLinkOutputs.notices.map((notice) => `주의: ${notice}`),
-  ]
-    .filter((line) => line.trim().length > 0)
-    .join("\n") || (files.length > 0 ? "첨부 파일을 보냈습니다." : answer);
-
-  return { previewAnswer, files };
-}
-
 function nextNotificationState(input: {
   session: DiscoveredCodexSession;
   eventKey: string;
@@ -158,10 +106,9 @@ function formatTaskCompleteNotification(
   const updatedAt = sanitizeInline(session.updatedAt);
   const latestAnswer = latestAssistantAnswer(session);
   const rawAnswer = options.includeAnswer ? latestAnswer : null;
-  const parsedAnswer = rawAnswer ? answerOutputs(rawAnswer) : null;
-  const answer = parsedAnswer?.previewAnswer ?? null;
-  const answerFiles = parsedAnswer?.files ?? [];
-  const answerPreview = answer ? formatAnswerPreview(answer) : null;
+  const preparedAnswer = rawAnswer
+    ? prepareAgentCompletionAnswer({ answer: rawAnswer, attachmentName: ANSWER_ATTACHMENT_NAME })
+    : null;
   const lines = [
     "**Codex 작업 완료**",
     `세션: \`${threadName}\``,
@@ -173,12 +120,12 @@ function formatTaskCompleteNotification(
   const payload: DiscordMessagePayload = {
     allowedMentions: { parse: [] },
     content: lines.join("\n"),
-    embeds: answerPreview
+    embeds: preparedAnswer
       ? [
           {
             title: "답변",
             color: ANSWER_EMBED_COLOR,
-            description: answerPreview.description,
+            description: preparedAnswer.description,
           },
         ]
       : [],
@@ -197,19 +144,14 @@ function formatTaskCompleteNotification(
     ],
   };
 
-  if (answer) {
-    registerAnswerCopyText(payload, answer);
+  if (preparedAnswer) {
+    registerAnswerCopyText(payload, preparedAnswer.answer);
   }
 
-  const files = rawAnswer
-    ? [
-        ...(answerPreview?.clipped ? [answerAttachment(answer ?? rawAnswer)] : []),
-        ...answerFiles,
-      ]
-    : [];
+  const files = preparedAnswer?.files ?? [];
 
   if (files.length > 0) {
-    appendCodexResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+    appendAgentResultContinuationMessages(payload, discordFileOnlyPayloads(files));
   }
 
   return payload;
@@ -480,7 +422,7 @@ export async function notifyCodexTaskCompletions(
         await input.guild.sendTextMessage(targetChannelId, notification);
       }
 
-      for (const continuation of getCodexResultContinuationMessages(notification)) {
+      for (const continuation of getAgentResultContinuationMessages(notification)) {
         await input.guild.sendTextMessage(targetChannelId, continuation);
       }
       notifiedSessions += 1;

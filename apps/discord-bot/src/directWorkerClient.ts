@@ -1,7 +1,7 @@
 import type {
+  AgentPromptProgressEvent,
   CodexPromptApprovalDecision,
   CodexPromptApprovalRequest,
-  CodexPromptProgressEvent,
   CodexPromptUserInputRequest,
   CodexPromptUserInputResponse,
   CodexTurnControlResult,
@@ -21,7 +21,7 @@ async function wait(ms: number): Promise<void> {
 }
 
 export interface SubmitDirectWorkerJobInput<
-  TProgress extends CodexPromptProgressEvent = CodexPromptProgressEvent,
+  TProgress extends AgentPromptProgressEvent = AgentPromptProgressEvent,
 > {
   jobId?: string;
   type: DirectWorkerJobType;
@@ -43,7 +43,7 @@ export function createDirectWorkerClient(options: {
   const store = options.store ?? createDirectWorkerStore();
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
-  async function submit<TProgress extends CodexPromptProgressEvent = CodexPromptProgressEvent>(
+  async function submit<TProgress extends AgentPromptProgressEvent = AgentPromptProgressEvent>(
     input: SubmitDirectWorkerJobInput<TProgress>,
   ): Promise<DirectWorkerJobResult> {
     const request = await store.enqueue({

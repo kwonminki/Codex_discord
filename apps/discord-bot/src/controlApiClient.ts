@@ -55,13 +55,17 @@ export interface RunClaudePromptJobPayload {
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
 }
 
-export type CodexPromptProgressEvent =
+export type SharedAgentPromptProgressEvent =
   | { type: "thread-started"; sessionId: string }
   | { type: "agent-message"; text: string }
-  | { type: "operation-progress"; label: string; detail?: string; eventType: string }
+  | { type: "operation-progress"; label: string; detail?: string; eventType: string };
+
+export type CodexPromptProgressEvent =
+  | SharedAgentPromptProgressEvent
   | { type: "codex-event"; eventType: string };
 
-export type ClaudePromptProgressEvent = Exclude<CodexPromptProgressEvent, { type: "codex-event" }>;
+export type ClaudePromptProgressEvent = SharedAgentPromptProgressEvent;
+export type AgentPromptProgressEvent = CodexPromptProgressEvent | ClaudePromptProgressEvent;
 
 export type CodexPromptApprovalRequest = CodexApprovalRequest;
 export type CodexPromptApprovalDecision = CodexApprovalDecision;

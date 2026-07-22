@@ -22,28 +22,21 @@ import type {
 } from "./controlApiClient.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { DiscordIncomingAttachment, MaterializedDiscordAttachment } from "./incomingAttachments.js";
-import {
-  DEFAULT_AGENT_SETTINGS,
-  effectiveAgentSettings,
-  normalizeAgentDefaultSettings,
-  normalizeAgentEffort,
-  type AgentDefaultSettings,
-  type AgentEffort,
-  type AgentKind,
-} from "./agentSettings.js";
+import type { AgentDefaultSettings, AgentEffort, AgentKind } from "./agentSettings.js";
+import { createAgentSettingsController } from "./agentSettingsController.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
-import { CODEX_PROGRESS_EVENT_LIMIT, withRoleMentions } from "./responses.js";
+import { AGENT_PROGRESS_EVENT_LIMIT, withRoleMentions } from "./responses.js";
 import {
-  formatCodexAck,
+  formatAgentAck,
   formatCodexApprovalDecision,
   formatCodexApprovalRequest,
   formatCodexUserInputReceived,
   formatCodexUserInputRequest,
   formatAgentSettingsResult,
-  formatCodexProgressUpdate,
-  formatCodexResultUpdate,
+  formatAgentProgressUpdate,
+  formatAgentResultUpdate,
   formatBlockedCommand,
   formatCommandAck,
   formatCommandResultUpdate,
@@ -81,11 +74,11 @@ import {
   formatCodexTurnControlResult,
   formatQueueClearResult,
   formatQueueStatus,
-  getCodexResultContinuationMessages,
+  getAgentResultContinuationMessages,
 } from "./responses.js";
 import type { CodexPermissionSettings, SelectableCodexSession } from "./responses.js";
 
-export const DEFAULT_CODEX_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
+export const DEFAULT_AGENT_PROMPT_TIMEOUT_MS = 5 * 60 * 60 * 1_000;
 const AUTO_STEER_READY_RETRY_ATTEMPTS = 8;
 const DEFAULT_AUTO_STEER_RETRY_DELAY_MS = 250;
 
@@ -103,7 +96,7 @@ export interface BotReloadResult extends BotReloadExecutionState {
   startedAt: string;
 }
 
-export function resolveCodexPromptTimeoutMs(
+export function resolveAgentPromptTimeoutMs(
   channelTimeoutMs: number,
   configuredValue = process.env.CONNECT_CODEX_PROMPT_TIMEOUT_MS,
 ): number {
@@ -117,7 +110,7 @@ export function resolveCodexPromptTimeoutMs(
   const codexTimeoutMs =
     Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
       ? configuredTimeoutMs
-      : DEFAULT_CODEX_PROMPT_TIMEOUT_MS;
+      : DEFAULT_AGENT_PROMPT_TIMEOUT_MS;
 
   return Math.max(channelTimeoutMs, codexTimeoutMs);
 }
@@ -373,7 +366,7 @@ async function sendResultContinuations(input: {
   fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>;
   payload: DiscordMessagePayload;
 }): Promise<void> {
-  for (const continuation of getCodexResultContinuationMessages(input.payload)) {
+  for (const continuation of getAgentResultContinuationMessages(input.payload)) {
     if (input.message.guild?.sendTextMessage) {
       try {
         await input.message.guild.sendTextMessage(input.message.channelId, continuation);
@@ -457,10 +450,10 @@ function appendProgressEvent(events: string[], event: string): string[] {
     return events;
   }
 
-  return [...events, normalizedEvent].slice(-CODEX_PROGRESS_EVENT_LIMIT);
+  return [...events, normalizedEvent].slice(-AGENT_PROGRESS_EVENT_LIMIT);
 }
 
-function extractCodexResponseSessionId(response: { result?: unknown; error?: unknown }): string | null {
+function extractAgentResponseSessionId(response: { result?: unknown; error?: unknown }): string | null {
   return "result" in response &&
     typeof response.result === "object" &&
     response.result !== null &&
@@ -469,7 +462,7 @@ function extractCodexResponseSessionId(response: { result?: unknown; error?: unk
     : null;
 }
 
-function extractCodexResponseFinalMessage(response: { result?: unknown; error?: unknown }): string | null {
+function extractAgentResponseFinalMessage(response: { result?: unknown; error?: unknown }): string | null {
   return "result" in response &&
     typeof response.result === "object" &&
     response.result !== null &&
@@ -665,9 +658,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   const channelQueues = new Map<string, ChannelQueue>();
   const codexSessionIdsByChannel = new Map<string, string>();
   const claudeSessionIdsByChannel = new Map<string, string>();
-  const agentModelsByChannel = new Map<string, string | null>();
-  const agentEffortsByChannel = new Map<string, AgentEffort | null>();
-  let runtimeAgentDefaults: AgentDefaultSettings | null = null;
+  const agentSettingsController = createAgentSettingsController({
+    updateDefaults: input.updateAgentDefaults,
+    updateSession: input.updateSessionAgentSettings,
+  });
   let deferredRestartRequested = false;
   let restartScheduled = false;
   let deferredRestartCheckRunning = false;
@@ -892,84 +886,6 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     return true;
-  }
-
-  function agentKindForContext(channelContext: ManagedDiscordChannelContext): AgentKind {
-    return channelContext.agentMain ?? (channelContext.channelMode === "claude-code" ? "claude" : "codex");
-  }
-
-  function settingsForChannel(channelId: string, channelContext: ManagedDiscordChannelContext) {
-    const agent = agentKindForContext(channelContext);
-    const defaults = runtimeAgentDefaults ?? normalizeAgentDefaultSettings(channelContext.agentDefaults);
-    const modelOverride = agentModelsByChannel.has(channelId)
-      ? agentModelsByChannel.get(channelId) ?? null
-      : channelContext.agentModelOverride ?? null;
-    const effortOverride = agentEffortsByChannel.has(channelId)
-      ? agentEffortsByChannel.get(channelId) ?? null
-      : channelContext.agentEffortOverride ?? null;
-
-    return effectiveAgentSettings({
-      agent,
-      defaults,
-      override: channelContext.agentMain ? null : { model: modelOverride, effort: effortOverride },
-    });
-  }
-
-  function codexReasoningEffort(channelId: string, channelContext: ManagedDiscordChannelContext) {
-    const effort = settingsForChannel(channelId, channelContext).effort;
-    return effort === "max" ? "xhigh" as const : effort;
-  }
-
-  async function updateAgentModel(
-    channelId: string,
-    channelContext: ManagedDiscordChannelContext,
-    model: string | null,
-  ): Promise<void> {
-    const agent = agentKindForContext(channelContext);
-
-    if (channelContext.agentMain) {
-      if (input.updateAgentDefaults) {
-        runtimeAgentDefaults = await input.updateAgentDefaults(agent, { model });
-      } else {
-        const current = runtimeAgentDefaults ?? normalizeAgentDefaultSettings(channelContext.agentDefaults);
-        runtimeAgentDefaults = normalizeAgentDefaultSettings({
-          ...current,
-          [agent]: { ...current[agent], model },
-        });
-      }
-      return;
-    }
-
-    await input.updateSessionAgentSettings?.(channelId, { model });
-    agentModelsByChannel.set(channelId, model);
-  }
-
-  async function updateAgentEffort(
-    channelId: string,
-    channelContext: ManagedDiscordChannelContext,
-    requestedEffort: AgentEffort | "default",
-  ): Promise<void> {
-    const agent = agentKindForContext(channelContext);
-
-    if (channelContext.agentMain) {
-      const effort = requestedEffort === "default"
-        ? DEFAULT_AGENT_SETTINGS[agent].effort
-        : normalizeAgentEffort(agent, requestedEffort);
-      if (input.updateAgentDefaults) {
-        runtimeAgentDefaults = await input.updateAgentDefaults(agent, { effort });
-      } else {
-        const current = runtimeAgentDefaults ?? normalizeAgentDefaultSettings(channelContext.agentDefaults);
-        runtimeAgentDefaults = normalizeAgentDefaultSettings({
-          ...current,
-          [agent]: { ...current[agent], effort },
-        });
-      }
-      return;
-    }
-
-    const effort = requestedEffort === "default" ? null : normalizeAgentEffort(agent, requestedEffort);
-    await input.updateSessionAgentSettings?.(channelId, { effort });
-    agentEffortsByChannel.set(channelId, effort);
   }
 
   async function requestCodexApproval(
@@ -1301,7 +1217,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         formatChannelStatus({
           ...channelContext,
           claudeSessionId,
-          agentSettings: settingsForChannel(message.channelId, channelContext),
+          agentSettings: agentSettingsController.get(message.channelId, channelContext),
           execution: {
             active: Boolean(queue?.activeMessage),
             activeRequest: queue?.activeMessage ? queueMessageSummary(queue.activeMessage.content) : null,
@@ -1673,10 +1589,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "agent-model") {
-      await updateAgentModel(message.channelId, channelContext, routed.model);
-      const settings = settingsForChannel(message.channelId, channelContext);
+      await agentSettingsController.updateModel(message.channelId, channelContext, routed.model);
+      const settings = agentSettingsController.get(message.channelId, channelContext);
       await reply(formatAgentSettingsResult({
-        agent: agentKindForContext(channelContext),
+        agent: agentSettingsController.agentFor(channelContext),
         scope: channelContext.agentMain ? "main default" : "thread override",
         ...settings,
         updated: "model",
@@ -1685,10 +1601,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "agent-effort") {
-      await updateAgentEffort(message.channelId, channelContext, routed.effort);
-      const settings = settingsForChannel(message.channelId, channelContext);
+      await agentSettingsController.updateEffort(message.channelId, channelContext, routed.effort);
+      const settings = agentSettingsController.get(message.channelId, channelContext);
       await reply(formatAgentSettingsResult({
-        agent: agentKindForContext(channelContext),
+        agent: agentSettingsController.agentFor(channelContext),
         scope: channelContext.agentMain ? "main default" : "thread override",
         ...settings,
         updated: "effort",
@@ -1697,9 +1613,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "agent-settings") {
-      const settings = settingsForChannel(message.channelId, channelContext);
+      const settings = agentSettingsController.get(message.channelId, channelContext);
       await reply(formatAgentSettingsResult({
-        agent: agentKindForContext(channelContext),
+        agent: agentSettingsController.agentFor(channelContext),
         scope: channelContext.agentMain ? "main default" : "thread override",
         ...settings,
       }));
@@ -1707,7 +1623,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     }
 
     if (routed.type === "codex-run-mode") {
-      await updateAgentEffort(
+      await agentSettingsController.updateEffort(
         message.channelId,
         channelContext,
         routed.mode === "default" ? "default" : routed.mode === "fast" ? "low" : "xhigh",
@@ -1716,14 +1632,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       await reply(
         formatCodexRunModeResult({
           mode: routed.mode,
-          reasoningEffort: codexReasoningEffort(message.channelId, channelContext),
+          reasoningEffort: agentSettingsController.codexReasoningEffort(message.channelId, channelContext),
         }),
       );
       return;
     }
 
     if (routed.type === "codex-review") {
-      const agentSettings = settingsForChannel(message.channelId, channelContext);
+      const agentSettings = agentSettingsController.get(message.channelId, channelContext);
       const codexMessage = {
         computerDisplayName: channelContext.computerDisplayName,
         workspaceDisplayName: channelContext.workspaceDisplayName,
@@ -1734,14 +1650,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       if (!input.submitCodexPrompt) {
         await reply(
-          formatCodexResultUpdate(codexMessage, {
+          formatAgentResultUpdate(codexMessage, {
             error: { message: "Codex review is not connected for this mode yet." },
           }),
         );
         return;
       }
 
-      const queuedReply = await reply(formatCodexAck(codexMessage));
+      const queuedReply = await reply(formatAgentAck(codexMessage));
       let recentEvents: string[] = [];
       const progressReporter = createLiveProgressReporter({ message, channelContext, agentLabel: "Codex" });
 
@@ -1753,11 +1669,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt: routed.prompt,
-            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+            timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
             sessionId: null,
             mode: "review",
             model: agentSettings.model,
-            reasoningEffort: codexReasoningEffort(message.channelId, channelContext),
+            reasoningEffort: agentSettingsController.codexReasoningEffort(message.channelId, channelContext),
             controlKey: message.channelId,
           },
           onProgress: async (event) => {
@@ -1768,7 +1684,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
-              formatCodexProgressUpdate(codexMessage, {
+              formatAgentProgressUpdate(codexMessage, {
                 status,
                 latestMessage:
                   event.type === "operation-progress"
@@ -1785,13 +1701,13 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
         progressReporter.finish();
 
-        const reviewSessionId = extractCodexResponseSessionId(response);
+        const reviewSessionId = extractAgentResponseSessionId(response);
 
         await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, response),
+          payload: formatAgentResultUpdate(codexMessage, response),
         });
         const responseFailed = promptResponseFailed(response);
         const completionDelivery = await sendThreadCompletionMention({
@@ -1821,7 +1737,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }),
+          payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
         });
         await sendThreadCompletionMention({
           message,
@@ -1846,7 +1762,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       }
 
       const isClaudeFork = channelContext.channelMode === "claude-code";
-      const agentSettings = settingsForChannel(message.channelId, channelContext);
+      const agentSettings = agentSettingsController.get(message.channelId, channelContext);
       const sourceSessionId = isClaudeFork
         ? claudeSessionIdsByChannel.get(message.channelId) ?? channelContext.claudeSessionId ?? null
         : codexSessionIdsByChannel.get(message.channelId) ?? channelContext.codexSessionId ?? null;
@@ -1906,7 +1822,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               workspaceRoot: forkThread.workspaceRoot,
               cwd: forkThread.cwd,
               prompt: claudeForkPrompt(routed.name),
-              timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+              timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
               sessionId: sourceSessionId,
               forkSession: true,
               sessionName: forkThread.threadName,
@@ -1920,8 +1836,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             throw new Error(failureMessage);
           }
 
-          forkSessionId = extractCodexResponseSessionId(response);
-          finalMessage = extractCodexResponseFinalMessage(response);
+          forkSessionId = extractAgentResponseSessionId(response);
+          finalMessage = extractAgentResponseFinalMessage(response);
 
           if (!forkSessionId) {
             throw new Error("Claude Code fork가 새 session ID를 반환하지 않았습니다.");
@@ -1952,12 +1868,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               workspaceRoot: forkThread.workspaceRoot,
               cwd: forkThread.cwd,
               prompt: codexForkPrompt(routed.name),
-              timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+              timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
               sessionId: sourceSessionId,
               forkSession: true,
               sessionName: forkThread.threadName,
               model: agentSettings.model,
-              reasoningEffort: codexReasoningEffort(message.channelId, channelContext),
+              reasoningEffort: agentSettingsController.codexReasoningEffort(message.channelId, channelContext),
               controlKey: forkThread.discordChannelId,
             },
             onProgress: (event) => {
@@ -1974,8 +1890,8 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             throw new Error(failureMessage);
           }
 
-          forkSessionId = extractCodexResponseSessionId(response);
-          finalMessage = extractCodexResponseFinalMessage(response);
+          forkSessionId = extractAgentResponseSessionId(response);
+          finalMessage = extractAgentResponseFinalMessage(response);
 
           if (!forkSessionId) {
             throw new Error("Codex fork가 새 session ID를 반환하지 않았습니다.");
@@ -2065,7 +1981,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     if (routed.type === "claude-chat") {
       const prompt = routed.content;
-      const agentSettings = settingsForChannel(message.channelId, channelContext);
+      const agentSettings = agentSettingsController.get(message.channelId, channelContext);
       const claudeMessage = {
         computerDisplayName: channelContext.computerDisplayName,
         workspaceDisplayName: channelContext.workspaceDisplayName,
@@ -2076,14 +1992,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       if (!input.submitClaudePrompt) {
         await reply(
-          formatCodexResultUpdate(claudeMessage, {
+          formatAgentResultUpdate(claudeMessage, {
             error: { message: "Claude Code is not connected for this mode yet." },
           }),
         );
         return;
       }
 
-      const queuedReply = await reply(formatCodexAck(claudeMessage));
+      const queuedReply = await reply(formatAgentAck(claudeMessage));
       let recentEvents: string[] = [];
       let latestAgentMessage: string | null = null;
       let streamedSessionId =
@@ -2098,7 +2014,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt,
-            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+            timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
             sessionId: streamedSessionId,
             model: agentSettings.model,
             effort: agentSettings.effort,
@@ -2115,7 +2031,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
-                formatCodexProgressUpdate(claudeMessage, {
+                formatAgentProgressUpdate(claudeMessage, {
                   status: "session opened",
                   sessionId: streamedSessionId,
                   recentEvents,
@@ -2130,7 +2046,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
-              formatCodexProgressUpdate(claudeMessage, {
+              formatAgentProgressUpdate(claudeMessage, {
                 status,
                 sessionId: streamedSessionId,
                 latestMessage:
@@ -2146,7 +2062,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
         progressReporter.finish();
         const responseForDisplay = withAgentMessageFallback(response, latestAgentMessage);
-        const responseSessionId = extractCodexResponseSessionId(response);
+        const responseSessionId = extractAgentResponseSessionId(response);
         const responseFailed = promptResponseFailed(response);
 
         if (responseSessionId) {
@@ -2161,7 +2077,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(claudeMessage, responseForDisplay),
+          payload: formatAgentResultUpdate(claudeMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: responseFailed }),
         });
@@ -2179,7 +2095,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(claudeMessage, { error: { message: messageText } }),
+          payload: formatAgentResultUpdate(claudeMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: true }),
         });
@@ -2195,7 +2111,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     if (routed.type === "codex-chat" || routed.type === "codex-continue-session") {
       const prompt = routed.content;
-      const agentSettings = settingsForChannel(message.channelId, channelContext);
+      const agentSettings = agentSettingsController.get(message.channelId, channelContext);
       const codexMessage = {
         computerDisplayName: channelContext.computerDisplayName,
         workspaceDisplayName: channelContext.workspaceDisplayName,
@@ -2206,14 +2122,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       if (!input.submitCodexPrompt) {
         await reply(
-          formatCodexResultUpdate(codexMessage, {
+          formatAgentResultUpdate(codexMessage, {
             error: { message: "Codex chat is not connected for this mode yet." },
           }),
         );
         return;
       }
 
-      const queuedReply = await reply(formatCodexAck(codexMessage));
+      const queuedReply = await reply(formatAgentAck(codexMessage));
       const activeStreamingSessionIds = new Set<string>();
       let recentEvents: string[] = [];
       let latestAgentMessage: string | null = null;
@@ -2250,10 +2166,10 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt,
-            timeoutMs: resolveCodexPromptTimeoutMs(channelContext.timeoutMs),
+            timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
             sessionId: streamedSessionId,
             model: agentSettings.model,
-            reasoningEffort: codexReasoningEffort(message.channelId, channelContext),
+            reasoningEffort: agentSettingsController.codexReasoningEffort(message.channelId, channelContext),
             controlKey: message.channelId,
           },
           onProgress: async (event) => {
@@ -2268,7 +2184,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
-                formatCodexProgressUpdate(codexMessage, {
+                formatAgentProgressUpdate(codexMessage, {
                   status: "session opened",
                   sessionId: streamedSessionId,
                   recentEvents,
@@ -2286,7 +2202,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
-                formatCodexProgressUpdate(codexMessage, {
+                formatAgentProgressUpdate(codexMessage, {
                   status: "writing answer",
                   sessionId: streamedSessionId,
                   latestMessage: event.text,
@@ -2302,7 +2218,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
               await updateQueuedReply(
                 queuedReply,
                 (replyMessage) => reply(replyMessage),
-                formatCodexProgressUpdate(codexMessage, {
+                formatAgentProgressUpdate(codexMessage, {
                   status: event.label,
                   sessionId: streamedSessionId,
                   latestMessage: event.detail,
@@ -2317,7 +2233,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             await updateQueuedReply(
               queuedReply,
               (replyMessage) => reply(replyMessage),
-              formatCodexProgressUpdate(codexMessage, {
+              formatAgentProgressUpdate(codexMessage, {
                 status: event.eventType,
                 sessionId: streamedSessionId,
                 recentEvents,
@@ -2329,7 +2245,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         });
         progressReporter.finish();
         const responseForDisplay = withAgentMessageFallback(response, latestAgentMessage);
-        const nextSessionId = extractCodexResponseSessionId(response);
+        const nextSessionId = extractAgentResponseSessionId(response);
 
         if (nextSessionId) {
           if (routed.type === "codex-chat") {
@@ -2368,7 +2284,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, responseForDisplay),
+          payload: formatAgentResultUpdate(codexMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: responseFailed }),
         });
@@ -2412,7 +2328,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatCodexResultUpdate(codexMessage, { error: { message: messageText } }),
+          payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: true }),
         });
