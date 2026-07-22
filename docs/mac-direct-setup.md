@@ -13,7 +13,11 @@ This repo is intended to be run from source while customizing the connector.
 5. Grant only the needed permissions:
    - View Channels
    - Send Messages
+   - Send Messages in Threads
    - Read Message History
+   - Embed Links
+   - Create Public Threads
+   - Manage Threads
    - Manage Channels
    - Attach Files
    - Manage Messages, optional for `/clear`
@@ -49,10 +53,10 @@ pnpm connect install --direct \
   --role-ids "OPERATOR_ROLE_ID" \
   --channel-id "MAC_ADMIN_CHANNEL_ID" \
   --claude-channel-id "MAC_CLAUDE_CHANNEL_ID" \
-  --workspace-root "/Users/kwonmingi/Documents/Codex" \
-  --initial-cwd "/Users/kwonmingi/Documents/Codex/2026-07-16/new-chat/work/codex-discord-connector" \
-  --workspace-name "Kwon Mac Codex" \
-  --computer-name "Kwon Mac" \
+  --workspace-root "/Users/me/Documents/Codex" \
+  --initial-cwd "/Users/me/Documents/Codex/Codex_discord" \
+  --workspace-name "My Mac Codex" \
+  --computer-name "My Mac" \
   --codex-home "$HOME/.codex"
 ```
 
@@ -103,17 +107,17 @@ sync
 Use two user LaunchAgents:
 
 ```text
-~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.bot.plist
-~/Library/LaunchAgents/com.kwonmingi.codex-discord-connector.worker.plist
+~/Library/LaunchAgents/com.USER.codex-discord-connector.bot.plist
+~/Library/LaunchAgents/com.USER.codex-discord-connector.worker.plist
 ```
 
-Both LaunchAgents can call the wrapper outside `Documents` so macOS privacy checks do not block the script. Pass `bot` or `worker` as the final argument:
+Both LaunchAgents can call a machine-local wrapper outside `Documents` so macOS privacy checks do not block the script. Pass `bot` or `worker` as the final argument:
 
 ```text
 ~/Library/Application Support/CodexDiscordConnector/start-mac-direct.sh
 ```
 
-The repo wrapper accepts `all`, `bot`, or `worker`. For the worker LaunchAgent, set `ExitTimeOut` to at least the maximum expected Codex run time, for example `21600` seconds, so launchd does not force-kill a draining worker after its short default timeout.
+The repo wrapper `scripts/start-mac-direct.sh` accepts `all`, `bot`, or `worker`. It derives the repo root from its own source-checkout location. If you copy it elsewhere, set `CODEX_DISCORD_REPO_ROOT` to the absolute checkout path. `CODEX_DISCORD_NODE_COMMAND`, `CODEX_DISCORD_CODEX_COMMAND`, and `CODEX_DISCORD_CLAUDE_COMMAND` can override executable discovery. For the worker LaunchAgent, set `ExitTimeOut` to at least the maximum expected Codex run time, for example `21600` seconds, so launchd does not force-kill a draining worker after its short default timeout.
 
 Logs:
 
@@ -127,15 +131,15 @@ Logs:
 Useful commands:
 
 ```bash
-launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.bot"
-launchctl print "gui/$(id -u)/com.kwonmingi.codex-discord-connector.worker"
-launchctl kickstart -k "gui/$(id -u)/com.kwonmingi.codex-discord-connector.bot"
+launchctl print "gui/$(id -u)/com.USER.codex-discord-connector.bot"
+launchctl print "gui/$(id -u)/com.USER.codex-discord-connector.worker"
+launchctl kickstart -k "gui/$(id -u)/com.USER.codex-discord-connector.bot"
 tail -f "$HOME/Library/Logs/codex-discord-connector/bot.out.log"
 ```
 
 Restarting only the bot LaunchAgent is safe for active worker jobs. Stopping the worker LaunchAgent drains active jobs when launchd honors `ExitTimeOut`; a host reboot or forced kill still interrupts them. While draining, the worker stops accepting new jobs but continues processing steering and interrupt controls for active turns.
 
-If `worker.out.log` shows a new `direct-worker ready with PID ...` line every few seconds, check for an old one-off refresh job with `launchctl list | grep codex-discord-connector.worker-refresh`. A submitted `worker-refresh-*` job is not part of the normal installation and can race with a newly started turn. Remove it with `launchctl remove <full-label>` while leaving the regular `com.kwonmingi.codex-discord-connector.worker` LaunchAgent loaded.
+If `worker.out.log` shows a new `direct-worker ready with PID ...` line every few seconds, check for an old one-off refresh job with `launchctl list | grep codex-discord-connector.worker-refresh`. A submitted `worker-refresh-*` job is not part of the normal installation and can race with a newly started turn. Remove it with `launchctl remove <full-label>` while leaving the regular worker LaunchAgent loaded.
 
 ## Task completion notifications
 
@@ -145,9 +149,9 @@ This includes Codex sessions started from IDE surfaces such as VS Code or Antigr
 
 The first scan for the current notification scope only records a baseline, so old completed work does not flood Discord after a bot restart or scope change. Future completions are remembered in `.connect/state.json` and are only posted once.
 
-Completion notifications include the latest assistant answer, plus an `이어 작업 요청` button. Long answers are previewed in Discord and attached as `codex-answer.txt`. Press the button to open a Discord modal, write the next instruction, and the bot will try to resume the completed Codex session with that prompt. The follow-up runs through `codex exec resume`; Codex Desktop or IDE sessions that use dynamic tools may not be resumable from exec mode, and those sessions also do not live-update the Desktop app UI from Discord.
+Completion notifications include the latest assistant answer when that answer was not already delivered by a Discord-started turn. Long final answers are split into ordered Discord messages, and the Operator role is mentioned only after all answer chunks have been posted. Obsolete thought/process and Codex-app-open buttons are intentionally not shown.
 
-For a closer native Codex integration, set `CODEX_DISCORD_CODEX_RUNNER=app-server` before starting the bot. In this mode, Discord prompts are sent through Codex's app-server WebSocket protocol with `thread/start`, `thread/resume`, `thread/fork`, and `turn/start` instead of `codex exec`. The created, resumed, or forked thread is recorded in Codex's native session store and can be opened from Codex surfaces, but a currently visible Desktop, VS Code, or Antigravity panel is not forcibly navigated to that thread by the connector. Codex `/fork` requires this app-server runner.
+Set `CODEX_DISCORD_CODEX_RUNNER=app-server` before starting both services. Discord prompts then use Codex's app-server WebSocket protocol with `thread/start`, `thread/resume`, `thread/fork`, `turn/start`, approvals, and `request_user_input`. The created, resumed, or forked thread is recorded in Codex's native session store, but a currently visible Desktop, VS Code, or Antigravity panel is not forcibly refreshed or navigated by the connector. Do not run overlapping turns from an IDE and Discord in the same session; wait for one side to finish or use `/fork`.
 
 Completion polling defaults to 3 seconds, transcript polling defaults to 5 seconds, and both can be changed with:
 

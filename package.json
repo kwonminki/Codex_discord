@@ -8,12 +8,12 @@
   "packageManager": "pnpm@9.15.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joungminsung/codex-discord-connector.git"
+    "url": "git+https://github.com/kwonminki/Codex_discord.git"
   },
   "bugs": {
-    "url": "https://github.com/joungminsung/codex-discord-connector/issues"
+    "url": "https://github.com/kwonminki/Codex_discord/issues"
   },
-  "homepage": "https://github.com/joungminsung/codex-discord-connector#readme",
+  "homepage": "https://github.com/kwonminki/Codex_discord#readme",
   "bin": {
     "cdc": "bin/cdc.js",
     "codex-discord-connector": "bin/cdc.js"

@@ -54,7 +54,11 @@ Bot 권한은 Mac 설치와 동일하게 필요합니다.
 
 - View Channels
 - Send Messages
+- Send Messages in Threads
 - Read Message History
+- Embed Links
+- Create Public Threads
+- Manage Threads
 - Manage Channels
 - Attach Files
 - Manage Messages, optional for `/clear`
