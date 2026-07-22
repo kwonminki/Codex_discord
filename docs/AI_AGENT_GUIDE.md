@@ -731,6 +731,33 @@ pnpm test
 - bot-only rollback은 worker를 건드리지 않습니다.
 - rollback 후 commit, service PID, ready log, smoke test 결과를 남깁니다.
 
+## GitHub 버전 공지 설정
+
+버전 공지는 connector process가 아니라 `.github/workflows/release-announcement.yml`의 GitHub Actions가 담당합니다. `master` push에 포함된 커밋 중 첫 줄이 `v1.0`, `v1.2.3: 제목`, `v2.0-beta.1 Release candidate` 같은 형식인 커밋만 Discord webhook으로 전송합니다. 따라서 여러 컴퓨터에서 같은 bot application을 실행해도 polling이나 leader 선출이 필요하지 않습니다.
+
+이 기능은 선택 사항이며 **컴퓨터가 아니라 GitHub 저장소마다 한 번만** 설정합니다. 단순 upstream clone에는 설정하지 않습니다. 사용자가 자신의 fork 또는 독립 저장소에서 공지를 원한다고 명시했을 때만 진행합니다.
+
+필수 입력과 권한:
+
+- 대상 GitHub `OWNER/REPOSITORY`
+- Discord 공지 채널 ID
+- 기존 `DISCORD_BOT_TOKEN`
+- 공지 채널에서 bot의 `Manage Webhooks` 권한
+- GitHub repository secret을 설정할 수 있는 인증과 저장소 write 권한
+
+설정 절차:
+
+1. `.github/workflows/release-announcement.yml`과 `scripts/release-announcement.mjs`가 현재 branch에 있는지 확인합니다.
+2. `gh auth status`로 GitHub CLI 인증을 확인합니다. 인증이 없으면 token을 요구하지 말고 사용자가 직접 `gh auth login`을 완료하게 합니다. `gh`가 없으면 GitHub Settings의 `Secrets and variables > Actions` 수동 절차를 안내합니다.
+3. bot token을 출력하지 않은 상태로 Discord `POST /channels/{channel.id}/webhooks`를 호출해 `Codex Releases` incoming webhook을 생성합니다. 이 endpoint에는 target channel의 `Manage Webhooks` 권한이 필요합니다.
+4. 먼저 동일 이름의 기존 webhook을 확인하고, 재사용 가능 여부가 불명확하면 중복 생성 전에 사용자에게 확인합니다.
+5. 응답의 webhook ID와 token으로 만든 URL을 shell history, 임시 파일, `.env`, 로그, 채팅에 남기지 않습니다.
+6. URL을 표준 입력으로 전달해 대상 저장소의 repository Actions secret `DISCORD_RELEASE_WEBHOOK_URL`을 설정합니다. 예: `printf '%s' "$WEBHOOK_URL" | gh secret set DISCORD_RELEASE_WEBHOOK_URL --repo OWNER/REPOSITORY`.
+7. `gh secret list --repo OWNER/REPOSITORY`로 secret **이름만** 확인하고, workflow 파일과 target branch를 확인합니다. secret 값은 GitHub에서도 다시 읽어 보여주지 않습니다.
+8. 테스트용 가짜 버전 공지는 사용자가 요청한 경우에만 보냅니다. 일반 커밋은 workflow가 실행되어도 Discord 전송을 건너뜁니다.
+
+하나의 repository secret에는 webhook URL 하나만 저장할 수 있습니다. 여러 fork가 같은 Discord webhook을 각각 등록하면 각 저장소의 버전 push가 별도 공지를 만들 수 있으므로, 실제 릴리스를 발행하는 저장소 하나에만 설정하는 것을 권장합니다.
+
 ### Discord 채널과 알림 권장 설정
 
 개인용 private Discord 서버에 컴퓨터별 관리자 채널과 Codex/Claude Code 세션 채널을 따로 만드는 구성을 권장합니다. 서버 또는 봇 전용 채널의 알림 설정은 **멘션만(Only @mentions)** 으로 두세요. 태그 없는 중간 진행 메시지는 알림 없이 쌓이고, 확인이 필요한 권한 요청과 최종 완료·실패 메시지만 operator role 멘션으로 알림이 옵니다.

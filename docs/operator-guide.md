@@ -178,7 +178,9 @@ For Discord-only bot maintenance, use the admin `유지보수` panel: open `봇 
 
 Release announcements are event-driven and do not run inside any connector process. The GitHub Actions workflow at `.github/workflows/release-announcement.yml` runs on pushes to `master`, ignores ordinary commits, and sends version commits directly to one Discord channel through a webhook. This avoids polling, leader election, and duplicate announcements when the same bot application runs on multiple computers.
 
-Create a Discord webhook for the announcement channel and store its URL as the GitHub Actions repository secret `DISCORD_RELEASE_WEBHOOK_URL`. A release commit must start with a supported version on its first line:
+This is an optional, once-per-GitHub-repository setup, not a per-computer connector setting. A user who only clones the upstream repository does not need to configure it. For a fork or independently maintained repository, create a Discord webhook for the announcement channel and store its URL as the GitHub Actions repository secret `DISCORD_RELEASE_WEBHOOK_URL`. An installation agent can perform both operations when the existing bot has `Manage Webhooks` in the target channel and the agent has authenticated write access to the GitHub repository. Otherwise, create the webhook in Discord and add the repository secret in GitHub Settings manually. Never put the webhook URL in a connector `.env` file.
+
+A release commit must start with a supported version on its first line:
 
 ```text
 v1.2.0: Media survey improvements
