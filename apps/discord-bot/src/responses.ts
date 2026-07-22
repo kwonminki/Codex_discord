@@ -104,6 +104,7 @@ export interface AgentProgressState {
 
 const agentResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
 const answerCopyTextByPayload = new WeakMap<DiscordMessagePayload, string>();
+const agentQuestionPayloads = new WeakSet<DiscordMessagePayload>();
 
 export interface DiscordFilePayload {
   attachment: string | Buffer;
@@ -289,6 +290,10 @@ export function appendAgentResultContinuationMessages(
   ]);
 }
 
+export function isAgentQuestionMessage(payload: DiscordMessagePayload): boolean {
+  return agentQuestionPayloads.has(payload);
+}
+
 export function registerAnswerCopyText(payload: DiscordMessagePayload, answer: string): void {
   const normalized = answer.trimEnd();
 
@@ -425,6 +430,7 @@ export function formatAgentSurveyMessages(input: {
       ? { files: fileOutputs.attachments.slice(0, MAX_DISCORD_FILES) }
       : {}),
   };
+  agentQuestionPayloads.add(payload);
 
   return [
     payload,

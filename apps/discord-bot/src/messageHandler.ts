@@ -28,7 +28,7 @@ import { createAgentSettingsController } from "./agentSettingsController.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
-import { AGENT_PROGRESS_EVENT_LIMIT, withRoleMentions } from "./responses.js";
+import { AGENT_PROGRESS_EVENT_LIMIT, isAgentQuestionMessage, withRoleMentions } from "./responses.js";
 import {
   formatAgentAck,
   formatCodexApprovalDecision,
@@ -335,7 +335,8 @@ async function updateQueuedResultReply(input: {
   payload: DiscordMessagePayload;
   postAsNewMessage?: boolean;
   terminalPayload?: DiscordMessagePayload;
-}): Promise<void> {
+  questionMentionRoleIds?: string[];
+}): Promise<boolean> {
   if (input.postAsNewMessage && input.message.guild?.sendTextMessage) {
     if (input.terminalPayload) {
       try {
@@ -355,24 +356,38 @@ async function updateQueuedResultReply(input: {
     }
 
     if (postedFinalAnswer) {
-      await sendResultContinuations(input);
-      return;
+      return sendResultContinuations(input);
     }
   }
 
   await updateQueuedReply(input.queuedReply, input.fallbackReply, input.payload);
-  await sendResultContinuations(input);
+  return sendResultContinuations(input);
 }
 
 async function sendResultContinuations(input: {
   message: DiscordMessageLike;
   fallbackReply: (message: DiscordOutgoingMessage) => Promise<DiscordReplyLike | void>;
   payload: DiscordMessagePayload;
-}): Promise<void> {
+  questionMentionRoleIds?: string[];
+}): Promise<boolean> {
+  const mentionRoleIds = input.questionMentionRoleIds?.filter((roleId) => roleId.trim().length > 0) ?? [];
+  let questionMentionSent = false;
+
   for (const continuation of getAgentResultContinuationMessages(input.payload)) {
+    const mentionQuestion = isAgentQuestionMessage(continuation) && mentionRoleIds.length > 0;
+
     if (input.message.guild?.sendTextMessage) {
       try {
-        await input.message.guild.sendTextMessage(input.message.channelId, continuation);
+        if (mentionQuestion) {
+          await input.message.guild.sendTextMessage(
+            input.message.channelId,
+            continuation,
+            { mentionRoleIds },
+          );
+          questionMentionSent = true;
+        } else {
+          await input.message.guild.sendTextMessage(input.message.channelId, continuation);
+        }
         continue;
       } catch (error) {
         console.warn("discord-bot failed to send a final-answer continuation directly", error);
@@ -380,11 +395,14 @@ async function sendResultContinuations(input: {
     }
 
     try {
-      await input.fallbackReply(continuation);
+      await input.fallbackReply(mentionQuestion ? withRoleMentions(continuation, mentionRoleIds) : continuation);
+      questionMentionSent ||= mentionQuestion;
     } catch (error) {
       console.warn("discord-bot failed to send a final-answer continuation", error);
     }
   }
+
+  return questionMentionSent;
 }
 
 function createReplyWithOptionalRoleMentions(
@@ -1795,11 +1813,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
         const reviewSessionId = extractAgentResponseSessionId(response);
 
-        await updateQueuedResultReply({
+        const questionMentionSent = await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(codexMessage, response),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         const responseFailed = promptResponseFailed(response);
         const completionDelivery = await sendThreadCompletionMention({
@@ -1807,7 +1826,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           channelContext,
           agentLabel: "Codex",
           failed: responseFailed,
-          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
+          deferForPendingRequest:
+            questionMentionSent ||
+            (!responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext)),
         });
 
         if (reviewSessionId) {
@@ -1830,6 +1851,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         await sendThreadCompletionMention({
           message,
@@ -2165,20 +2187,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
-        await updateQueuedResultReply({
+        const questionMentionSent = await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(claudeMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: responseFailed }),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         await sendThreadCompletionMention({
           message,
           channelContext,
           agentLabel: "Claude Code",
           failed: responseFailed,
-          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
+          deferForPendingRequest:
+            questionMentionSent ||
+            (!responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext)),
         });
       } catch (error) {
         progressReporter.finish();
@@ -2190,6 +2215,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           payload: formatAgentResultUpdate(claudeMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: true }),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         await sendThreadCompletionMention({
           message,
@@ -2372,20 +2398,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         const responseFailed = promptResponseFailed(response);
-        await updateQueuedResultReply({
+        const questionMentionSent = await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(codexMessage, responseForDisplay),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: responseFailed }),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         const completionDelivery = await sendThreadCompletionMention({
           message,
           channelContext,
           agentLabel: "Codex",
           failed: responseFailed,
-          deferForPendingRequest: !responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext),
+          deferForPendingRequest:
+            questionMentionSent ||
+            (!responseFailed && channelHasPendingAgentRequests(message.channelId, channelContext)),
         });
 
         if (nextSessionId) {
@@ -2423,6 +2452,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: true }),
+          questionMentionRoleIds: channelContext.allowedRoleIds,
         });
         await sendThreadCompletionMention({
           message,

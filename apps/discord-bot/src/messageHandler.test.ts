@@ -2808,6 +2808,85 @@ describe("createDiscordMessageHandler", () => {
     );
   });
 
+  it.each([
+    ["Codex", "codex", "thread-1", sessionChannelContext],
+    ["Claude Code", "claude", "claude-thread-1", claudeChannelContext],
+  ] as const)(
+    "mentions the operator on a final %s question without a duplicate completion mention",
+    async (agentLabel, agent, channelId, context) => {
+      const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+      const submitPrompt = vi.fn().mockResolvedValue({
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: [
+            "두 결과를 준비했습니다.",
+            "",
+            "```codex-discord-survey",
+            JSON.stringify({
+              question: "어느 결과로 진행할까요?",
+              options: ["첫 번째 결과", "두 번째 결과"],
+            }),
+            "```",
+          ].join("\n"),
+          sessionId: agent === "codex" ? "session-1" : "claude-session-1",
+        },
+      });
+      const handleMessage = createDiscordMessageHandler({
+        resolveChannelContext: async () => ({
+          ...context,
+          ...(agent === "codex" ? { codexSessionId: "session-1" } : {}),
+          discordDeliveryMode: "thread",
+        }),
+        submitCommandJob: vi.fn(),
+        submitCodexPrompt: agent === "codex" ? submitPrompt : vi.fn(),
+        ...(agent === "claude" ? { submitClaudePrompt: submitPrompt } : {}),
+        updateChannelCwd: vi.fn(),
+        recordCommandAudit: vi.fn(),
+      });
+
+      await handleMessage({
+        authorBot: false,
+        userId: "discord-user-1",
+        channelId,
+        content: "결과를 비교해줘",
+        roleIds: ["role-operator"],
+        guild: {
+          createCategory: vi.fn(),
+          createTextChannel: vi.fn(),
+          sendTextMessage,
+        },
+        reply: async () => ({ edit: async () => undefined }),
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        1,
+        channelId,
+        expect.objectContaining({
+          content: expect.stringContaining(`**${agentLabel} 작업 완료**`),
+          embeds: [expect.objectContaining({ title: "답변", description: "두 결과를 준비했습니다." })],
+        }),
+      );
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        2,
+        channelId,
+        expect.objectContaining({
+          embeds: [expect.objectContaining({
+            title: "미디어 설문",
+            description: expect.stringContaining("어느 결과로 진행할까요?"),
+          })],
+        }),
+        { mentionRoleIds: ["role-operator"] },
+      );
+      expect(sendTextMessage.mock.calls).not.toContainEqual([
+        channelId,
+        `**${agentLabel} 작업 완료**`,
+        { mentionRoleIds: ["role-operator"] },
+      ]);
+    },
+  );
+
   it("sends generated attachments after the answer in a file-only message", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "discord-result-attachment-"));
     const videoPath = path.join(tempRoot, "preview.mp4");

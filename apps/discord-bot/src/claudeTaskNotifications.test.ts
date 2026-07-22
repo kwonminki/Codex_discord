@@ -123,6 +123,79 @@ describe("notifyClaudeCodeTaskCompletions", () => {
     }
   });
 
+  it("mentions a final IDE survey question instead of duplicating the completion mention", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-notify-question-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+
+    try {
+      await stateStore.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [{
+          codexSessionId: null,
+          claudeSessionId: "claude-session-1",
+          threadName: "테스트 대화야",
+          updatedAt: "2026-07-20T04:31:45.812Z",
+          cwd: "/repo",
+          workspaceRoot: "/repo",
+          workspaceDisplayName: "repo",
+          discordCategoryId: null,
+          discordChannelId: "thread-claude",
+          discordParentChannelId: "parent-claude",
+          discordDeliveryMode: "thread",
+          channelMode: "claude-code",
+          channelName: "test",
+          computerId: "mac",
+          workspaceId: "mac:/repo",
+        }],
+        claudeCompletionNotificationsInitializedAt: "2026-07-20T04:30:00.000Z",
+        claudeCompletionNotificationScope: "external-claude-code-idle-assistant-messages-v2",
+      });
+
+      await notifyClaudeCodeTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        sessions: [claudeSession({
+          latestAssistantMessage: [
+            "검토가 끝났습니다.",
+            "```codex-discord-survey",
+            JSON.stringify({
+              question: "어느 결과를 선택할까요?",
+              options: ["결과 A", "결과 B"],
+            }),
+            "```",
+          ].join("\n"),
+          latestAssistantMessageKey: "claude-session-1:2026-07-20T04:40:00.000Z:2",
+          updatedAt: "2026-07-20T04:40:00.000Z",
+        })],
+        mentionRoleIds: ["role-1"],
+        now: new Date("2026-07-20T04:45:00.000Z"),
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        1,
+        "thread-claude",
+        expect.objectContaining({ content: expect.stringContaining("Claude Code 작업 완료") }),
+      );
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        2,
+        "thread-claude",
+        expect.objectContaining({
+          embeds: [expect.objectContaining({
+            title: "미디어 설문",
+            description: expect.stringContaining("어느 결과를 선택할까요?"),
+          })],
+        }),
+        { mentionRoleIds: ["role-1"] },
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips connector-started Claude SDK sessions to avoid duplicate Discord results", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-notify-"));
     const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));

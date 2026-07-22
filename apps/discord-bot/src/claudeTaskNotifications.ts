@@ -11,6 +11,7 @@ import {
   appendAgentResultContinuationMessages,
   discordFileOnlyPayloads,
   getAgentResultContinuationMessages,
+  isAgentQuestionMessage,
   registerAnswerCopyText,
   type DiscordMessagePayload,
 } from "./responses.js";
@@ -218,19 +219,34 @@ export async function notifyClaudeCodeTaskCompletions(
     changed = false;
 
     const notification = formatClaudeCompleteNotification(session);
-    const mentionRoleIds =
+    const continuations = getAgentResultContinuationMessages(notification);
+    const operatorRoleIds = input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0) ?? [];
+    const completionMentionRoleIds =
       syncedChannel.discordDeliveryMode === "thread"
-        ? input.mentionRoleIds?.filter((roleId) => roleId.trim().length > 0)
+        ? operatorRoleIds
         : [];
+    const questionWillMention = continuations.some(isAgentQuestionMessage) && operatorRoleIds.length > 0;
 
-    if (mentionRoleIds && mentionRoleIds.length > 0) {
-      await input.guild.sendTextMessage(syncedChannel.discordChannelId, notification, { mentionRoleIds });
+    if (completionMentionRoleIds.length > 0 && !questionWillMention) {
+      await input.guild.sendTextMessage(
+        syncedChannel.discordChannelId,
+        notification,
+        { mentionRoleIds: completionMentionRoleIds },
+      );
     } else {
       await input.guild.sendTextMessage(syncedChannel.discordChannelId, notification);
     }
 
-    for (const continuation of getAgentResultContinuationMessages(notification)) {
-      await input.guild.sendTextMessage(syncedChannel.discordChannelId, continuation);
+    for (const continuation of continuations) {
+      if (isAgentQuestionMessage(continuation) && operatorRoleIds.length > 0) {
+        await input.guild.sendTextMessage(
+          syncedChannel.discordChannelId,
+          continuation,
+          { mentionRoleIds: operatorRoleIds },
+        );
+      } else {
+        await input.guild.sendTextMessage(syncedChannel.discordChannelId, continuation);
+      }
     }
 
     notifiedSessions += 1;
