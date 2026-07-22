@@ -8,6 +8,7 @@ This project can execute local shell commands and expose local workspace output 
 
 - Read `README.md` for the user-facing workflow.
 - Read `docs/operator-guide.md` for channel modes, sync behavior, and deployment details.
+- Read `docs/technical-roadmap.md` before restructuring the Discord orchestration or npm package layout.
 - Read `SECURITY.md` before changing command execution, Discord permissions, token handling, package contents, or transcript/session handling.
 - Check existing GitHub issues to avoid duplicate work.
 - For larger changes, open an issue first and describe the intended behavior, risk area, and test plan.
@@ -59,6 +60,7 @@ packages/
   core/             shared domain types and command policy
 docs/
   operator-guide.md operator-facing usage and safety guide
+  technical-roadmap.md deferred architecture and packaging work
 ```
 
 Use the existing package boundaries when adding behavior. Prefer small, focused changes over cross-package rewrites.
