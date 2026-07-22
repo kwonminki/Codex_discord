@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readlink, rm, stat, symlink, unlink } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import WebSocket from "ws";
@@ -17,6 +18,18 @@ import type {
 
 interface RunCodexAppServerPromptInput extends RunCodexPromptInput {
   appServerSocketPath?: string;
+  appServerUrl?: string;
+}
+
+interface AppServerTransport {
+  listenUrl: string;
+  clientUrl: string;
+  readiness:
+    | { kind: "unix"; socketPath: string }
+    | { kind: "tcp"; host: string; port: number }
+    | null;
+  tempRoot: string | null;
+  managed: boolean;
 }
 
 interface JsonRpcResponse {
@@ -193,7 +206,7 @@ function workspaceAliasName(workspaceRoot: string): string {
 async function ensureAsciiWorkspaceRoot(workspaceRoot: string): Promise<string> {
   const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
 
-  if (isAscii(resolvedWorkspaceRoot)) {
+  if (process.platform === "win32" || isAscii(resolvedWorkspaceRoot)) {
     return resolvedWorkspaceRoot;
   }
 
@@ -223,6 +236,81 @@ function appServerSocketUrl(socketPath: string): string {
 
 function appServerListenUrl(socketPath: string): string {
   return `unix://${socketPath}`;
+}
+
+export function defaultAppServerTransportKind(
+  platform: NodeJS.Platform = process.platform,
+): "unix" | "tcp" {
+  return platform === "win32" ? "tcp" : "unix";
+}
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+
+    if (!address || typeof address === "string") {
+      throw new Error("Could not allocate a loopback port for Codex app-server.");
+    }
+
+    return address.port;
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+async function prepareAppServerTransport(
+  input: RunCodexAppServerPromptInput,
+): Promise<AppServerTransport> {
+  if (input.appServerUrl) {
+    return {
+      listenUrl: input.appServerUrl,
+      clientUrl: input.appServerUrl,
+      readiness: null,
+      tempRoot: null,
+      managed: false,
+    };
+  }
+
+  if (input.appServerSocketPath) {
+    return {
+      listenUrl: appServerListenUrl(input.appServerSocketPath),
+      clientUrl: appServerSocketUrl(input.appServerSocketPath),
+      readiness: null,
+      tempRoot: null,
+      managed: false,
+    };
+  }
+
+  if (defaultAppServerTransportKind() === "tcp") {
+    const host = "127.0.0.1";
+    const port = await reserveLoopbackPort();
+    const url = `ws://${host}:${port}`;
+
+    return {
+      listenUrl: url,
+      clientUrl: url,
+      readiness: { kind: "tcp", host, port },
+      tempRoot: null,
+      managed: true,
+    };
+  }
+
+  const tempRoot = await mkdtemp(path.join(os.homedir(), ".codex-discord-appserver-"));
+  const socketPath = path.join(tempRoot, "app.sock");
+
+  return {
+    listenUrl: appServerListenUrl(socketPath),
+    clientUrl: appServerSocketUrl(socketPath),
+    readiness: { kind: "unix", socketPath },
+    tempRoot,
+    managed: true,
+  };
 }
 
 function compactDetail(value: string): string {
@@ -482,18 +570,62 @@ async function waitForSocket(socketPath: string, timeoutMs: number): Promise<voi
   }
 }
 
-async function startAppServer(input: RunCodexAppServerPromptInput, socketPath: string): Promise<{
+async function waitForTcp(host: string, port: number, timeoutMs: number): Promise<void> {
+  const startedAt = Date.now();
+
+  for (;;) {
+    const connected = await new Promise<boolean>((resolve) => {
+      const socket = createConnection({ host, port });
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
+
+    if (connected) {
+      return;
+    }
+
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out waiting for Codex app-server WebSocket: ws://${host}:${port}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+async function waitForAppServer(
+  readiness: AppServerTransport["readiness"],
+  timeoutMs: number,
+): Promise<void> {
+  if (!readiness) {
+    return;
+  }
+
+  if (readiness.kind === "unix") {
+    await waitForSocket(readiness.socketPath, timeoutMs);
+    return;
+  }
+
+  await waitForTcp(readiness.host, readiness.port, timeoutMs);
+}
+
+async function startAppServer(input: RunCodexAppServerPromptInput, transport: AppServerTransport): Promise<{
   child: ChildProcess | null;
   spawnFailure?: RunCodexPromptResult;
   stderrChunks: Buffer[];
 }> {
-  if (input.appServerSocketPath) {
+  if (!transport.managed) {
     return { child: null, stderrChunks: [] };
   }
 
   const codexCommand = resolveCodexCommand(input);
   const stderrChunks: Buffer[] = [];
-  const child = spawn(codexCommand, ["app-server", "--listen", appServerListenUrl(socketPath)], {
+  const child = spawn(codexCommand, ["app-server", "--listen", transport.listenUrl], {
     env: {
       ...process.env,
       ...(input.codexHome ? { CODEX_HOME: input.codexHome } : {}),
@@ -855,10 +987,7 @@ export async function runCodexAppServerPrompt(
     };
   }
 
-  const tempRoot = input.appServerSocketPath
-    ? null
-    : await mkdtemp(path.join(os.homedir(), ".codex-discord-appserver-"));
-  const socketPath = input.appServerSocketPath ?? path.join(tempRoot ?? os.tmpdir(), "app.sock");
+  const transport = await prepareAppServerTransport(input);
   const workspaceRoot = await ensureAsciiWorkspaceRoot(input.workspaceRoot);
   const originalWorkspaceRoot = path.resolve(input.workspaceRoot);
   const requestedCwd = path.resolve(input.cwd);
@@ -866,20 +995,23 @@ export async function runCodexAppServerPrompt(
     workspaceRoot === originalWorkspaceRoot
       ? requestedCwd
       : path.join(workspaceRoot, path.relative(originalWorkspaceRoot, requestedCwd));
-  const server = await startAppServer(input, socketPath);
+  const server = await startAppServer(input, transport);
 
   if (server.spawnFailure) {
     return server.spawnFailure;
   }
 
   try {
-    if (!input.appServerSocketPath) {
-      await waitForSocket(socketPath, input.timeoutMs > 0 ? Math.min(input.timeoutMs, 10_000) : 10_000);
+    if (transport.managed) {
+      await waitForAppServer(
+        transport.readiness,
+        input.timeoutMs > 0 ? Math.min(input.timeoutMs, 10_000) : 10_000,
+      );
     }
 
     return await runPromptAgainstAppServer({
       input,
-      socketPath,
+      serverUrl: transport.clientUrl,
       cwd,
       stderrChunks: server.stderrChunks,
     });
@@ -892,19 +1024,19 @@ export async function runCodexAppServerPrompt(
   } finally {
     server.child?.kill("SIGTERM");
 
-    if (tempRoot) {
-      await rm(tempRoot, { recursive: true, force: true });
+    if (transport.tempRoot) {
+      await rm(transport.tempRoot, { recursive: true, force: true });
     }
   }
 }
 
 async function runPromptAgainstAppServer(input: {
   input: RunCodexAppServerPromptInput;
-  socketPath: string;
+  serverUrl: string;
   cwd: string;
   stderrChunks: Buffer[];
 }): Promise<RunCodexPromptResult> {
-  const socket = new WebSocket(appServerSocketUrl(input.socketPath), { perMessageDeflate: false });
+  const socket = new WebSocket(input.serverUrl, { perMessageDeflate: false });
   let nextRequestId = 1;
   let sessionId = input.input.sessionId ?? null;
   let completed = false;

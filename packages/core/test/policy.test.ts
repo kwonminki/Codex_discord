@@ -16,6 +16,25 @@ describe("command policy", () => {
     expect(classifyCommand("rm -rf reports").tier).toBe("dangerous-mutate");
   });
 
+  it("classifies PowerShell commands case-insensitively", () => {
+    expect(classifyCommand("Get-ChildItem -Force")).toEqual({
+      tier: "safe-read",
+      requiresConfirmation: false,
+    });
+    expect(classifyCommand("git.exe status --short")).toEqual({
+      tier: "normal-mutate",
+      requiresConfirmation: false,
+    });
+    expect(classifyCommand("Remove-Item -Recurse reports")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+    expect(classifyCommand("PowerShell.exe -Command Remove-Item reports")).toEqual({
+      tier: "dangerous-mutate",
+      requiresConfirmation: true,
+    });
+  });
+
   it("treats shell wrappers and control operators as dangerous mutate commands", () => {
     expect(classifyCommand("sudo rm -rf /")).toEqual({
       tier: "dangerous-mutate",

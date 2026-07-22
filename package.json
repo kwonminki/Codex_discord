@@ -44,6 +44,8 @@
     "docs/localization.md",
     "docs/AI_AGENT_GUIDE.md",
     "docs/AI_AGENT_GUIDE.en.md",
+    "scripts/start-windows-direct.ps1",
+    "scripts/install-windows-tasks.ps1",
     "!apps/**/*.test.ts",
     "!apps/**/package.json",
     "!packages/**/*.test.ts",
@@ -63,6 +65,7 @@
   ],
   "scripts": {
     "test": "vitest run --passWithNoTests && node --test scripts/release-announcement.test.mjs",
+    "test:windows": "vitest run apps/local-agent/src/windowsCompatibility.test.ts apps/local-agent/src/codexAppServerRunner.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "pnpm test && pnpm typecheck && npm pack --dry-run",

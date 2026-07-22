@@ -68,6 +68,13 @@ Recommended controls:
 - Avoid running as an administrator/root user.
 - Review command output before sharing logs.
 
+On native Windows:
+
+- Run the bot and worker Scheduled Tasks as the same non-administrator user that owns the Codex and Claude sessions.
+- `ExecutionPolicy Bypass` in the launcher only allows that local script to run. It is not a sandbox or privilege boundary and does not bypass UAC or Windows ACLs.
+- The connector binds its temporary Codex app-server WebSocket only to `127.0.0.1`. Do not change it to a public interface without authentication, firewalling, and a separate security review.
+- Stopping the Worker task can terminate active agent child processes. Confirm that active jobs are zero first.
+
 ## npm Package Hygiene
 
 Before publishing:
@@ -77,5 +84,7 @@ pnpm test
 pnpm typecheck
 npm pack --dry-run
 ```
+
+Native Windows verification additionally runs `pnpm test:windows` and parses the PowerShell launch scripts in the Windows compatibility workflow.
 
 Review the `npm pack --dry-run` file list and confirm that no local config, state, tokens, logs, databases, or session transcripts are included.

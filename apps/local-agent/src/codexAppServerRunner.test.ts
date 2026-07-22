@@ -1,32 +1,45 @@
 import { createServer } from "node:http";
-import { mkdtemp, rm, unlink } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import {
+  defaultAppServerTransportKind,
   interruptActiveCodexAppServerTurn,
   runCodexAppServerPrompt,
   steerActiveCodexAppServerTurn,
 } from "./codexAppServerRunner.js";
 
-const socketPaths: string[] = [];
+async function listenOnLoopback(httpServer: ReturnType<typeof createServer>): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = httpServer.address();
 
-afterEach(async () => {
-  await Promise.all(socketPaths.splice(0).map((socketPath) => unlink(socketPath).catch(() => undefined)));
-});
+  if (!address || typeof address === "string") {
+    throw new Error("Could not determine test app-server port.");
+  }
+
+  return `ws://127.0.0.1:${address.port}`;
+}
 
 describe("runCodexAppServerPrompt", () => {
+  it("uses loopback TCP on Windows and Unix sockets elsewhere", () => {
+    expect(defaultAppServerTransportKind("win32")).toBe("tcp");
+    expect(defaultAppServerTransportKind("darwin")).toBe("unix");
+    expect(defaultAppServerTransportKind("linux")).toBe("unix");
+  });
+
   it("steers and interrupts an active turn through its control key", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-control-"));
-    const socketPath = path.join("/tmp", `codex-app-server-control-${process.pid}-${Date.now()}.sock`);
-    socketPaths.push(socketPath);
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     const received: Array<{ method: string; params: unknown }> = [];
 
     try {
-      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+      const appServerUrl = await listenOnLoopback(httpServer);
 
       wsServer.on("connection", (socket) => {
         socket.on("message", (raw) => {
@@ -81,7 +94,7 @@ describe("runCodexAppServerPrompt", () => {
         timeoutMs: 5_000,
         sessionId: null,
         controlKey: "discord-channel-1",
-        appServerSocketPath: socketPath,
+        appServerUrl,
       });
 
       let steerResult = await steerActiveCodexAppServerTurn("discord-channel-1", "구현 방향을 바꿔줘");
@@ -127,14 +140,12 @@ describe("runCodexAppServerPrompt", () => {
 
   it("runs a prompt through the Codex app-server protocol", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
-    const socketPath = path.join("/tmp", `codex-app-server-runner-${process.pid}-${Date.now()}.sock`);
-    socketPaths.push(socketPath);
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     const received: Array<{ method: string; params: unknown }> = [];
 
     try {
-      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+      const appServerUrl = await listenOnLoopback(httpServer);
 
       wsServer.on("connection", (socket) => {
         socket.on("message", (raw) => {
@@ -320,7 +331,7 @@ describe("runCodexAppServerPrompt", () => {
         cwd: workspaceRoot,
         prompt: "테스트",
         timeoutMs: 5_000,
-        appServerSocketPath: socketPath,
+        appServerUrl,
         onProgress: async (event) => {
           if (event.type === "agent-message") {
             await new Promise((resolve) => setTimeout(resolve, 25));
@@ -390,14 +401,12 @@ describe("runCodexAppServerPrompt", () => {
 
   it("forks an existing app-server thread before starting a turn", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
-    const socketPath = path.join("/tmp", `codex-app-server-runner-fork-${process.pid}-${Date.now()}.sock`);
-    socketPaths.push(socketPath);
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     const received: Array<{ method: string; params: unknown }> = [];
 
     try {
-      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+      const appServerUrl = await listenOnLoopback(httpServer);
 
       wsServer.on("connection", (socket) => {
         socket.on("message", (raw) => {
@@ -499,7 +508,7 @@ describe("runCodexAppServerPrompt", () => {
         sessionId: "source-thread-1",
         forkSession: true,
         sessionName: "Refactor branch",
-        appServerSocketPath: socketPath,
+        appServerUrl,
         onProgress: (event) => {
           events.push(event);
         },
@@ -557,14 +566,12 @@ describe("runCodexAppServerPrompt", () => {
 
   it("answers app-server command approval requests", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
-    const socketPath = path.join("/tmp", `codex-app-server-runner-approval-${process.pid}-${Date.now()}.sock`);
-    socketPaths.push(socketPath);
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     let approvalResponse: unknown = null;
 
     try {
-      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+      const appServerUrl = await listenOnLoopback(httpServer);
 
       wsServer.on("connection", (socket) => {
         socket.on("message", (raw) => {
@@ -692,7 +699,7 @@ describe("runCodexAppServerPrompt", () => {
         cwd: workspaceRoot,
         prompt: "테스트",
         timeoutMs: 5_000,
-        appServerSocketPath: socketPath,
+        appServerUrl,
         onApprovalRequest: (request) => {
           approvalRequests.push(request);
           return { decision: "acceptForSession" };
@@ -722,14 +729,12 @@ describe("runCodexAppServerPrompt", () => {
 
   it("answers app-server request_user_input tool requests", async () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "codex-app-server-runner-"));
-    const socketPath = path.join("/tmp", `codex-app-server-runner-user-input-${process.pid}-${Date.now()}.sock`);
-    socketPaths.push(socketPath);
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer, perMessageDeflate: false });
     let userInputResponse: unknown = null;
 
     try {
-      await new Promise<void>((resolve) => httpServer.listen(socketPath, resolve));
+      const appServerUrl = await listenOnLoopback(httpServer);
 
       wsServer.on("connection", (socket) => {
         socket.on("message", (raw) => {
@@ -833,7 +838,7 @@ describe("runCodexAppServerPrompt", () => {
         cwd: workspaceRoot,
         prompt: "질문해줘",
         timeoutMs: 5_000,
-        appServerSocketPath: socketPath,
+        appServerUrl,
         onUserInputRequest: (request) => {
           userInputRequests.push(request);
           return { answers: { implementation: { answers: ["별도 계층"] } } };

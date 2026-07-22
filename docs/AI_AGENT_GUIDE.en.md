@@ -4,7 +4,7 @@
 
 This document is the installation, modification, deployment, and troubleshooting contract for AI coding agents. Human users should start with the repository [README](../README.en.md).
 
-Codex Discord Connector links Codex and Claude Code sessions running on a Mac or Ubuntu machine to trusted Discord channels and threads. It can execute commands and modify files on the connected machine.
+Codex Discord Connector links Codex and Claude Code sessions running on macOS, native Windows, or Ubuntu to trusted Discord channels and threads. It can execute commands and modify files on the connected machine.
 
 > Security notice: install this only on machines controlled by the user, connect it only to a trusted private Discord server, and restrict execution with an Operator role allowlist.
 
@@ -17,10 +17,10 @@ When a user gives you this repository URL, work in this order:
 3. Compare this guide with the current code, `package.json`, `.env.example`, `.connect/config.json`, and installed service definitions.
 4. Prefer Direct mode. It does not expose an inbound Control API.
 5. Use `CODEX_DISCORD_CODEX_RUNNER=app-server` unless an old Codex CLI requires compatibility mode.
-6. Run the Discord gateway and Direct Worker as separate LaunchAgent or systemd services. Restarting the bot must not kill active agent jobs.
+6. Run the Discord gateway and Direct Worker as separate LaunchAgent, systemd, or Windows Scheduled Task services. Restarting the bot must not kill active agent jobs.
 7. Preserve user changes, secrets, state, queues, transcripts, and active jobs. Never commit `.env`, `.connect/`, tokens, or transcripts.
 8. Ask the user only for account actions or values that cannot be discovered safely. Never echo a token in output, logs, or commit messages.
-9. Run `pnpm typecheck`, `pnpm test`, service checks, Discord ready-log verification, and a short round trip after installation.
+9. Run `pnpm typecheck` and the platform test suite after installation: `pnpm test` on macOS/Linux and `pnpm test:windows` on native Windows. Also verify services, the Discord ready log, and a short round trip.
 10. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
 11. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
 
@@ -102,7 +102,7 @@ Before creating anything, search for matching roles, categories, channels, and w
 
 ### 5. Install services
 
-Clone the repository, install dependencies, generate Direct mode configuration, verify Codex and optional Claude Code, register separate bot and worker services, and run smoke tests.
+Clone the repository, install dependencies, generate Direct mode configuration, verify Codex and optional Claude Code, register separate bot and worker services, and run smoke tests. Use LaunchAgent on macOS, systemd on Ubuntu, and separate Scheduled Tasks on native Windows.
 
 The final Discord-side request to the user should be setting each operations channel notification mode to **Only @mentions**. The Discord API cannot change a user's personal notification preference.
 
@@ -142,16 +142,16 @@ The same bot token may be used by multiple computers, but their Codex and Claude
 After the first computer is installed and verified, do not close the conversation with a completion report until you ask whether the user wants to connect another machine.
 
 ```text
-Do you have another Mac or Ubuntu server to connect to this Discord connector?
+Do you have another macOS, Windows, or Ubuntu machine to connect to this Discord connector?
 If so, I will ask for its type and connection method one step at a time, then repeat the same setup.
 ```
 
 When the user wants another installation, collect details one machine at a time in this order:
 
-1. Determine whether it is a Mac or Ubuntu server and whether it is a physical machine, VM, or container.
+1. Determine whether it is macOS, Windows, or Ubuntu and whether it is a physical machine, VM, or container. On Windows, choose native PowerShell or WSL2 according to where the project and Codex sessions actually live.
 2. Ask whether to reuse the same private Discord server and bot application. Reuse the existing Guild, bot token, and Operator role unless the user requests a separate Discord server.
 3. Ask for a recognizable computer display name and its primary purpose, such as `Personal Mac`, `B200 8GPU`, or `Build Server`.
-4. Determine the connection method. Use the current shell for a local machine; for a remote machine, request an existing SSH host alias or `user@host`. Check whether VPN, a bastion, or a specific SSH key is required.
+4. Determine the connection method. Use the current shell for a local machine; for a remote machine, request an existing SSH host alias, `user@host`, or an already authorized PowerShell Remoting path. Check whether VPN, a bastion, or a specific SSH key is required.
 5. Prefer existing SSH key or agent authentication. Never ask the user to send a password, token, or private key through Discord; ask them to complete interactive authentication in their local terminal.
 6. Ask for the default workspace root and whether the machine needs Codex only or both Codex and Claude Code.
 7. Connect and inspect the OS, CPU/GPU, Node.js, pnpm, Codex and Claude CLI versions, login state, existing connector installation, services, and active jobs before changing anything.
@@ -286,6 +286,8 @@ CODEX_DISCORD_CODEX_RUNNER=app-server
 
 Compatibility mode `CODEX_DISCORD_CODEX_RUNNER=exec` does not support session fork, live steering, or live `request_user_input` responses. Use it only for old CLI compatibility.
 
+On macOS and Linux, the connector uses a temporary Unix domain socket for app-server. Native Windows automatically uses an ephemeral loopback WebSocket on `127.0.0.1`; it is never bound to an external interface and closes with the app-server process. If `codex.exe app-server --listen ws://127.0.0.1:<port>` fails, compare `codex --version` and `codex app-server --help` with a verified host.
+
 Codex prompt timeout defaults to five hours. Set `CONNECT_CODEX_PROMPT_TIMEOUT_MS=0` to disable the overall timeout.
 
 ## Service topology
@@ -299,7 +301,8 @@ Discord gateway service
 
 Direct Worker service
   - owns Codex, Claude Code, shell, and child processes
-  - stops accepting new jobs on SIGTERM and drains active work
+  - drains active work on SIGTERM on macOS and Linux
+  - must be stopped from Windows Task Scheduler only while idle
 ```
 
 Always resolve absolute paths first:
@@ -376,10 +379,51 @@ sudo systemctl status codex-discord-worker codex-discord-bot --no-pager
 journalctl -u codex-discord-worker -u codex-discord-bot -f
 ```
 
+### Windows Scheduled Tasks
+
+Use native Windows PowerShell 5.1 or PowerShell 7 when projects and Codex sessions live on the Windows filesystem. When they live entirely inside WSL2 with Linux tooling, treat WSL2 as an Ubuntu installation and use the systemd path instead of mixing Windows and Linux state.
+
+Verify the current Windows user environment first:
+
+```powershell
+node --version
+pnpm --version
+codex --version
+codex app-server --help
+claude --version
+```
+
+Native `.exe` builds of Codex and Claude are preferred for Scheduled Tasks. If discovery fails, set `CODEX_DISCORD_NODE_COMMAND`, `CODEX_DISCORD_CODEX_COMMAND`, and `CODEX_DISCORD_CLAUDE_COMMAND` to verified absolute paths. Admin-channel commands use `powershell.exe` by default; set `CONNECT_WORKSPACE_SHELL` to the absolute `pwsh.exe` path for PowerShell 7.
+
+Run a foreground smoke test, then register separate bot and worker tasks:
+
+```powershell
+Set-Location C:\path\to\Codex_discord
+pnpm connect start --direct
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\install-windows-tasks.ps1 -StartNow
+
+Get-ScheduledTask -TaskName "CodexDiscordConnector-*" |
+  Get-ScheduledTaskInfo
+Get-Content "$env:LOCALAPPDATA\CodexDiscordConnector\Logs\bot.log" -Tail 50
+Get-Content "$env:LOCALAPPDATA\CodexDiscordConnector\Logs\worker.log" -Tail 50
+```
+
+The installer creates `CodexDiscordConnector-Bot` and `CodexDiscordConnector-Worker` for the current user at logon. Use `-TaskPrefix` when names must differ. Restart only the bot task during a gateway update:
+
+```powershell
+Stop-ScheduledTask -TaskName "CodexDiscordConnector-Bot"
+Start-ScheduledTask -TaskName "CodexDiscordConnector-Bot"
+```
+
+`Stop-ScheduledTask` is not equivalent to a draining Unix `SIGTERM`; it can terminate the process. Stop or restart the Worker task only after active jobs reach zero. A headless Windows Server that must run before user logon needs an explicitly approved service account and Windows service wrapper. Never store that account password in Discord, repository files, or logs.
+
 ## Launch checklist
 
 - Service user matches the user who owns Codex and Claude sessions.
-- `HOME`, `CODEX_HOME`, and `~/.claude/projects` match IDE and CLI usage.
+- The service principal matches the OS user that owns the Codex and Claude sessions.
+- `HOME`/`USERPROFILE`, `CODEX_HOME`, and the Claude projects directory match IDE and CLI usage.
 - Workspace root is broad enough but not unnecessarily permissive.
 - Service user can read and write the workspace and `.connect` directories.
 - GPU access works as the same service user before testing through the connector.
@@ -479,7 +523,7 @@ network=enabled
 
 Claude Code uses `bypassPermissions`. Default effort is Codex `xhigh` and Claude Code `max`. Models follow each CLI unless overridden in Discord.
 
-The connector cannot bypass OS permissions, sudo, macOS privacy controls, Linux ACLs, or container GPU exposure.
+The connector cannot bypass OS permissions, Windows ACL/UAC policy, sudo, macOS privacy controls, Linux ACLs, or container GPU exposure.
 
 ## Version compatibility
 
@@ -494,6 +538,8 @@ git rev-parse --short HEAD
 ```
 
 After Codex or Claude upgrades, smoke-test app-server startup, stream parsing, resume, fork, approval, user input, and final answers before fleet rollout.
+
+The Windows code path is covered by platform-independent tests, but native CLI packaging, PowerShell policy, and Task Scheduler settings vary by host. The first Windows machine in a rollout is the canary: verify the loopback app-server, PowerShell command execution, both Scheduled Tasks, `/fork`, and a bot-only restart before treating the remaining Windows machines as compatible.
 
 ## Troubleshooting
 

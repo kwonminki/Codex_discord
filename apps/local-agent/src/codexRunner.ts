@@ -130,7 +130,7 @@ function workspaceAliasName(workspaceRoot: string): string {
 async function ensureAsciiWorkspaceRoot(workspaceRoot: string): Promise<string> {
   const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
 
-  if (isAscii(resolvedWorkspaceRoot)) {
+  if (process.platform === "win32" || isAscii(resolvedWorkspaceRoot)) {
     return resolvedWorkspaceRoot;
   }
 

@@ -1,11 +1,12 @@
 import { promisify } from "node:util";
-import { exec as execCallback } from "node:child_process";
+import { exec as execCallback, execFile as execFileCallback } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { classifyCommand } from "../../../packages/core/src/index.js";
 import { assertInsideWorkspace } from "./workspace.js";
 
 const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const FILE_BROWSER_PAGE_SIZE = 25;
 const FILE_PREVIEW_BYTES = 12 * 1024;
@@ -47,6 +48,34 @@ export interface RunWorkspaceCommandResult {
   killed?: boolean;
   timedOut?: boolean;
   ui?: CommandUiPayload;
+}
+
+export interface WorkspaceCommandInvocation {
+  executable: string;
+  args: string[];
+}
+
+export function buildWorkspaceCommandInvocation(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): WorkspaceCommandInvocation | null {
+  if (platform !== "win32") {
+    return null;
+  }
+
+  return {
+    executable: env.CONNECT_WORKSPACE_SHELL?.trim() || "powershell.exe",
+    args: [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      command,
+    ],
+  };
 }
 
 function parseCdTarget(command: string): string | null {
@@ -381,12 +410,20 @@ export async function runWorkspaceCommand(input: RunWorkspaceCommandInput): Prom
   }
 
   try {
-    const result = await exec(input.command, {
-      cwd,
-      shell: "/bin/zsh",
-      timeout: input.timeoutMs,
-      maxBuffer: MAX_BUFFER_BYTES,
-    });
+    const invocation = buildWorkspaceCommandInvocation(input.command);
+    const result = invocation
+      ? await execFile(invocation.executable, invocation.args, {
+          cwd,
+          timeout: input.timeoutMs,
+          maxBuffer: MAX_BUFFER_BYTES,
+          windowsHide: true,
+        })
+      : await exec(input.command, {
+          cwd,
+          shell: process.env.CONNECT_WORKSPACE_SHELL?.trim() || "/bin/zsh",
+          timeout: input.timeoutMs,
+          maxBuffer: MAX_BUFFER_BYTES,
+        });
 
     return {
       status: "completed",
@@ -404,7 +441,7 @@ export async function runWorkspaceCommand(input: RunWorkspaceCommandInput): Prom
     };
     const signal = execError.signal ?? null;
     const killed = execError.killed ?? false;
-    const timedOut = Boolean(killed && signal === "SIGTERM" && input.timeoutMs > 0);
+    const timedOut = Boolean(killed && input.timeoutMs > 0);
 
     return {
       status: "failed",

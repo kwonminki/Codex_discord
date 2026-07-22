@@ -124,7 +124,7 @@ function resolveRequestedCwd(defaultWorkspaceRoot: string, requestedCwd?: string
   }
 
   if (normalizedCwd.startsWith("~")) {
-    return path.resolve(normalizedCwd.replace(/^~/, process.env.HOME ?? ""));
+    return path.resolve(normalizedCwd.replace(/^~/, os.homedir()));
   }
 
   return path.isAbsolute(normalizedCwd)

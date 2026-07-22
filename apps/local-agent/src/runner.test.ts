@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { assertInsideWorkspace } from "./workspace.js";
-import { runWorkspaceCommand } from "./runner.js";
+import { buildWorkspaceCommandInvocation, runWorkspaceCommand } from "./runner.js";
 
 async function makeWorkspace() {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-agent-"));
@@ -46,6 +46,29 @@ describe("workspace guard", () => {
 });
 
 describe("runWorkspaceCommand", () => {
+  it("uses PowerShell without interpolating the command into executable arguments on Windows", () => {
+    expect(
+      buildWorkspaceCommandInvocation("Get-ChildItem | Select-Object -First 5", "win32", {
+        CONNECT_WORKSPACE_SHELL: "pwsh.exe",
+      }),
+    ).toEqual({
+      executable: "pwsh.exe",
+      args: [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Get-ChildItem | Select-Object -First 5",
+      ],
+    });
+  });
+
+  it("keeps Unix commands on the existing shell path", () => {
+    expect(buildWorkspaceCommandInvocation("ls", "linux", {})).toBeNull();
+  });
+
   it("runs a safe read command inside the workspace", async () => {
     const workspaceRoot = await makeWorkspace();
 

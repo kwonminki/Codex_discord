@@ -2,7 +2,7 @@
 
 [한국어](README.md) | English
 
-A personal bridge for using **Codex and Claude Code running on a Mac or Ubuntu server through Discord threads**.
+A personal bridge for using **Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads**.
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
@@ -19,7 +19,7 @@ Read this repository's AI Agent Guide first, then install and configure it on my
 Ask me only for required account actions, one step at a time, and configure and verify everything else yourself.
 ```
 
-The agent detects the conversation language and operating system, then configures Discord resources and local services. After the first computer is ready, it will ask whether you want to connect any additional Mac or Ubuntu servers.
+The agent detects the conversation language and operating system, then configures Discord resources and local services. After the first computer is ready, it will ask whether you want to connect any additional macOS, Windows, or Ubuntu machines.
 
 ## Supported languages
 
@@ -107,10 +107,10 @@ Set each operations channel's Discord notifications to **Only @mentions**.
 
 ## Multiple computers
 
-One private Discord server can connect several Mac and Ubuntu machines. After the first installation, tell the agent:
+One private Discord server can connect several macOS, Windows, and Ubuntu machines. After the first installation, tell the agent:
 
 ```text
-Connect another Ubuntu server to this Discord connector.
+Connect another Windows computer to this Discord connector.
 ```
 
 The agent asks for the machine type, connection method, workspace, and whether to enable Codex and Claude Code. It then reuses the existing Discord setup while creating separate channels and services for that machine.

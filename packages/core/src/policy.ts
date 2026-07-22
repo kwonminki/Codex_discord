@@ -19,7 +19,20 @@ export interface AuthorizationResult {
   reason?: string;
 }
 
-const safeReadCommands = new Set(["ls", "tree", "pwd", "cat", "find", "grep", "echo"]);
+const safeReadCommands = new Set([
+  "ls",
+  "tree",
+  "pwd",
+  "cat",
+  "find",
+  "grep",
+  "echo",
+  "get-childitem",
+  "get-content",
+  "get-location",
+  "select-string",
+  "write-output",
+]);
 const normalMutateCommands = new Set([
   "mkdir",
   "touch",
@@ -31,8 +44,22 @@ const normalMutateCommands = new Set([
   "python",
   "python3",
   "node",
+  "copy-item",
+  "move-item",
+  "new-item",
+  "set-content",
 ]);
-const dangerousCommands = new Set(["rm", "rmdir"]);
+const dangerousCommands = new Set([
+  "rm",
+  "rmdir",
+  "del",
+  "erase",
+  "rd",
+  "remove-item",
+  "clear-content",
+  "stop-process",
+  "stop-service",
+]);
 const dangerousWrappers = new Set([
   "sudo",
   "bash",
@@ -52,6 +79,9 @@ const dangerousWrappers = new Set([
   "time",
   "nohup",
   "nice",
+  "cmd",
+  "powershell",
+  "pwsh",
   "(",
 ]);
 const shellAssignmentPattern = /^[A-Za-z_][A-Za-z0-9_]*=.*$/;
@@ -241,7 +271,7 @@ export function firstToken(command: string): string {
 }
 
 function normalizeExecutableToken(token: string): string {
-  return path.basename(token);
+  return path.basename(token).toLowerCase().replace(/\.(exe|cmd|bat)$/i, "");
 }
 
 function stripShellAssignments(tokens: string[]): string[] {
