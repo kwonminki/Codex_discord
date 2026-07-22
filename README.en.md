@@ -99,11 +99,12 @@ Send both result videos and ask me which one is better.
 
 ## Notifications
 
-Set each operations channel's Discord notifications to **Only @mentions**.
+On a dedicated private Discord server, the installation agent sets the server-wide default notification level to **Only @mentions**. It asks first on a shared server because that default can affect other channels and members.
 
 - Useful progress explanations accumulate quietly without a mention.
 - Questions, permission requests, completion, and failure mention the Operator role.
 - Long final answers are split across messages or attached as a complete text file.
+- A bot cannot change a user's per-channel notification override. Only channels that a user previously customized need to be reset manually to **Only @mentions**.
 
 ## Multiple computers
 
@@ -117,9 +118,11 @@ The agent asks for the machine type, connection method, workspace, and whether t
 
 ## Important notes
 
-### Do not run the same session concurrently
+### Do not message the same session from another surface while it is answering
 
-Starting work on the same session ID from Discord and Codex Desktop, VS Code, or another IDE at the same time can confuse message order and final-answer placement. Wait for one side to finish or separate the work with `/fork` or `/chat-new`.
+While Codex Desktop, VS Code, Antigravity, another IDE, or Discord is generating an answer, sending a new message to the same session ID from another surface can overlap two turns. Messages may arrive out of order, and progress or the final answer may appear on an unexpected surface.
+
+After the current answer has **fully completed**, it is safe to continue the same session from Desktop, an IDE, or Discord. If another request must start before that answer finishes, use `/fork` or `/chat-new` to create a separate session.
 
 ### Service shutdown scope differs
 

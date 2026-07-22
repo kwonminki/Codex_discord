@@ -80,7 +80,7 @@ Use the Installation page or OAuth2 URL Generator with these scopes:
 - `bot`
 - `applications.commands`
 
-Temporary Administrator permission is the simplest first setup in a private personal server. When the user prefers least privilege, include the permissions in the table below plus Manage Roles, Manage Channels, and Manage Webhooks for automated setup.
+Temporary Administrator permission is the simplest first setup in a private personal server. When the user prefers least privilege, include the permissions in the table below plus Manage Roles, Manage Channels, Manage Webhooks, and Manage Server for automated setup.
 
 Wait while the user completes OAuth approval, login, 2FA, or CAPTCHA. Do not create Discord resources until the bot appears in the server member list.
 
@@ -96,7 +96,8 @@ After the bot has joined, use the Discord API and the existing token to configur
 6. Apply permission overwrites for the bot and Operator role. Do not expose execution channels to unrelated members.
 7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
 8. Register guild slash commands.
-9. Optionally create a release channel and webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
+9. On a dedicated private connector server, call `PATCH /guilds/{guild.id}` with `default_message_notifications: 1` and verify the returned value. This sets the guild default to `ONLY_MENTIONS`. On a shared or ambiguous server, explain the guild-wide effect and ask first.
+10. Optionally create a release channel and webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
 
 Before creating anything, search for matching roles, categories, channels, and webhooks. Do not delete or overwrite resources with unclear ownership. Re-running setup after a partial failure must not create duplicates.
 
@@ -104,7 +105,7 @@ Before creating anything, search for matching roles, categories, channels, and w
 
 Clone the repository, install dependencies, generate Direct mode configuration, verify Codex and optional Claude Code, register separate bot and worker services, and run smoke tests. Use LaunchAgent on macOS, systemd on Ubuntu, and separate Scheduled Tasks on native Windows.
 
-The final Discord-side request to the user should be setting each operations channel notification mode to **Only @mentions**. The Discord API cannot change a user's personal notification preference.
+On a dedicated private server, the agent sets the guild default notification level to **Only @mentions**, so there is normally no final manual notification step. A bot cannot change a user's per-channel notification override. Ask the user to reset a channel manually only when an existing override still enables all-message notifications.
 
 ### Required values
 
@@ -177,9 +178,16 @@ Roll out one machine at a time so a failure cannot disturb active work elsewhere
 | Manage Channels | Create or remove workspace categories and synced channels |
 | Manage Roles | Create and assign the Operator role |
 | Manage Webhooks | Optional release announcement webhook |
+| Manage Server | Set a dedicated server's default to `Only @mentions` |
 | Manage Messages | `/clear` only |
 
 Thread messaging requires Send Messages in Threads in addition to Send Messages. Also inspect parent-channel permission overwrites.
+
+## Discord notification defaults
+
+For a dedicated private connector server, use the bot's Manage Server permission to call `PATCH /guilds/{guild.id}` with `default_message_notifications: 1`, then verify that the response reports `ONLY_MENTIONS`. Progress messages remain unmentioned, while questions, approvals, completion, and failure mention the Operator role.
+
+This is a guild-wide default. Never change it silently on a shared server. Discord user-specific channel notification overrides are personal client settings and are not exposed for a bot to modify; they also take precedence over the guild default. Request a manual **Only @mentions** override only for channels that a user previously customized.
 
 ## Code ownership
 
