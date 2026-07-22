@@ -137,6 +137,31 @@ The same bot token may be used by multiple computers, but their Codex and Claude
 - Steering, `/queue prompt:...`, `/howtouse`, and `/fork` pass smoke tests.
 - Restarting only the bot preserves the worker PID and any active job.
 
+## Additional-machine onboarding
+
+After the first computer is installed and verified, do not close the conversation with a completion report until you ask whether the user wants to connect another machine.
+
+```text
+Do you have another Mac or Ubuntu server to connect to this Discord connector?
+If so, I will ask for its type and connection method one step at a time, then repeat the same setup.
+```
+
+When the user wants another installation, collect details one machine at a time in this order:
+
+1. Determine whether it is a Mac or Ubuntu server and whether it is a physical machine, VM, or container.
+2. Ask whether to reuse the same private Discord server and bot application. Reuse the existing Guild, bot token, and Operator role unless the user requests a separate Discord server.
+3. Ask for a recognizable computer display name and its primary purpose, such as `Personal Mac`, `B200 8GPU`, or `Build Server`.
+4. Determine the connection method. Use the current shell for a local machine; for a remote machine, request an existing SSH host alias or `user@host`. Check whether VPN, a bastion, or a specific SSH key is required.
+5. Prefer existing SSH key or agent authentication. Never ask the user to send a password, token, or private key through Discord; ask them to complete interactive authentication in their local terminal.
+6. Ask for the default workspace root and whether the machine needs Codex only or both Codex and Claude Code.
+7. Connect and inspect the OS, CPU/GPU, Node.js, pnpm, Codex and Claude CLI versions, login state, existing connector installation, services, and active jobs before changing anything.
+8. Install the same repository commit and verified CLI combination, then create machine-local config, secrets, and separate bot and worker services.
+9. Use the Discord API to create that machine's category, Codex parent channel, optional Claude Code parent channel, and permission overwrites. Never reuse a parent channel ID owned by another connector instance.
+10. Apply the same verification criteria as the first machine: separate service PIDs, ready logs, `/status`, `/chat-new`, a short agent round trip, and preservation of the worker during a bot-only restart.
+11. Report the result for that machine, then ask whether there is another machine to connect.
+
+Roll out one machine at a time so a failure cannot disturb active work elsewhere. When an existing installation is found, inspect its branch, commit, configuration, services, and active jobs and perform a safe update or repair instead of overwriting it. Multiple instances may share one bot token only when every instance owns distinct Codex and Claude parent channels.
+
 ## Discord permissions
 
 | Permission | Feature |
