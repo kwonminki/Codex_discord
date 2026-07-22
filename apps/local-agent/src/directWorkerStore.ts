@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   appendFile,
+  chmod,
   link,
   mkdir,
   open,
@@ -21,19 +22,17 @@ import type {
   CodexUserInputRequest,
   CodexUserInputResponse,
 } from "./codexRunner.js";
+import {
+  directWorkerControlRequestSchema,
+  directWorkerJobRequestSchema,
+  type DirectWorkerControlRequest,
+  type DirectWorkerJobRequest,
+  type DirectWorkerJobType,
+} from "./directWorkerSchemas.js";
 
-export type DirectWorkerJobType = "run-command" | "run-codex-prompt" | "run-claude-prompt";
+export type { DirectWorkerControlRequest, DirectWorkerJobRequest, DirectWorkerJobType };
 export type DirectWorkerJobStatus = "queued" | "running" | "completed" | "failed";
 export const DIRECT_WORKER_WAKE_FILE = "wake";
-
-export interface DirectWorkerJobRequest {
-  version: 1;
-  jobId: string;
-  type: DirectWorkerJobType;
-  queueKey: string;
-  payload: unknown;
-  createdAt: string;
-}
 
 export interface DirectWorkerJobState {
   version: 1;
@@ -53,15 +52,6 @@ export type DirectWorkerJobEvent =
   | { type: "progress"; at: string; event: CodexRunnerProgressEvent }
   | { type: "approval"; at: string; approvalId: string; request: CodexApprovalRequest }
   | { type: "user-input"; at: string; userInputId: string; request: CodexUserInputRequest };
-
-export interface DirectWorkerControlRequest {
-  version: 1;
-  controlId: string;
-  controlKey: string;
-  action: "steer" | "interrupt";
-  content?: string;
-  createdAt: string;
-}
 
 export interface DirectWorkerControlResult {
   controlId: string;
@@ -102,6 +92,11 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function ensurePrivateDirectory(directoryPath: string): Promise<void> {
+  await mkdir(directoryPath, { recursive: true, mode: 0o700 });
+  await chmod(directoryPath, 0o700);
+}
+
 async function readJson<T>(filePath: string): Promise<T | null> {
   try {
     return JSON.parse(await readFile(filePath, "utf8")) as T;
@@ -114,12 +109,16 @@ async function readJson<T>(filePath: string): Promise<T | null> {
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
+  await ensurePrivateDirectory(path.dirname(filePath));
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
 
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await rename(temporaryPath, filePath);
+    await chmod(filePath, 0o600);
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
     throw error;
@@ -127,11 +126,14 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
 }
 
 async function createJsonOnce(filePath: string, value: unknown): Promise<boolean> {
-  await mkdir(path.dirname(filePath), { recursive: true });
+  await ensurePrivateDirectory(path.dirname(filePath));
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
 
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await link(temporaryPath, filePath);
     return true;
   } catch (error) {
@@ -142,6 +144,15 @@ async function createJsonOnce(filePath: string, value: unknown): Promise<boolean
   } finally {
     await unlink(temporaryPath).catch(() => undefined);
   }
+}
+
+async function appendPrivateJsonLine(filePath: string, value: unknown): Promise<void> {
+  await ensurePrivateDirectory(path.dirname(filePath));
+  await appendFile(filePath, `${JSON.stringify(value)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await chmod(filePath, 0o600);
 }
 
 function parseDirectWorkerEventText(text: string): {
@@ -185,6 +196,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
   const root = path.resolve(rootPath);
   const jobsRoot = path.join(root, "jobs");
   const controlsRoot = path.join(root, "controls");
+  const deadLetterRoot = path.join(root, "dead-letter");
   const eventCache = new Map<string, CachedDirectWorkerEvents>();
 
   function jobDirectory(jobId: string): string {
@@ -196,15 +208,82 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
   }
 
   async function signalWorker(): Promise<void> {
-    await writeFile(path.join(root, DIRECT_WORKER_WAKE_FILE), `${Date.now()}\n`, "utf8").catch(() => undefined);
+    const wakePath = path.join(root, DIRECT_WORKER_WAKE_FILE);
+    await writeFile(wakePath, `${Date.now()}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    })
+      .then(() => chmod(wakePath, 0o600))
+      .catch(() => undefined);
+  }
+
+  async function quarantineInvalidDirectory(input: {
+    kind: "jobs" | "controls";
+    entry: string;
+    error: unknown;
+  }): Promise<string | null> {
+    const sourceRoot = input.kind === "jobs" ? jobsRoot : controlsRoot;
+    const sourcePath = path.join(sourceRoot, input.entry);
+    const destinationRoot = path.join(deadLetterRoot, input.kind);
+    const destinationPath = path.join(
+      destinationRoot,
+      `${Date.now()}-${input.entry}-${randomUUID()}`,
+    );
+
+    await ensurePrivateDirectory(destinationRoot);
+    try {
+      await rename(sourcePath, destinationPath);
+    } catch (error) {
+      if (isMissing(error)) {
+        return null;
+      }
+      throw error;
+    }
+
+    const message = input.error instanceof Error ? input.error.message : String(input.error);
+    await writeJsonAtomic(path.join(destinationPath, "dead-letter.json"), {
+      movedAt: new Date().toISOString(),
+      source: `${input.kind}/${input.entry}`,
+      error: message,
+    });
+    console.error(`Direct worker moved invalid ${input.kind} entry ${input.entry} to dead-letter: ${message}`);
+    return destinationPath;
+  }
+
+  async function failQuarantinedJob(jobId: string, error: unknown): Promise<void> {
+    const completedAt = new Date().toISOString();
+    const message = `Invalid direct worker job request: ${error instanceof Error ? error.message : String(error)}`;
+    await writeJsonAtomic(path.join(jobDirectory(jobId), "result.json"), {
+      jobId,
+      error: { message },
+      completedAt,
+    } satisfies DirectWorkerJobResult);
+    await writeJsonAtomic(path.join(jobDirectory(jobId), "state.json"), {
+      version: 1,
+      jobId,
+      status: "failed",
+      updatedAt: completedAt,
+      completedAt,
+    } satisfies DirectWorkerJobState);
+  }
+
+  async function failQuarantinedControl(controlId: string, error: unknown): Promise<void> {
+    const message = `Invalid direct worker control request: ${error instanceof Error ? error.message : String(error)}`;
+    await writeJsonAtomic(path.join(controlDirectory(controlId), "result.json"), {
+      controlId,
+      result: { status: "failed", message },
+      completedAt: new Date().toISOString(),
+    } satisfies DirectWorkerControlResult);
   }
 
   return {
     rootPath: root,
     async initialize(): Promise<void> {
       await Promise.all([
-        mkdir(jobsRoot, { recursive: true }),
-        mkdir(controlsRoot, { recursive: true }),
+        ensurePrivateDirectory(root),
+        ensurePrivateDirectory(jobsRoot),
+        ensurePrivateDirectory(controlsRoot),
+        ensurePrivateDirectory(deadLetterRoot),
       ]);
     },
     async enqueue(input: {
@@ -214,20 +293,21 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
       payload: unknown;
     }): Promise<DirectWorkerJobRequest> {
       const jobId = validId(input.jobId ?? randomUUID());
-      const request: DirectWorkerJobRequest = {
+      const request = directWorkerJobRequestSchema.parse({
         version: 1,
         jobId,
         type: input.type,
         queueKey: input.queueKey.trim() || jobId,
         payload: input.payload,
         createdAt: new Date().toISOString(),
-      };
+      });
       const directory = jobDirectory(jobId);
       const requestPath = path.join(directory, "request.json");
       const created = await createJsonOnce(requestPath, request);
 
       if (!created) {
-        const existing = await readJson<DirectWorkerJobRequest>(requestPath);
+        const existingValue = await readJson<unknown>(requestPath);
+        const existing = directWorkerJobRequestSchema.parse(existingValue);
         if (!existing) {
           throw new Error(`Direct worker job request disappeared: ${jobId}`);
         }
@@ -254,15 +334,40 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         throw error;
       }
 
-      const requests = await Promise.all(
-        entries.map((entry) => readJson<DirectWorkerJobRequest>(path.join(jobsRoot, entry, "request.json"))),
-      );
+      const requests = await Promise.all(entries.map(async (entry) => {
+        try {
+          const value = await readJson<unknown>(path.join(jobsRoot, entry, "request.json"));
+          if (value === null) {
+            return null;
+          }
+          const parsed = directWorkerJobRequestSchema.safeParse(value);
+          if (parsed.success) {
+            return parsed.data;
+          }
+          await quarantineInvalidDirectory({ kind: "jobs", entry, error: parsed.error });
+          try {
+            await failQuarantinedJob(validId(entry), parsed.error);
+          } catch {
+            // Invalid external directory names have no client that can receive a result.
+          }
+          return null;
+        } catch (error) {
+          await quarantineInvalidDirectory({ kind: "jobs", entry, error });
+          try {
+            await failQuarantinedJob(validId(entry), error);
+          } catch {
+            // Invalid external directory names have no client that can receive a result.
+          }
+          return null;
+        }
+      }));
       return requests
-        .filter((request): request is DirectWorkerJobRequest => Boolean(request?.jobId))
+        .filter((request): request is DirectWorkerJobRequest => request !== null)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
     },
-    readRequest(jobId: string) {
-      return readJson<DirectWorkerJobRequest>(path.join(jobDirectory(jobId), "request.json"));
+    async readRequest(jobId: string) {
+      const value = await readJson<unknown>(path.join(jobDirectory(jobId), "request.json"));
+      return value === null ? null : directWorkerJobRequestSchema.parse(value);
     },
     readState(jobId: string) {
       return readJson<DirectWorkerJobState>(path.join(jobDirectory(jobId), "state.json"));
@@ -316,8 +421,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
     },
     async appendProgress(jobId: string, event: CodexRunnerProgressEvent): Promise<void> {
       const record: DirectWorkerJobEvent = { type: "progress", at: new Date().toISOString(), event };
-      await mkdir(jobDirectory(jobId), { recursive: true });
-      await appendFile(path.join(jobDirectory(jobId), "events.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+      await appendPrivateJsonLine(path.join(jobDirectory(jobId), "events.jsonl"), record);
     },
     async requestApproval(jobId: string, request: CodexApprovalRequest): Promise<string> {
       const approvalId = randomUUID();
@@ -327,8 +431,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         approvalId,
         request,
       };
-      await mkdir(jobDirectory(jobId), { recursive: true });
-      await appendFile(path.join(jobDirectory(jobId), "events.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+      await appendPrivateJsonLine(path.join(jobDirectory(jobId), "events.jsonl"), record);
       return approvalId;
     },
     async requestUserInput(jobId: string, request: CodexUserInputRequest): Promise<string> {
@@ -339,8 +442,7 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         userInputId,
         request,
       };
-      await mkdir(jobDirectory(jobId), { recursive: true });
-      await appendFile(path.join(jobDirectory(jobId), "events.jsonl"), `${JSON.stringify(record)}\n`, "utf8");
+      await appendPrivateJsonLine(path.join(jobDirectory(jobId), "events.jsonl"), record);
       return userInputId;
     },
     async readEvents(jobId: string): Promise<DirectWorkerJobEvent[]> {
@@ -446,14 +548,14 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
       content?: string;
     }): Promise<DirectWorkerControlRequest> {
       const controlId = randomUUID();
-      const request: DirectWorkerControlRequest = {
+      const request = directWorkerControlRequestSchema.parse({
         version: 1,
         controlId,
         controlKey: input.controlKey,
         action: input.action,
         ...(input.content ? { content: input.content } : {}),
         createdAt: new Date().toISOString(),
-      };
+      });
       await writeJsonAtomic(path.join(controlDirectory(controlId), "request.json"), request);
       await signalWorker();
       return request;
@@ -469,16 +571,38 @@ export function createDirectWorkerStore(rootPath = defaultDirectWorkerRoot()) {
         throw error;
       }
 
-      const controls = await Promise.all(
-        entries.map(async (entry) => {
+      const controls = await Promise.all(entries.map(async (entry) => {
+        try {
           if (await pathExists(path.join(controlsRoot, entry, "result.json"))) {
             return null;
           }
-          return readJson<DirectWorkerControlRequest>(path.join(controlsRoot, entry, "request.json"));
-        }),
-      );
+          const value = await readJson<unknown>(path.join(controlsRoot, entry, "request.json"));
+          if (value === null) {
+            return null;
+          }
+          const parsed = directWorkerControlRequestSchema.safeParse(value);
+          if (parsed.success) {
+            return parsed.data;
+          }
+          await quarantineInvalidDirectory({ kind: "controls", entry, error: parsed.error });
+          try {
+            await failQuarantinedControl(validId(entry), parsed.error);
+          } catch {
+            // Invalid external directory names have no client that can receive a result.
+          }
+          return null;
+        } catch (error) {
+          await quarantineInvalidDirectory({ kind: "controls", entry, error });
+          try {
+            await failQuarantinedControl(validId(entry), error);
+          } catch {
+            // Invalid external directory names have no client that can receive a result.
+          }
+          return null;
+        }
+      }));
       return controls
-        .filter((control): control is DirectWorkerControlRequest => Boolean(control?.controlId))
+        .filter((control): control is DirectWorkerControlRequest => control !== null)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
     },
     async completeControl(controlId: string, result: unknown): Promise<void> {

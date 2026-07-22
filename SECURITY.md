@@ -52,9 +52,27 @@ Never commit or publish:
 - Discord bot tokens
 - local database files
 - logs containing command output
+- `.connect/discord-queue` and `.connect/worker` dead-letter records
 - Codex session or transcript files
 
 If a Discord token is exposed, rotate it immediately in the Discord Developer Portal and restart the connector.
+
+## Local Durable State
+
+Direct mode persists full Discord request content under `.connect/discord-queue` and worker payloads, progress, approvals, questions, and results under `.connect/worker`. This is required to reconnect after a gateway restart, so prompts are not redacted and are not encrypted by the connector.
+
+The stores enforce `0700` directories and `0600` files on POSIX systems. Invalid queue records are moved to a local `dead-letter` directory instead of being retried indefinitely. Completed Discord requests are removed after delivery, and pending requests default to these limits:
+
+- 7-day TTL
+- 1,000 requests
+- 64 MiB total queue size
+- 4 MiB per request
+
+Incoming attachment bytes are stored separately under `.connect/incoming-attachments`; durable requests contain only attachment metadata and local paths. Large media files therefore do not consume the JSON request limit.
+
+Configure or disable a limit with `CONNECT_DISCORD_QUEUE_TTL_MS`, `CONNECT_DISCORD_QUEUE_MAX_REQUESTS`, `CONNECT_DISCORD_QUEUE_MAX_BYTES`, and `CONNECT_DISCORD_QUEUE_MAX_REQUEST_BYTES`. A value of `0` disables that limit.
+
+Use operating-system full-disk encryption for data at rest. Keep the repository and `.connect` outside Dropbox, OneDrive, iCloud Drive, Google Drive, Syncthing, network shares, and automatic backup scopes unless those systems are explicitly trusted and encrypted. Do not send tokens, passwords, private keys, or other secrets in Discord prompts merely because the local files have restrictive permissions.
 
 ## Shell Execution
 

@@ -298,6 +298,10 @@ Discord message
 
 bot gateway가 죽어도 worker는 계속 실행되고 새 gateway가 같은 request ID와 worker event cursor로 재연결합니다. worker가 강제 종료되면 그 worker의 자식인 Codex/Claude/명령 프로세스도 중단될 수 있습니다.
 
+`.connect/discord-queue`와 `.connect/worker`에는 복구를 위해 사용자 prompt, 역할 ID, 진행 내용과 결과가 평문으로 저장됩니다. store는 POSIX에서 directory `0700`, file `0600`을 강제하고, schema가 깨진 항목을 각 `dead-letter` directory로 격리합니다. Discord durable queue는 완료 전달 후 즉시 삭제하며 미완료 항목은 기본 7일 TTL, 1,000개, 전체 64MiB, 요청당 4MiB로 제한합니다. 첨부파일 본체는 `.connect/incoming-attachments`에 별도로 저장되고 queue에는 metadata와 local path만 들어가므로 이 JSON 제한에 포함되지 않습니다. `CONNECT_DISCORD_QUEUE_TTL_MS`, `CONNECT_DISCORD_QUEUE_MAX_REQUESTS`, `CONNECT_DISCORD_QUEUE_MAX_BYTES`, `CONNECT_DISCORD_QUEUE_MAX_REQUEST_BYTES`로 조정하고 `0`이면 해당 제한을 끕니다.
+
+Connector 자체 암호화나 content redaction은 복구할 원문을 바꾸므로 제공하지 않습니다. OS full-disk encryption을 사용하고 `.connect`를 Dropbox, OneDrive, iCloud Drive, Google Drive, Syncthing, network share와 자동 backup 대상 밖에 둡니다. dead-letter도 민감 상태로 취급하며 문제 확인 후 안전하게 삭제합니다.
+
 ## 핵심 기능
 
 - Discord 관리자 채널에서 로컬 컴퓨터의 파일 구조를 탐색하고 shell 명령을 실행합니다.
@@ -755,6 +759,8 @@ sudo systemctl restart codex-discord-worker
 ### Secret과 상태 파일
 
 - `.env`와 `.connect/config.json`에는 token이 들어갈 수 있으므로 `chmod 600`을 권장합니다.
+- `.connect/discord-queue`와 `.connect/worker`가 POSIX에서 `0700`, 이 store가 생성하거나 읽는 JSON/JSONL이 `0600`인지 확인합니다. connector는 queue/worker store를 열 때 이 권한을 다시 강제합니다.
+- repo와 `.connect`가 cloud sync, network share 또는 신뢰하지 않는 backup 범위 안에 있으면 런칭 전에 안전한 local 경로로 옮깁니다.
 - `.gitignore`에 `.env`, `.env.*`, `.connect/`, log, SQLite가 제외되는지 확인합니다.
 - setup 후 `git status --short`에 secret/state 파일이 나타나면 런칭을 중단하고 ignore를 수정합니다.
 - 기존 `.connect/state.json`, `.connect/discord-queue`, `.connect/worker`를 무심코 삭제하지 않습니다.

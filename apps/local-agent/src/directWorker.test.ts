@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -123,7 +123,13 @@ describe("direct worker", () => {
         jobId: "cursor-job",
         type: "run-command",
         queueKey: "thread-1",
-        payload: {},
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          command: "printf cursor",
+          timeoutMs: 5_000,
+          confirmedDangerous: true,
+        },
       });
       await store.appendProgress("cursor-job", { type: "agent-message", text: "first" });
       await expect(store.readEvents("cursor-job")).resolves.toHaveLength(1);
@@ -138,7 +144,13 @@ describe("direct worker", () => {
         jobId: "cursor-job",
         type: "run-command",
         queueKey: "thread-1",
-        payload: {},
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          command: "printf cursor",
+          timeoutMs: 5_000,
+          confirmedDangerous: true,
+        },
         onProgress: (event) => {
           if (event.type === "agent-message") {
             delivered.push(event.text);
@@ -161,7 +173,15 @@ describe("direct worker", () => {
         jobId: "user-input-job",
         type: "run-codex-prompt",
         queueKey: "thread-1",
-        payload: {},
+        payload: {
+          runner: "app-server",
+          input: {
+            workspaceRoot: root,
+            cwd: root,
+            prompt: "choose",
+            timeoutMs: 5_000,
+          },
+        },
       });
       const userInputId = await store.requestUserInput("user-input-job", {
         threadId: "codex-thread-1",
@@ -184,7 +204,15 @@ describe("direct worker", () => {
         jobId: "user-input-job",
         type: "run-codex-prompt",
         queueKey: "thread-1",
-        payload: {},
+        payload: {
+          runner: "app-server",
+          input: {
+            workspaceRoot: root,
+            cwd: root,
+            prompt: "choose",
+            timeoutMs: 5_000,
+          },
+        },
         onUserInputRequest: (request) => {
           requests.push(request);
           return { answers: { mode: { answers: ["안전"] } } };
@@ -251,6 +279,38 @@ describe("direct worker", () => {
       expect(handledControls).toEqual(["steer:새 지시"]);
     } finally {
       await worker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("moves invalid persisted jobs to dead-letter and returns a terminal failure", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-invalid-"));
+    const workerRoot = path.join(root, "worker");
+    const store = createDirectWorkerStore(workerRoot);
+    const jobDirectory = path.join(workerRoot, "jobs", "invalid-job");
+
+    try {
+      await store.initialize();
+      await mkdir(jobDirectory, { recursive: true });
+      await writeFile(path.join(jobDirectory, "request.json"), JSON.stringify({
+        version: 1,
+        jobId: "invalid-job",
+        type: "run-command",
+        queueKey: "thread-1",
+        payload: { command: "printf should-not-run" },
+        createdAt: new Date().toISOString(),
+      }));
+
+      await expect(store.listRequests()).resolves.toEqual([]);
+      await expect(store.readResult("invalid-job")).resolves.toMatchObject({
+        error: { message: expect.stringContaining("Invalid direct worker job request") },
+      });
+      await expect(readdir(path.join(workerRoot, "dead-letter", "jobs"))).resolves.toHaveLength(1);
+      if (process.platform !== "win32") {
+        expect((await stat(workerRoot)).mode & 0o777).toBe(0o700);
+        expect((await stat(path.join(jobDirectory, "result.json"))).mode & 0o777).toBe(0o600);
+      }
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

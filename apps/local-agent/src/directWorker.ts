@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -8,7 +8,7 @@ import {
   runCodexAppServerPrompt,
   steerActiveCodexAppServerTurn,
 } from "./codexAppServerRunner.js";
-import { runClaudePrompt, type RunClaudePromptInput } from "./claudeRunner.js";
+import { runClaudePrompt } from "./claudeRunner.js";
 import {
   runCodexPrompt,
   type CodexApprovalDecision,
@@ -21,7 +21,7 @@ import {
   type DirectWorkerJobRequest,
   type DirectWorkerStore,
 } from "./directWorkerStore.js";
-import { runWorkspaceCommand, type RunWorkspaceCommandInput } from "./runner.js";
+import { runWorkspaceCommand } from "./runner.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_CONCURRENCY = 4;
@@ -84,23 +84,18 @@ async function runWorkerJob(
   waitForWake: () => Promise<void>,
 ): Promise<unknown> {
   if (request.type === "run-command") {
-    return runWorkspaceCommand(request.payload as RunWorkspaceCommandInput);
+    return runWorkspaceCommand(request.payload);
   }
 
   if (request.type === "run-claude-prompt") {
-    const input = request.payload as RunClaudePromptInput;
     return runClaudePrompt({
-      ...input,
+      ...request.payload,
       onProgress: (event) => store.appendProgress(request.jobId, event),
     });
   }
 
-  const payload = request.payload as {
-    runner?: "app-server" | "exec";
-    input: RunCodexPromptInput;
-  };
   const runnerInput: RunCodexPromptInput = {
-    ...payload.input,
+    ...request.payload.input,
     onProgress: (event) => store.appendProgress(request.jobId, event),
     onApprovalRequest: async (approvalRequest) => {
       const approvalId = await store.requestApproval(request.jobId, approvalRequest);
@@ -112,19 +107,23 @@ async function runWorkerJob(
     },
   };
 
-  return payload.runner === "app-server" && runnerInput.mode !== "review"
+  return request.payload.runner === "app-server" && runnerInput.mode !== "review"
     ? runCodexAppServerPrompt(runnerInput)
     : runCodexPrompt(runnerInput);
 }
 
 async function acquireWorkerLock(rootPath: string): Promise<() => Promise<void>> {
   const lockPath = path.join(rootPath, "worker.lock");
-  await mkdir(rootPath, { recursive: true });
+  await mkdir(rootPath, { recursive: true, mode: 0o700 });
+  await chmod(rootPath, 0o700);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      await mkdir(lockPath);
-      await writeFile(path.join(lockPath, "pid"), `${process.pid}\n`, "utf8");
+      await mkdir(lockPath, { mode: 0o700 });
+      await writeFile(path.join(lockPath, "pid"), `${process.pid}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
       return () => rm(lockPath, { recursive: true, force: true });
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {

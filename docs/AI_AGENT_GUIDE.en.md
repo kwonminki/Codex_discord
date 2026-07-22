@@ -242,6 +242,10 @@ An ordinary follow-up message steers an active Codex app-server turn. `/queue pr
 
 The Discord gateway does not own agent child processes. If only the bot dies, the worker continues and a new gateway reconnects by request ID and event cursor. If the worker is force-killed, its Codex, Claude, shell, and child processes may terminate.
 
+`.connect/discord-queue` and `.connect/worker` retain user prompts, role IDs, progress, and results in plaintext for recovery. On POSIX systems the stores enforce `0700` directories and `0600` files, and move invalid schema records into local `dead-letter` directories. Delivered Discord requests are removed immediately. Pending requests default to a 7-day TTL, 1,000 records, 64 MiB total, and 4 MiB per request. Attachment bytes are stored separately under `.connect/incoming-attachments`; queue JSON contains only metadata and local paths. Configure `CONNECT_DISCORD_QUEUE_TTL_MS`, `CONNECT_DISCORD_QUEUE_MAX_REQUESTS`, `CONNECT_DISCORD_QUEUE_MAX_BYTES`, and `CONNECT_DISCORD_QUEUE_MAX_REQUEST_BYTES`; `0` disables the corresponding limit.
+
+The connector does not redact or encrypt recoverable prompt content. Use OS full-disk encryption and keep `.connect` outside cloud-sync folders, network shares, and untrusted backup scopes. Treat dead-letter records as sensitive and remove them securely after diagnosis.
+
 ## Quick start
 
 Requirements:
@@ -445,6 +449,8 @@ Start-ScheduledTask -TaskName "CodexDiscordConnector-Bot"
 - No other connector instance owns the same channels.
 - Operator role is assigned and channel overwrites allow the bot and operator.
 - `.env` and `.connect/config.json` are mode `600` where practical and ignored by Git.
+- `.connect/discord-queue` and `.connect/worker` are mode `700`, with JSON/JSONL files created or read by those stores set to mode `600` on POSIX; opening the stores enforces these modes.
+- The repository and `.connect` are outside cloud-sync folders, network shares, and untrusted backup scopes.
 - Exactly one worker owns a given `CONNECT_WORKER_ROOT`.
 - Bot starts after the worker.
 
