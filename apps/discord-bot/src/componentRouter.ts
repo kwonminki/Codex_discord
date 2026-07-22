@@ -26,6 +26,8 @@ export const COMPONENT_IDS = {
   codexAsk: "cdc:codex:ask",
   codexSubmit: "cdc:codex:submit",
   codexApprovalPrefix: "cdc:codex:approval:",
+  codexUserInputSurveyPrefix: "cdc:codex:user-input:",
+  agentSurveyPrefix: "cdc:agent:survey:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
   gitConflicts: "cdc:git:conflicts",
@@ -80,6 +82,13 @@ function selectedSessionIds(values: string[]): string[] {
   ];
 }
 
+function selectedSurveyAnswers(values: string[]): string[] {
+  return values
+    .map((value) => value.trim().replace(/^\d{1,2}:/, ""))
+    .filter(Boolean)
+    .slice(0, 25);
+}
+
 export function routeDiscordComponent(customId: string, values: string[] = []): string | null {
   const codexApprovalMatch = customId.match(
     /^cdc:codex:approval:([A-Za-z0-9_-]{1,48}):(accept|accept-session|decline|cancel)$/i,
@@ -88,6 +97,28 @@ export function routeDiscordComponent(customId: string, values: string[] = []): 
   if (codexApprovalMatch) {
     const decision = codexApprovalMatch[2] === "accept-session" ? "acceptForSession" : codexApprovalMatch[2];
     return `__cdc_codex_approval ${codexApprovalMatch[1]} ${decision}`;
+  }
+
+  const codexUserInputSurveyMatch = customId.match(/^cdc:codex:user-input:([A-Za-z0-9_-]{1,48})$/i);
+
+  if (codexUserInputSurveyMatch) {
+    const answers = selectedSurveyAnswers(values);
+    return answers.length > 0
+      ? `__cdc_codex_user_input ${codexUserInputSurveyMatch[1]} ${encodeURIComponent(JSON.stringify(answers))}`
+      : null;
+  }
+
+  const agentSurveyMatch = customId.match(/^cdc:agent:survey:(codex|claude)$/i);
+
+  if (agentSurveyMatch) {
+    const answers = selectedSurveyAnswers(values);
+    if (answers.length === 0) {
+      return null;
+    }
+
+    const agentPrefix = agentSurveyMatch[1]?.toLowerCase() === "claude" ? "claude" : "codex";
+    const answerText = answers.map((answer) => `- ${answer}`).join("\n");
+    return `/queue prompt:${agentPrefix} Discord 미디어 설문에서 사용자가 다음 항목을 선택했습니다:\n${answerText}\n이 선택을 반영해 작업을 이어가세요.`;
   }
 
   const pageMatch = customId.match(/^cdc:fs:page:(\d+)$/);

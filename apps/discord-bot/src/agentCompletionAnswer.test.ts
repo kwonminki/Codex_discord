@@ -13,6 +13,7 @@ afterEach(async () => {
 describe("prepareAgentCompletionAnswer", () => {
   it("sanitizes mentions and attaches a complete copy when the preview is long", () => {
     const result = prepareAgentCompletionAnswer({
+      agent: "codex",
       answer: `@operator ${"long answer ".repeat(30)}`,
       attachmentName: "answer.txt",
       maxPreviewChars: 80,
@@ -31,6 +32,7 @@ describe("prepareAgentCompletionAnswer", () => {
     await writeFile(filePath, "result", "utf8");
 
     const result = prepareAgentCompletionAnswer({
+      agent: "codex",
       answer: [
         "완료했습니다.",
         "```codex-discord-send",
@@ -44,5 +46,28 @@ describe("prepareAgentCompletionAnswer", () => {
     expect(result.answer).toContain("파일입니다.");
     expect(result.answer).not.toContain("codex-discord-send");
     expect(result.files).toEqual([expect.objectContaining({ attachment: filePath })]);
+  });
+
+  it("prepares final survey messages for background completion notifications", () => {
+    const result = prepareAgentCompletionAnswer({
+      agent: "claude",
+      answer: [
+        "선택해주세요.",
+        "```codex-discord-survey",
+        JSON.stringify({ question: "어느 쪽?", options: ["A", "B"] }),
+        "```",
+      ].join("\n"),
+      attachmentName: "answer.txt",
+    });
+
+    expect(result.answer).toBe("선택해주세요.");
+    expect(result.surveyMessages).toEqual([
+      expect.objectContaining({
+        components: [{
+          type: 1,
+          components: [expect.objectContaining({ custom_id: "cdc:agent:survey:claude" })],
+        }],
+      }),
+    ]);
   });
 });

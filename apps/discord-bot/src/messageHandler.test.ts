@@ -1453,6 +1453,111 @@ describe("createDiscordMessageHandler", () => {
     }));
   });
 
+  it("returns a media survey selection to the pending Codex turn", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-user-input-survey-"));
+    const videoPath = path.join(tempRoot, "comparison.mp4");
+    const replies: unknown[] = [];
+    let userInputResponse: unknown = null;
+
+    try {
+      await writeFile(videoPath, "fake video");
+      const submitCodexPrompt = vi.fn(async (input) => {
+        userInputResponse = await input.onUserInputRequest?.({
+          threadId: "codex-session-1",
+          turnId: "turn-1",
+          itemId: "question-1",
+          questions: [{
+            id: "quality",
+            header: "품질 확인",
+            question: [
+              "두 항목을 확인해주세요.",
+              "```codex-discord-survey",
+              JSON.stringify({ files: [videoPath], multiple: true }),
+              "```",
+            ].join("\n"),
+            isOther: true,
+            isSecret: false,
+            options: [
+              { label: "싱크가 좋음", description: "입 모양이 잘 맞습니다." },
+              { label: "화질이 좋음", description: "디테일이 선명합니다." },
+              { label: "둘 다 수정", description: "추가 보정이 필요합니다." },
+            ],
+          }],
+          autoResolutionMs: null,
+        });
+
+        return {
+          jobId: "job-1",
+          result: {
+            status: "completed",
+            finalMessage: "설문 결과를 반영했습니다.",
+            sessionId: "codex-session-1",
+          },
+        };
+      });
+      const handleMessage = createDiscordMessageHandler({
+        resolveChannelContext: async () => ({
+          ...sessionChannelContext,
+          discordDeliveryMode: "thread",
+        }),
+        submitCommandJob: vi.fn(),
+        submitCodexPrompt,
+        controlCodexTurn: vi.fn(),
+        updateChannelCwd: vi.fn(),
+        recordCommandAudit: vi.fn(),
+      });
+      const reply = async (message: unknown) => {
+        replies.push(message);
+        return { edit: async () => undefined };
+      };
+      const promptTask = handleMessage({
+        authorBot: false,
+        userId: "discord-user-1",
+        channelId: "discord-channel-1",
+        content: "두 영상을 비교해줘",
+        roleIds: ["role-operator"],
+        reply,
+      });
+
+      await vi.waitFor(() => expect(replies).toHaveLength(2));
+      const surveyPayload = replies[1] as {
+        files?: Array<{ attachment: string }>;
+        components?: Array<{ components: Array<{ custom_id?: string; max_values?: number }> }>;
+      };
+      const customId = surveyPayload.components?.[0]?.components[0]?.custom_id;
+
+      expect(surveyPayload.files).toEqual([{ attachment: videoPath, name: "comparison.mp4" }]);
+      expect(surveyPayload.components?.[0]?.components[0]).toMatchObject({
+        type: 3,
+        max_values: 3,
+      });
+      expect(customId).toMatch(/^cdc:codex:user-input:/);
+
+      const token = customId?.slice("cdc:codex:user-input:".length) ?? "";
+      await handleMessage({
+        authorBot: false,
+        userId: "discord-user-1",
+        channelId: "discord-channel-1",
+        content: `__cdc_codex_user_input ${token} ${encodeURIComponent(JSON.stringify(["싱크가 좋음", "화질이 좋음"]))}`,
+        roleIds: ["role-operator"],
+        reply,
+      });
+      await promptTask;
+
+      expect(userInputResponse).toEqual({
+        answers: { quality: { answers: ["싱크가 좋음", "화질이 좋음"] } },
+      });
+      expect(replies[2]).toEqual(expect.objectContaining({
+        embeds: [expect.objectContaining({
+          title: "설문 응답 전달됨",
+          description: "- 싱크가 좋음\n- 화질이 좋음",
+        })],
+      }));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("blocks Codex prompts in the admin channel without submitting a Codex job", async () => {
     const replies: unknown[] = [];
     const submitCodexPrompt = vi.fn();

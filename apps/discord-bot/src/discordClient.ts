@@ -639,9 +639,13 @@ async function fetchInteractionReply(interaction: { fetchReply?(): Promise<unkno
 
 function interactionReplyAdapter(
   interaction: InteractionReplySource,
-  options: { initialReplyDeferred?: boolean; answerCopyStore?: AnswerCopyStore } = {},
+  options: {
+    initialReplyDeferred?: boolean;
+    initialReplySent?: boolean;
+    answerCopyStore?: AnswerCopyStore;
+  } = {},
 ) {
-  let hasInitialReply = false;
+  let hasInitialReply = options.initialReplySent ?? false;
 
   const prepareReply = async (message: unknown): Promise<unknown> => {
     if (
@@ -1062,6 +1066,16 @@ export function attachDiscordInteractionHandler(
         return;
       }
 
+      const queuedSurveySelection = componentInteraction.customId.startsWith(COMPONENT_IDS.agentSurveyPrefix);
+
+      if (queuedSurveySelection) {
+        await componentInteraction.reply({
+          allowedMentions: { parse: [] },
+          ephemeral: true,
+          content: "설문 선택을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+        });
+      }
+
       await handleMessage({
         authorBot: false,
         userId: componentInteraction.user.id,
@@ -1069,7 +1083,10 @@ export function attachDiscordInteractionHandler(
         content,
         roleIds: getMemberRoleIds(componentInteraction.member),
         guild: createDiscordGuildSurface(componentInteraction.guild, options),
-        reply: interactionReplyAdapter(componentInteraction, { answerCopyStore: options.answerCopyStore }),
+        reply: interactionReplyAdapter(componentInteraction, {
+          initialReplySent: queuedSurveySelection,
+          answerCopyStore: options.answerCopyStore,
+        }),
       });
     })().catch((error) => {
       console.error("discord-bot failed to handle interaction", error);

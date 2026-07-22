@@ -723,6 +723,68 @@ describe("responses", () => {
     }
   });
 
+  it("turns a final media survey block into an interactive follow-up message", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "agent-survey-"));
+    const videoPath = path.join(tempRoot, "comparison.mp4");
+
+    try {
+      await writeFile(videoPath, "fake video");
+      const payload = formatAgentResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "CodexDiscordConnector",
+          cwd: "/repo",
+          prompt: "두 결과를 비교해줘",
+          agentLabel: "Claude Code",
+        },
+        {
+          result: {
+            status: "completed",
+            finalMessage: [
+              "두 결과를 준비했습니다.",
+              "```codex-discord-survey",
+              JSON.stringify({
+                question: "어느 결과가 자연스러워?",
+                files: [videoPath],
+                options: ["A가 좋음", "B가 좋음", "둘 다 수정"],
+              }),
+              "```",
+            ].join("\n"),
+            sessionId: "claude-session-1",
+          },
+        },
+      );
+
+      expect(payload.embeds[0]?.description).toBe("두 결과를 준비했습니다.");
+      expect(JSON.stringify(payload)).not.toContain("codex-discord-survey");
+      expect(getAgentResultContinuationMessages(payload)).toEqual([
+        expect.objectContaining({
+          embeds: [expect.objectContaining({
+            title: "미디어 설문",
+            description: expect.stringContaining("어느 결과가 자연스러워?"),
+          })],
+          components: [{
+            type: 1,
+            components: [expect.objectContaining({
+              type: 3,
+              custom_id: "cdc:agent:survey:claude",
+              min_values: 1,
+              max_values: 1,
+              options: [
+                expect.objectContaining({ label: "A가 좋음", value: "0:A가 좋음" }),
+                expect.objectContaining({ label: "B가 좋음", value: "1:B가 좋음" }),
+                expect.objectContaining({ label: "둘 다 수정", value: "2:둘 다 수정" }),
+              ],
+            })],
+          }],
+          files: [{ attachment: videoPath, name: "comparison.mp4" }],
+        }),
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("attaches local media files referenced by markdown links", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-media-link-"));
     const videoPath = path.join(tempRoot, "sample.mp4");

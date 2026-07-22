@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { COMPONENT_IDS } from "./componentRouter.js";
+import { extractAgentSurveyRequests, type AgentSurveyRequest } from "./agentSurvey.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
 import {
   MAX_DISCORD_ATTACHMENT_BYTES,
@@ -338,6 +339,110 @@ export function discordFileOnlyPayloads(files: DiscordFilePayload[]): DiscordMes
   }
 
   return payloads;
+}
+
+export function resolveDiscordFileAttachments(references: unknown[]): {
+  attachments: DiscordFilePayload[];
+  notices: string[];
+} {
+  const attachments: DiscordFilePayload[] = [];
+  const notices: string[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const rawReference of references) {
+    const reference = normalizeCodexSendFileReference(rawReference);
+
+    if (!reference) {
+      notices.push("절대경로 또는 file:// URL인 첨부 파일만 처리했습니다.");
+      continue;
+    }
+
+    if (seenPaths.has(reference.filePath)) {
+      continue;
+    }
+
+    seenPaths.add(reference.filePath);
+    const result = codexSendFileAttachment(reference);
+
+    if (result.attachment) {
+      attachments.push(result.attachment);
+    }
+
+    if (result.notice) {
+      notices.push(result.notice);
+    }
+  }
+
+  return { attachments, notices };
+}
+
+export function formatAgentSurveyMessages(input: {
+  agent: "codex" | "claude";
+  survey: AgentSurveyRequest;
+  response:
+    | { kind: "followup" }
+    | { kind: "user-input"; token: string; context?: string | null };
+}): DiscordMessagePayload[] {
+  const fileOutputs = resolveDiscordFileAttachments(input.survey.files);
+  const optionPayloads = input.survey.options.map((option, index) => {
+    const label = sanitizeInlineDiscordText(option.label).slice(0, 90);
+    return {
+      label,
+      value: `${index}:${label}`,
+      ...(option.description
+        ? { description: sanitizeInlineDiscordText(option.description).slice(0, 100) }
+        : {}),
+    };
+  });
+  const customId = input.response.kind === "user-input"
+    ? `${COMPONENT_IDS.codexUserInputSurveyPrefix}${input.response.token}`
+    : `${COMPONENT_IDS.agentSurveyPrefix}${input.agent}`;
+  const details = [
+    input.response.kind === "user-input" ? input.response.context : null,
+    input.survey.message,
+    `**${sanitizeDiscordMarkdown(input.survey.question)}**`,
+    ...fileOutputs.notices.map((notice) => `주의: ${notice}`),
+    input.response.kind === "user-input"
+      ? "선택 메뉴 또는 이 스레드의 일반 메시지로 답할 수 있습니다."
+      : "선택하면 같은 agent 세션의 다음 작업으로 전달됩니다.",
+  ].filter((line): line is string => Boolean(line?.trim()));
+  const payload: DiscordMessagePayload = {
+    allowedMentions: { parse: [] },
+    embeds: [{
+      title: input.response.kind === "user-input" ? "Agent 질문" : "미디어 설문",
+      color: input.agent === "claude" ? 0x8e44ad : COLORS.codex,
+      description: truncateDescription(details.join("\n\n")),
+    }],
+    components: [actionRow([{
+      type: 3,
+      custom_id: customId,
+      placeholder: input.survey.multiple ? "하나 이상 선택" : "하나 선택",
+      min_values: 1,
+      max_values: input.survey.multiple ? optionPayloads.length : 1,
+      options: optionPayloads,
+    }])],
+    ...(fileOutputs.attachments.length > 0
+      ? { files: fileOutputs.attachments.slice(0, MAX_DISCORD_FILES) }
+      : {}),
+  };
+
+  return [
+    payload,
+    ...discordFileOnlyPayloads(fileOutputs.attachments.slice(MAX_DISCORD_FILES)),
+  ];
+}
+
+export function formatAgentSurveySelectionResult(input: {
+  accepted: boolean;
+  answers: string[];
+}): DiscordMessagePayload {
+  return messagePayload({
+    title: input.accepted ? "설문 응답 전달됨" : "설문 응답 만료됨",
+    color: input.accepted ? COLORS.success : COLORS.failure,
+    description: input.accepted
+      ? input.answers.map((answer) => `- ${sanitizeDiscordMarkdown(answer)}`).join("\n")
+      : "현재 실행 중인 질문과 연결되지 않습니다. 필요하면 agent에게 다시 질문을 요청하세요.",
+  });
 }
 
 function codeBlock(value: string, language: string): string {
@@ -3651,14 +3756,17 @@ export function formatAgentResultUpdate(
     });
   }
 
+  const currentAgentLabel = agentLabel(input);
+  const surveyOutputs = failed
+    ? { cleanedText: finalMessage, surveys: [], notices: [], hadBlocks: false }
+    : extractAgentSurveyRequests(finalMessage);
   const discordSendOutputs = failed
     ? { cleanedText: finalMessage, attachments: [], messages: [], notices: [], hadBlocks: false }
-    : extractCodexDiscordSendOutputs(finalMessage);
+    : extractCodexDiscordSendOutputs(surveyOutputs.cleanedText);
   const messageAfterDiscordSendBlocks = discordSendOutputs.cleanedText;
   const imageOutputs = failed ? { attachments: [], remoteUrls: [] } : extractImageOutputs(messageAfterDiscordSendBlocks);
   const mediaLinkOutputs = failed ? { attachments: [], notices: [] } : extractLocalMediaLinkOutputs(messageAfterDiscordSendBlocks);
   const visibleFinalMessage = stripAttachedLocalImageMarkdown(messageAfterDiscordSendBlocks);
-  const currentAgentLabel = agentLabel(input);
 
   if (!failed) {
     const attachedFileCount =
@@ -3666,12 +3774,19 @@ export function formatAgentResultUpdate(
     const finalContent = [
       visibleFinalMessage,
       ...discordSendOutputs.messages,
+      ...surveyOutputs.notices.map((notice) => `주의: ${notice}`),
       ...discordSendOutputs.notices.map((notice) => `주의: ${notice}`),
       ...mediaLinkOutputs.notices.map((notice) => `주의: ${notice}`),
       ...imageOutputs.remoteUrls,
     ]
       .filter((line) => line.trim().length > 0)
-      .join("\n") || (attachedFileCount > 0 ? "첨부 파일을 보냈습니다." : finalMessage);
+      .join("\n") || (
+        surveyOutputs.surveys.length > 0
+          ? "아래 설문에서 선택해주세요."
+          : attachedFileCount > 0
+            ? "첨부 파일을 보냈습니다."
+            : finalMessage
+      );
     const finalTextChunks = splitDiscordMessageContent(finalContent);
     const finalTextForDiscord = finalTextChunks[0] ?? finalContent;
     const answerColor = currentAgentLabel === "Claude Code" ? 0x8e44ad : COLORS.codex;
@@ -3687,6 +3802,13 @@ export function formatAgentResultUpdate(
       ...mediaLinkOutputs.attachments,
       ...imageOutputs.attachments,
     ]);
+    const surveyPayloads = surveyOutputs.surveys.flatMap((survey) =>
+      formatAgentSurveyMessages({
+        agent: currentAgentLabel === "Claude Code" ? "claude" : "codex",
+        survey,
+        response: { kind: "followup" },
+      }),
+    );
     const metadataLines = [
       `**${currentAgentLabel} 작업 완료**`,
       `위치: ${wrapDiscordText(input.cwd)}`,
@@ -3710,6 +3832,7 @@ export function formatAgentResultUpdate(
     appendAgentResultContinuationMessages(payload, [
       ...continuationPayloads,
       ...discordFileOnlyPayloads(finalFiles),
+      ...surveyPayloads,
     ]);
 
     return payload;

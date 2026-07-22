@@ -83,6 +83,7 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
   const updatedAt = sanitizeInline(session.updatedAt);
   const rawAnswer = session.latestAssistantMessage ?? "";
   const preparedAnswer = prepareAgentCompletionAnswer({
+    agent: "claude",
     answer: rawAnswer,
     attachmentName: ANSWER_ATTACHMENT_NAME,
   });
@@ -112,6 +113,11 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
 
   if (files.length > 0) {
     appendAgentResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+  }
+
+
+  if (preparedAnswer.surveyMessages.length > 0) {
+    appendAgentResultContinuationMessages(payload, preparedAnswer.surveyMessages);
   }
 
   return payload;

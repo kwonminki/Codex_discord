@@ -84,7 +84,7 @@ describe("routeDiscordMessage", () => {
     });
     expect(codexRoute).toEqual({
       type: "codex-chat",
-      content: expect.stringContaining("같은 실행 중 turn으로 전달"),
+      content: expect.stringContaining("현재 실행 중 turn으로 즉시 전달"),
     });
     expect(JSON.stringify(codexRoute)).not.toContain("최대 10개");
 

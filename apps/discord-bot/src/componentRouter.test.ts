@@ -30,6 +30,20 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:delete:all:confirm")).toBe("sync delete all confirm");
   });
 
+  it("routes media survey selections to the active question or next agent turn", () => {
+    const pending = routeDiscordComponent("cdc:codex:user-input:question-7", ["0:A가 좋음", "1:화질 개선"]);
+    expect(pending).toBe(
+      `__cdc_codex_user_input question-7 ${encodeURIComponent(JSON.stringify(["A가 좋음", "화질 개선"]))}`,
+    );
+
+    expect(routeDiscordComponent("cdc:agent:survey:codex", ["1:B가 좋음"])).toContain(
+      "/queue prompt:codex Discord 미디어 설문에서 사용자가 다음 항목을 선택했습니다:",
+    );
+    expect(routeDiscordComponent("cdc:agent:survey:claude", ["2:둘 다 수정"])).toContain(
+      "/queue prompt:claude Discord 미디어 설문에서 사용자가 다음 항목을 선택했습니다:",
+    );
+  });
+
   it("ignores unknown component ids", () => {
     expect(routeDiscordComponent("other-app:sync")).toBeNull();
     expect(routeDiscordComponent("cdc:codex:open:019db2be-b2b3-7e82-9e61-8c84b28ad287")).toBeNull();

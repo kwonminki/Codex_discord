@@ -517,6 +517,50 @@ describe("attachDiscordInteractionHandler", () => {
     expect(reply).toHaveBeenCalledWith(payload);
   });
 
+  it("acknowledges a final media survey immediately before queueing the agent follow-up", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const send = vi.fn().mockResolvedValue({ id: "survey-followup-1" });
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => false,
+      isStringSelectMenu: () => true,
+      customId: "cdc:agent:survey:claude",
+      values: ["1:B가 좋음"],
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      reply,
+      channel: { send },
+      guild: null,
+    });
+
+    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalled());
+    expect(reply).toHaveBeenCalledWith({
+      allowedMentions: { parse: [] },
+      ephemeral: true,
+      content: "설문 선택을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+    });
+    expect(reply.mock.invocationCallOrder[0]).toBeLessThan(handleMessage.mock.invocationCallOrder[0]);
+    expect(handleMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("/queue prompt:claude Discord 미디어 설문"),
+    }));
+
+    const adaptedMessage = handleMessage.mock.calls[0][0] as { reply(message: unknown): Promise<unknown> };
+    const payload = { embeds: [{ title: "Claude Code 작업 시작" }] };
+    await adaptedMessage.reply(payload);
+    expect(send).toHaveBeenCalledWith(payload);
+    expect(reply).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores button interactions in unmanaged channels before replying", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {

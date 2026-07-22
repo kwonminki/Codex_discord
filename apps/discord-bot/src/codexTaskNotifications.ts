@@ -107,7 +107,7 @@ function formatTaskCompleteNotification(
   const latestAnswer = latestAssistantAnswer(session);
   const rawAnswer = options.includeAnswer ? latestAnswer : null;
   const preparedAnswer = rawAnswer
-    ? prepareAgentCompletionAnswer({ answer: rawAnswer, attachmentName: ANSWER_ATTACHMENT_NAME })
+    ? prepareAgentCompletionAnswer({ agent: "codex", answer: rawAnswer, attachmentName: ANSWER_ATTACHMENT_NAME })
     : null;
   const lines = [
     "**Codex 작업 완료**",
@@ -152,6 +152,10 @@ function formatTaskCompleteNotification(
 
   if (files.length > 0) {
     appendAgentResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+  }
+
+  if (preparedAnswer?.surveyMessages.length) {
+    appendAgentResultContinuationMessages(payload, preparedAnswer.surveyMessages);
   }
 
   return payload;
