@@ -16,7 +16,8 @@ Give the following request to Codex, Claude Code, or another coding agent on the
 https://github.com/kwonminki/Codex_discord
 
 Clone this repository and read docs/AI_AGENT_GUIDE.md completely first.
-Inspect the current code and my OS, then install it in Direct mode with --locale en.
+Inspect the current code and my OS, then install it in Direct mode.
+Configure the connector UI in the language I am using without asking me for language codes or config values.
 Use the Codex app-server runner and register the Discord bot and worker as separate
 LaunchAgent or systemd services. Preserve any active jobs during deployment.
 Run pnpm typecheck and pnpm test, then verify the Discord ready log.
@@ -28,19 +29,16 @@ and the optional release webhook. Ask me only for values that cannot be discover
 
 The complete installation and operations contract for agents is in [AI Agent Guide](docs/AI_AGENT_GUIDE.md).
 
-## Language
+## Language is automatic
 
-The built-in locales are Korean (`ko`, default) and English (`en`). The selected locale covers buttons, modals, embeds, status text, slash command descriptions, setup prompts, and `/howtouse`. It does not translate user messages or agent-authored answers.
+The installation agent detects the language used in the conversation and configures the connector UI to match. Users do not need to know language codes, environment variables, or configuration paths.
 
-```bash
-pnpm connect install --direct --locale en
-```
+- Korean and English work immediately.
+- For another language, the installation agent adds only the translation catalog, verifies it, and launches the connector.
+- Buttons, modals, status text, slash command descriptions, setup prompts, and `/howtouse` use the configured language.
+- User messages and agent-authored answers are preserved as written.
 
-For an existing installation, set `discord.locale` to `en` in `.connect/config.json`, or set `CONNECT_LOCALE=en` in the bot service environment. Restart only the bot service and confirm that slash commands were registered again.
-
-Locales are per bot instance, not per Discord user. Different machines using the same bot token may use different locales as long as each instance owns different channels.
-
-To add another language, follow [Localization Guide](docs/localization.md). The design keeps translations in one catalog instead of duplicating connector logic.
+The installation agent handles the implementation details using [Localization Guide](docs/localization.md).
 
 ## What you prepare
 
@@ -94,7 +92,7 @@ corepack prepare pnpm@9.15.0 --activate
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
-pnpm connect install --direct --locale en
+pnpm connect install --direct
 pnpm connect start --direct
 ```
 

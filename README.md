@@ -20,8 +20,7 @@ https://github.com/kwonminki/Codex_discord
 Codex runner는 app-server를 사용하고, Discord bot과 worker는 서로 분리된
 LaunchAgent 또는 systemd 서비스로 등록해줘.
 기존 실행 작업이 있다면 먼저 확인하고 안전하게 배포해줘.
-내 대화 언어를 확인해서 connector 언어를 선택해줘. 한국어는 ko, 영어는 en을
-사용하고, 그 밖의 언어라면 docs/localization.md에 따라 번역 catalog만 추가해줘.
+내가 사용하는 언어에 맞춰 connector UI 언어도 네가 알아서 설정해줘.
 설치 후 pnpm typecheck와 pnpm test를 실행하고 Discord ready 로그까지 확인해줘.
 첫 설치라면 private Discord 서버 생성, application/bot 생성, 서버 초대를
 한 단계씩 안내하고 내가 완료할 때마다 다음 단계로 진행해줘.
@@ -32,21 +31,16 @@ API로 확인할 수 없는 token과 값만 나에게 하나씩 물어봐.
 
 AI 에이전트가 읽어야 할 전체 설치·구조·운영 문서는 [AI Agent Guide](docs/AI_AGENT_GUIDE.md)입니다.
 
-## 언어 선택
+## 언어는 자동으로 맞춰집니다
 
-Connector UI는 인스턴스별로 언어를 선택합니다. 현재 기본 제공 언어는 한국어(`ko`, 기본값)와 영어(`en`)입니다. 버튼, 모달, embed, 상태 문구, slash command 설명과 `/howtouse` 안내가 선택한 언어로 표시되며, 사용자 메시지와 agent가 작성한 답변은 번역하지 않습니다.
+설치를 맡은 AI 에이전트가 현재 대화 언어를 보고 connector UI를 같은 언어로 설정합니다. 사용자가 언어 코드, 환경 변수, 설정 파일을 알거나 직접 고를 필요는 없습니다.
 
-```bash
-# 한국어 설치
-pnpm connect install --direct --locale ko
+- 한국어와 영어는 바로 사용할 수 있습니다.
+- 다른 언어가 필요하면 설치 에이전트가 번역 부분만 추가하고 검증한 뒤 설치합니다.
+- 버튼, 모달, 상태 문구, slash command 설명과 `/howtouse`가 해당 언어로 표시됩니다.
+- 사용자 메시지와 agent가 작성한 답변 원문은 임의로 번역하지 않습니다.
 
-# 영어 설치
-pnpm connect install --direct --locale en
-```
-
-기존 설치는 `.connect/config.json`의 `discord.locale` 또는 서비스 환경 변수 `CONNECT_LOCALE=en`으로 바꾼 뒤 **bot service만** 재시작하고 slash command 재등록을 확인하세요. 같은 bot token을 쓰는 여러 컴퓨터도 각 인스턴스마다 다른 언어를 사용할 수 있습니다.
-
-한국어·영어가 아닌 언어는 핵심 로직을 복제하지 않고 locale catalog 하나를 추가하도록 구성되어 있습니다. 번역할 파일, 등록 절차, 번역하면 안 되는 protocol 값은 [Localization Guide](docs/localization.md)에 정리했습니다.
+언어 구현과 확장 절차는 사용자 대신 설치 에이전트가 [Localization Guide](docs/localization.md)를 읽고 처리합니다.
 
 ## 사용자가 준비할 것
 

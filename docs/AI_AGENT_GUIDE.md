@@ -10,7 +10,7 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 
 사용자가 이 저장소 URL과 이 문서를 제시했다면 다음 순서로 작업합니다.
 
-1. 사용자가 대화하는 언어를 먼저 확인하고 connector locale을 결정합니다. 한국어는 `ko`, 영어는 `en`입니다. 애매할 때만 한 번 질문합니다.
+1. 사용자가 대화하는 언어를 보고 connector locale을 내부적으로 결정합니다. 한국어는 `ko`, 영어는 `en`입니다. 사용자에게 언어 코드나 설정 방법을 설명하지 말고, 언어가 정말 애매할 때만 자연어로 한 번 질문합니다.
 2. 저장소의 현재 branch, commit, dirty worktree, 실행 중인 bot/worker와 활성 job을 먼저 확인합니다.
 3. 이 문서만 믿고 덮어쓰지 말고 실제 코드, `package.json`, `.env.example`, 기존 `.connect/config.json`, 서비스 정의를 대조합니다.
 4. 기본 배포는 외부 API를 열지 않는 **Direct mode**를 선택합니다.
@@ -20,11 +20,11 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 8. 사용자에게는 Discord에서 직접 준비해야 하는 값만 물어봅니다. token을 답변, 로그, commit message에 다시 출력하지 않습니다.
 9. 설치 후 `pnpm typecheck`, `pnpm test`, 서비스 상태, Discord ready 로그와 짧은 왕복 요청을 검증합니다.
 10. worker 업데이트가 필요하면 활성 job을 확인합니다. 정상 `SIGTERM` drain을 우선하고, 사용자가 명시적으로 허용한 경우에만 강제 종료합니다.
-11. 완료 보고에는 설치 경로, commit, 서비스 이름, 로그 경로, 적용한 locale과 권한, 검증 결과와 남은 수동 작업만 적습니다.
+11. 완료 보고에는 설치 경로, commit, 서비스 이름, 로그 경로, 적용한 권한, 검증 결과와 남은 수동 작업만 적습니다. 사용자가 묻지 않았다면 locale 코드나 내부 설정값은 보고하지 않습니다.
 
 ## 설치 언어 결정
 
-첫 설치에서는 사용자의 현재 대화 언어를 기본 UI 언어로 사용합니다.
+첫 설치에서는 사용자의 현재 대화 언어를 기본 UI 언어로 사용합니다. 이 선택은 에이전트가 내부적으로 처리하며, 지원되는 언어라면 사용자에게 별도 선택이나 설정을 요구하지 않습니다.
 
 - 한국어 사용자: `pnpm connect install --direct --locale ko`
 - 영어 사용자: `pnpm connect install --direct --locale en`
@@ -37,13 +37,13 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 
 처음 설치하는 사용자에게 token과 여러 ID를 한꺼번에 요구하지 않습니다. 아래 단계를 **한 번에 하나씩** 안내하고, 사용자가 각 단계를 완료했다고 답한 뒤 다음 단계로 진행합니다. Discord 계정 소유자의 로그인과 승인이 필요한 작업만 사용자에게 맡기고, bot이 서버에 들어온 이후의 반복 작업은 에이전트가 수행합니다.
 
-Discord 준비를 묻기 전에 대화 언어에서 locale을 결정해 짧게 확인합니다. 지원 언어가 아니면 위 절차로 locale catalog를 먼저 추가합니다.
+Discord 준비를 묻기 전에 대화 언어에서 locale을 내부적으로 결정합니다. 지원 언어가 아니면 위 절차로 locale catalog를 먼저 추가합니다. 언어가 애매하지 않은데 사용자에게 locale을 확인하거나 코드 선택지를 보여주지 않습니다.
 
 먼저 `.connect/config.json`, `.env`, 기존 service를 확인해 진짜 첫 설치인지 판별합니다. 기존 설치나 추가 서버 배포라면 이 절차로 Discord resource를 다시 만들지 말고 기존 Guild/Role/Channel ID를 재사용합니다.
 
 ### 1. 사용자에게 private Discord 서버 준비 요청
 
-locale 확인 뒤 Discord 준비의 첫 질문은 다음 정도로 짧게 합니다.
+언어 설정을 내부적으로 마친 뒤 Discord 준비의 첫 질문은 다음 정도로 짧게 합니다.
 
 ```text
 Codex connector를 넣을 본인 전용 private Discord 서버가 이미 있나요?
