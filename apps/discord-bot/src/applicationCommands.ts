@@ -1,5 +1,3 @@
-import { CODEX_DISCORD_HOW_TO_USE_PROMPT } from "./codexUsagePrompt.js";
-
 const OPTION_TYPES = {
   string: 3,
   integer: 4,
@@ -219,7 +217,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "howtouse",
-    description: "Discord 첨부 입력과 결과 파일 전송법을 현재 Codex 세션에 전달합니다.",
+    description: "Discord 첨부 입력과 결과 파일 전송법을 현재 agent 세션에 전달합니다.",
   },
   {
     name: "where",
@@ -606,7 +604,7 @@ export function routeDiscordApplicationCommand(
     case "howtouse":
     case "how-to-use":
     case "how_to_use":
-      return `codex ${CODEX_DISCORD_HOW_TO_USE_PROMPT}`;
+      return "/howtouse";
     case "where":
       return "where";
     case "reload": {

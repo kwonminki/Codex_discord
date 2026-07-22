@@ -127,13 +127,15 @@ function parseCodexShortcut(content: string): { content: string } | null {
     };
   }
 
-  if (/^\/(?:howtouse|how-to-use|사용법)$/i.test(normalized)) {
-    return {
-      content: CODEX_DISCORD_HOW_TO_USE_PROMPT,
-    };
-  }
-
   return null;
+}
+
+function parseAgentUsageShortcut(content: string): { content: string } | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+
+  return /^\/(?:howtouse|how-to-use|사용법)$/i.test(normalized)
+    ? { content: CODEX_DISCORD_HOW_TO_USE_PROMPT }
+    : null;
 }
 
 function codexCommandShortcut(commandName: string, prompt: string | null): RoutedDiscordMessage | null {
@@ -820,6 +822,13 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
     );
   }
 
+  if (parseAgentUsageShortcut(content)) {
+    return blockedCommand(
+      "main 채널은 운영 전용입니다.",
+      "/howtouse는 Codex 또는 Claude Code session 채널에서 실행하세요.",
+    );
+  }
+
   if (parseCodexShortcut(content)) {
     return blockedCommand(
       "main 채널은 운영 전용입니다.",
@@ -1038,6 +1047,20 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
       const denied = authorizationDenied(input);
       return denied ?? blocked;
     }
+  }
+
+  const agentUsageShortcut = parseAgentUsageShortcut(trimmedContent);
+
+  if (agentUsageShortcut) {
+    const denied = authorizationDenied(input);
+
+    if (denied) {
+      return denied;
+    }
+
+    return input.channelMode === "claude-code"
+      ? { type: "claude-chat", content: agentUsageShortcut.content }
+      : { type: "codex-chat", content: agentUsageShortcut.content };
   }
 
   const bridgeShortcut = parseBridgeShortcut(trimmedContent);

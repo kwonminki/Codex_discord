@@ -1185,6 +1185,45 @@ describe("createDiscordMessageHandler", () => {
     })]);
   });
 
+  it("delivers /howtouse to the Claude Code session linked to the channel", async () => {
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "job-1",
+      result: {
+        status: "completed",
+        finalMessage: "파일 송수신 규칙을 확인했습니다.",
+        sessionId: "claude-session-1",
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        claudeSessionId: "claude-session-1",
+      }),
+      submitCommandJob: vi.fn(),
+      submitClaudePrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-thread-1",
+      content: "/howtouse",
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    expect(submitClaudePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          sessionId: "claude-session-1",
+          prompt: expect.stringContaining("codex-discord-send"),
+        }),
+      }),
+    );
+  });
+
   it("resolves Codex approval requests from Discord buttons while a prompt is running", async () => {
     const replies: unknown[] = [];
     const edits: unknown[] = [];

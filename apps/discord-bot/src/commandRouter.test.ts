@@ -62,17 +62,34 @@ describe("routeDiscordMessage", () => {
     });
   });
 
-  it("requires a slash prefix for the howtouse shortcut", () => {
+  it("routes the slash-prefixed howtouse shortcut to the current agent", () => {
+    const codexRoute = routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "/howtouse",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      });
+
+    expect(codexRoute).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("10MiB"),
+    });
+    expect(codexRoute).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("파일 전용 Discord 메시지 여러 개로 자동 분할"),
+    });
+    expect(JSON.stringify(codexRoute)).not.toContain("최대 10개");
+
     expect(
       routeDiscordMessage({
-        channelMode: "session-linked",
+        channelMode: "claude-code",
         content: "/howtouse",
         userRoleIds: ["role-operator"],
         allowedRoleIds: ["role-operator"],
       }),
     ).toEqual({
-      type: "codex-chat",
-      content: expect.stringContaining("10MiB"),
+      type: "claude-chat",
+      content: expect.stringContaining("codex-discord-send"),
     });
 
     expect(

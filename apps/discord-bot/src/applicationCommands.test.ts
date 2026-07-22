@@ -114,29 +114,19 @@ describe("Discord application commands", () => {
     ).toBe("codex frontend-design skill을 적용해서 다음 요청을 처리해줘: Discord UI를 더 직관적으로 개선해줘");
   });
 
-  it("routes /howtouse into a Codex usage prompt", () => {
+  it("routes /howtouse through the channel-aware agent shortcut", () => {
     const prompt = routeDiscordApplicationCommand({
       commandName: "howtouse",
       options: options({}),
     });
 
-    expect(prompt).toEqual(expect.stringContaining("codex "));
-    expect(prompt).toEqual(expect.stringContaining("codex-discord-send"));
-    expect(prompt).toEqual(expect.stringContaining("10MiB"));
-    expect(prompt).toEqual(expect.stringContaining("localPath"));
-    expect(prompt).toEqual(expect.stringContaining("특별한 형식이나 JSON 없이"));
-    expect(prompt).toEqual(expect.stringContaining("사용자에게 경로 변환을 요구하지 마세요"));
-    expect(prompt).toEqual(expect.stringContaining("출력 첨부파일"));
-    expect(prompt).toEqual(expect.stringContaining("파일 전용 Discord 메시지 여러 개로 자동 분할"));
-    expect(prompt).not.toEqual(expect.stringContaining("최대 10개"));
-    expect(prompt).not.toEqual(expect.stringContaining("/queue"));
-    expect(prompt).not.toEqual(expect.stringContaining("steering"));
+    expect(prompt).toBe("/howtouse");
     expect(
       routeDiscordApplicationCommand({
         commandName: "HOW-TO-USE",
         options: options({}),
       }),
-    ).toEqual(expect.stringContaining("codex-discord-send"));
+    ).toBe("/howtouse");
   });
 
   it("routes supported /codex-command shortcuts to working bridge commands", () => {
