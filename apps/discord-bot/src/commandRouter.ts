@@ -4,11 +4,13 @@ import {
   type ChannelMode,
 } from "../../../packages/core/src/index.js";
 import { CODEX_DISCORD_HOW_TO_USE_PROMPT } from "./codexUsagePrompt.js";
+import type { AgentEffort, AgentKind } from "./agentSettings.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest } from "./scheduler.js";
 
 export interface RouteDiscordMessageInput {
   channelMode: ChannelMode;
+  agentMain?: AgentKind | null;
   content: string;
   userRoleIds: string[];
   allowedRoleIds: string[];
@@ -37,8 +39,10 @@ export type RoutedDiscordMessage =
   | { type: "admin-sync-selected"; sessionIds: string[] }
   | { type: "admin-sync-status" }
   | { type: "admin-sync-mode"; mode: TranscriptSyncMode }
-  | { type: "codex-model"; model: string }
   | { type: "codex-run-mode"; mode: "default" | "fast" | "task" }
+  | { type: "agent-model"; model: string | null }
+  | { type: "agent-effort"; effort: AgentEffort | "default" }
+  | { type: "agent-settings" }
   | { type: "codex-review"; prompt: string }
   | { type: "bot-reload"; mode: "commands" | "restart"; confirmed: boolean; force: boolean }
   | { type: "admin-clear-messages"; mode: "all" | "count"; count?: number; confirmed: boolean }
@@ -146,7 +150,9 @@ function codexCommandShortcut(commandName: string, prompt: string | null): Route
       return { type: "execute-command", command: "git diff --stat", confirmedDangerous: false };
     case "model": {
       const model = prompt?.trim();
-      return model ? { type: "codex-model", model } : null;
+      return model
+        ? { type: "agent-model", model: /^(?:default|reset|inherit)$/i.test(model) ? null : model }
+        : null;
     }
     case "fast":
       return { type: "codex-run-mode", mode: "fast" };
@@ -219,6 +225,36 @@ function parseCodexModel(content: string): { model: string } | null {
   }
 
   return { model: match[1] };
+}
+
+function parseAgentModel(content: string): { model: string | null } | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  const match = normalized.match(/^model\s+(\S{1,120})$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  return { model: /^(?:default|reset|inherit)$/i.test(match[1]) ? null : match[1] };
+}
+
+function parseAgentEffort(content: string): { effort: AgentEffort | "default" } | null {
+  const normalized = content.replace(/\s+/g, " ").trim().toLowerCase();
+  const match = normalized.match(/^effort\s+(default|reset|inherit|low|medium|high|xhigh|max)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    effort: match[1] === "reset" || match[1] === "inherit"
+      ? "default"
+      : match[1] as AgentEffort | "default",
+  };
+}
+
+function parseAgentSettings(content: string): boolean {
+  return /^\/?(?:settings|agent-settings)$/i.test(content.trim());
 }
 
 function parseCodexRunModeValue(value: string): "default" | "fast" | "task" | null {
@@ -777,7 +813,7 @@ function adminCodexBlock(content: string): Extract<RoutedDiscordMessage, { type:
     bridgeShortcut &&
     (bridgeShortcut.type === "codex-chat" ||
       bridgeShortcut.type === "claude-chat" ||
-      bridgeShortcut.type === "codex-model" ||
+      bridgeShortcut.type === "agent-model" ||
       bridgeShortcut.type === "codex-run-mode" ||
       bridgeShortcut.type === "codex-review")
   ) {
@@ -1021,6 +1057,35 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "channel-status" };
   }
 
+  const agentModel = parseAgentModel(trimmedContent);
+  const agentEffort = parseAgentEffort(trimmedContent);
+  const agentSettings = parseAgentSettings(trimmedContent);
+
+  if (agentModel || agentEffort || agentSettings) {
+    const denied = authorizationDenied(input);
+
+    if (denied) {
+      return denied;
+    }
+
+    if (input.channelMode === "shell-admin" && !input.agentMain) {
+      return blockedCommand(
+        "이 채널에는 agent 기본 설정 대상이 없습니다.",
+        "Codex 또는 Claude Code main 채널에서 모델과 effort 기본값을 설정하세요.",
+      );
+    }
+
+    if (agentModel) {
+      return { type: "agent-model", model: agentModel.model };
+    }
+
+    if (agentEffort) {
+      return { type: "agent-effort", effort: agentEffort.effort };
+    }
+
+    return { type: "agent-settings" };
+  }
+
   if (/^(?:maintenance|maint|유지보수)$/i.test(trimmedContent)) {
     const denied = authorizationDenied(input);
 
@@ -1069,7 +1134,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     input.channelMode === "claude-code" &&
     bridgeShortcut &&
     (bridgeShortcut.type === "codex-chat" ||
-      bridgeShortcut.type === "codex-model" ||
+      bridgeShortcut.type === "agent-model" ||
       bridgeShortcut.type === "codex-run-mode" ||
       bridgeShortcut.type === "codex-review")
   ) {
@@ -1099,18 +1164,6 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
 
     return { type: "schedule-command", request: schedule };
-  }
-
-  const codexModel = input.channelMode === "claude-code" ? null : parseCodexModel(trimmedContent);
-
-  if (codexModel) {
-    const denied = authorizationDenied(input);
-
-    if (denied) {
-      return denied;
-    }
-
-    return { type: "codex-model", model: codexModel.model };
   }
 
   const codexRunMode = input.channelMode === "claude-code" ? null : parseCodexRunMode(trimmedContent);

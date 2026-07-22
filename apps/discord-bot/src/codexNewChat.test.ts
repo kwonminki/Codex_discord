@@ -378,6 +378,8 @@ describe("createForkedDiscordSessionThread", () => {
             discordParentChannelId: "claude-parent",
             discordDeliveryMode: "thread",
             channelMode: "claude-code",
+            agentModelOverride: "sonnet",
+            agentEffortOverride: "high",
             channelName: "original-claude-task",
             computerId: "local-dev",
             workspaceId: `local-dev:${tempRoot}`,
@@ -430,6 +432,8 @@ describe("createForkedDiscordSessionThread", () => {
         channelMode: "claude-code",
         pendingForkSourceDiscordChannelId: "source-thread",
         pendingForkSourceSessionId: "claude-source-session-1",
+        agentModelOverride: "sonnet",
+        agentEffortOverride: "high",
       });
 
       const deleteChannel = vi.fn().mockResolvedValue(undefined);

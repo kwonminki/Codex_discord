@@ -671,6 +671,12 @@ export async function startBot(): Promise<void> {
       ? (input) =>
           directStateStore.updateSessionChannelClaudeSession(input.discordChannelId, input.claudeSessionId)
       : undefined,
+    updateAgentDefaults: directStateStore
+      ? (agent, patch) => directStateStore.updateAgentDefaults(agent, patch)
+      : undefined,
+    updateSessionAgentSettings: directStateStore
+      ? (discordChannelId, patch) => directStateStore.updateSessionChannelAgentSettings(discordChannelId, patch)
+      : undefined,
     previewSelectableCodexSessions,
     getSyncStatus,
     setTranscriptSyncMode,

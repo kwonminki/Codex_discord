@@ -101,6 +101,7 @@ describe("createDirectControlClient", () => {
 
       await expect(client.getChannelContext("claude-channel-1")).resolves.toMatchObject({
         channelMode: "claude-code",
+        agentMain: "claude",
         workspaceRoot,
         cwd: workspaceRoot,
         codexSessionId: null,
@@ -117,6 +118,7 @@ describe("createDirectControlClient", () => {
       });
       await expect(client.getChannelContext("codex-channel-1")).resolves.toMatchObject({
         channelMode: "shell-admin",
+        agentMain: "codex",
         cwd: workspaceRoot,
       });
     } finally {
@@ -186,6 +188,10 @@ describe("createDirectControlClient", () => {
       const stateStore = createDirectSyncStateStore(path.join(workspaceRoot, "state.json"));
       await stateStore.write({
         version: 1,
+        agentDefaults: {
+          codex: { model: "gpt-5.6-sol", effort: "xhigh" },
+          claude: { model: "claude-fable-5[1m]", effort: "max" },
+        },
         archivedCodexSessionIds: [],
         workspaces: [
           {
@@ -206,6 +212,8 @@ describe("createDirectControlClient", () => {
             workspaceDisplayName: "repo",
             discordCategoryId: "category-1",
             discordChannelId: "session-channel-1",
+            agentModelOverride: "gpt-5.4",
+            agentEffortOverride: "high",
             channelName: "build-bridge",
             computerId: "local-dev",
             workspaceId: `local-dev:${workspaceRoot}`,
@@ -255,6 +263,12 @@ describe("createDirectControlClient", () => {
         codexSessionId: "session-1",
         workspaceRoot,
         cwd: workspaceRoot,
+        agentDefaults: {
+          codex: { model: "gpt-5.6-sol", effort: "xhigh" },
+          claude: { model: "claude-fable-5[1m]", effort: "max" },
+        },
+        agentModelOverride: "gpt-5.4",
+        agentEffortOverride: "high",
       });
       await expect(client.getChannelContext("claude-thread-1")).resolves.toMatchObject({
         channelMode: "claude-code",

@@ -27,7 +27,9 @@ The bot also registers Discord-native slash commands on startup. Discord shows t
 Admin/main commands:
 
 - `/where` shows the current channel mode, computer, workspace, cwd, timeout, and linked Codex session.
-- `/status` shows the same status card with model preference when present.
+- `/status` shows the same status card with the effective model, effort, and whether each value comes from the main default, a thread override, or the CLI default.
+- `/settings` shows the Codex defaults owned by this main channel.
+- `/model model:<name>` and `/effort level:<level>` persist this computer's Codex defaults. Codex maps `max` to its highest supported value, `xhigh`.
 - `/browse` opens the current directory browser UI.
 - `/shell command:<명령>` runs a shell command through the existing safety policy.
 - `/diff` runs `git diff --stat` in the current channel cwd.
@@ -53,21 +55,23 @@ Session-linked commands:
 - `/summarize target:<대상>` asks Codex to summarize a channel or project context.
 - `/compact prompt:<요청>` asks Codex to produce a compact working-context summary; it is not an interactive slash passthrough.
 - `/skill name:<skill> prompt:<요청>` sends an exec-compatible prompt asking Codex to apply the named skill perspective.
-- `/model model:<모델>` stores a per-channel model preference used by later Codex runs until the bot restarts.
+- `/model model:<모델>` stores a persistent per-thread model override for Codex or Claude Code. Use `default` to inherit the owning main channel again.
+- `/effort level:low/medium/high/xhigh/max/default` stores a persistent per-thread reasoning override. Codex supports through `xhigh`; Claude Code supports through `max`.
+- `/settings` shows the effective model and effort together with their source.
 - `/archive` opens a confirmation card for the current generated session channel; use `archive confirm` to archive.
 - `/fork` opens a name modal in Codex/Claude Code session threads and creates a sibling Discord thread backed by a distinct forked agent session. Failed forks, source-session ID reuse, and duplicate Discord links are rejected; unlinked temporary threads are cleaned up. Codex uses app-server `thread/fork`; Claude Code uses `claude --resume <session> --fork-session`.
 - `/steer prompt:<instruction>` explicitly appends an instruction to the active Codex app-server turn, matching the automatic behavior of ordinary follow-up messages. Claude Code channels return an unsupported notice.
 - `/interrupt` requests interruption of the active Codex app-server turn. Claude Code channels return an unsupported notice.
 - `/queue prompt:<instruction>` explicitly keeps an instruction out of the active turn and appends it to the per-channel FIFO queue. With no prompt, `/queue` shows the active and pending requests.
 - `/queue-clear` removes pending requests while leaving the active request running.
-- `/where` and `/status` show bridge channel status, including channel mode, computer, workspace, cwd, linked session, and model preference.
+- `/where` and `/status` show bridge channel status, including channel mode, computer, workspace, cwd, linked session, effective model and effort, and their setting sources.
 - `/browse` opens the current directory browser UI.
 - `/shell command:<명령>` runs a shell command through the existing safety policy; typed shell commands in session channels use the `!` prefix.
 - `/diff` runs `git diff --stat` in the current channel cwd.
 - `/codex-command command:<name> prompt:<args>` maps supported shortcuts such as `model`, `diff`, `review`, `compact`, and `mcp` to working bridge or CLI actions.
 - `/schedule action:create mode:once/every/daily/weekly command:<명령> at:<시간> every:<주기> weekdays:<요일>` schedules an existing typed command in this session channel.
 
-These native commands are only shortcuts into the same router. Role checks, command confirmation rules, working-directory state, Codex session linkage, and channel boundaries are unchanged.
+These native commands are only shortcuts into the same router. Role checks, command confirmation rules, working-directory state, Codex session linkage, and channel boundaries are unchanged. Main defaults and thread overrides are stored in `.connect/state.json`, survive bot restarts, and are copied when a session thread is forked.
 
 Scheduled commands reuse the same router too. The scheduled `command:` value should be a supported typed command such as `shell pwd`, `codex README 요약`, `review 보안 위험 위주`, `sync status`, or `browse`. Schedules are stored in `.connect/state.json`, survive bot restarts, and are checked every 30 seconds by default. Set `CONNECT_SCHEDULE_POLL_INTERVAL_MS` to tune the polling interval.
 
@@ -164,7 +168,7 @@ Run `/sync`, `sync`, or `sync select 25` in the admin channel to open the sessio
 
 Use `/sync-mode`, `sync mode on-chat`, or `sync mode realtime` to choose transcript freshness for synced session channels. `on-chat` refreshes a channel right before the next Discord chat resumes the Codex session. `realtime` additionally polls already-synced session channels about every 5 seconds and posts new desktop/IDE-side transcript updates without waiting for a new Discord message. It never creates new Discord channels by itself; newly opened desktop sessions are imported only after an explicit admin `sync` or `/sync`. Each desktop-side user prompt and public assistant commentary event is posted as a separate message without an operator mention. Internal status/tool events are skipped, and `final_answer` events are left to the existing completion notification so the final answer and operator mention appear only once. Sessions currently being streamed directly by Discord are marker-updated without duplicate reposting. Tune this interval with `CONNECT_TRANSCRIPT_SYNC_INTERVAL_MS`. Background transcript and completion polling backs off when no changes are found, up to `CONNECT_BACKGROUND_POLL_MAX_INTERVAL_MS` by default, and skips expensive scans when normalized 1-minute system load is above `CONNECT_BACKGROUND_MAX_LOAD`.
 
-For orientation, run `/where` in any managed channel before executing commands. In an admin channel, run `/sync-status` or `sync status` to check whether state cleanup or selective sync is needed. In a session channel, run `/status` to confirm the linked Codex session and model preference.
+For orientation, run `/where` in any managed channel before executing commands. In an admin channel, run `/sync-status` or `sync status` to check whether state cleanup or selective sync is needed. In a session channel, run `/status` to confirm the linked agent session, effective model and effort, and whether the values are inherited or overridden.
 
 To update the bot from Discord, run `reload` for a slash-command refresh. Run `reload restart` for the confirmation card or `reload restart confirm` to request a draining restart. A draining restart rejects new work, keeps approval/status/queue/interrupt controls available, and restarts automatically after active work and queued requests finish. Use `reload restart force confirm` to restart the gateway immediately. In Direct mode the independent worker keeps active jobs alive and the restarted gateway reconnects to them. Run production Direct deployments as two services with `pnpm connect start --direct --component bot` and `pnpm connect start --direct --component worker`. Restarting the bot service is job-safe; terminating the worker with `SIGKILL` or rebooting the host interrupts active jobs. A worker receiving `SIGTERM` stops accepting new jobs, continues processing steering/interrupt controls for active turns, and exits after those jobs drain. A bot launched directly with `pnpm dev:bot` will exit and must be started again from the terminal.
 

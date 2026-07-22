@@ -1119,6 +1119,12 @@ describe("responses", () => {
         workspaceRoot: "/repo",
         cwd: "/repo/apps",
         codexSessionId: "session-1",
+        agentSettings: {
+          model: "gpt-5.6-sol",
+          effort: "xhigh",
+          modelSource: "main default",
+          effortSource: "main default",
+        },
         timeoutMs: 300_000,
       }),
     ).toEqual({
@@ -1131,6 +1137,8 @@ describe("responses", () => {
             { name: "Target", value: "`Local Dev` / `repo`", inline: false },
             { name: "Working directory", value: "`/repo/apps`", inline: false },
             { name: "Codex session", value: "`session-1`", inline: false },
+            { name: "Model", value: "`gpt-5.6-sol (main default)`", inline: true },
+            { name: "Effort", value: "`xhigh (main default)`", inline: true },
           ]),
         }),
       ],
@@ -1184,6 +1192,12 @@ describe("responses", () => {
       workspaceRoot: "/repo",
       cwd: "/repo/apps",
       claudeSessionId: "claude-session-1",
+      agentSettings: {
+        model: "sonnet",
+        effort: "max",
+        modelSource: "thread override",
+        effortSource: "main default",
+      },
       timeoutMs: 300_000,
     });
 
@@ -1194,6 +1208,8 @@ describe("responses", () => {
             fields: expect.arrayContaining([
               { name: "Mode", value: "`claude-code`", inline: true },
               { name: "Claude session", value: "`claude-session-1`", inline: false },
+              { name: "Model", value: "`sonnet (thread override)`", inline: true },
+              { name: "Effort", value: "`max (main default)`", inline: true },
             ]),
           }),
         ],

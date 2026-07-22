@@ -110,12 +110,36 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않습니
 
 `/queue`는 현재 대기열을 보여주고, `/queue-clear`는 아직 시작하지 않은 요청을 지웁니다.
 
+### 모델과 생각 강도 설정
+
+각 컴퓨터의 **Codex 부모 채널**과 **Claude Code 부모 채널**에서 기본값을 정할 수 있습니다. 이 값은 `.connect/state.json`에 저장되어 봇을 재시작해도 유지되며, 별도 설정이 없는 모든 세션 스레드가 상속합니다.
+
+```text
+/model model:gpt-5.6-sol
+/effort level:xhigh
+/settings
+```
+
+Claude Code 부모 채널에서는 같은 명령이 Claude 설정으로 적용됩니다. Claude의 최고 effort는 `max`, Codex의 최고 reasoning effort는 `xhigh`입니다. Codex 채널에서 `max`를 선택하면 `xhigh`로 정규화됩니다.
+
+각 세션 스레드에서도 `/model`과 `/effort`로 그 스레드만 override할 수 있습니다. 다시 부모 채널 기본값을 따르려면 다음처럼 설정하세요.
+
+```text
+/model model:default
+/effort level:default
+```
+
+`/settings`는 설정만 간단히 보여주고, `/status`는 모델·effort와 값의 출처(`main default`, `thread override`, `CLI default`)를 실행 상태와 함께 보여줍니다. 모델을 `default`로 두면 connector가 모델명을 강제하지 않고 해당 컴퓨터의 Codex 또는 Claude CLI 기본 모델을 사용합니다.
+
 ### 자주 쓰는 명령
 
 | 명령 | 용도 |
 | --- | --- |
 | `/chat-new` | 새 Discord 스레드와 agent 세션 만들기 |
-| `/status` | 실행 중인지, 질문/권한을 기다리는지, 큐가 몇 개인지 확인 |
+| `/status` | 실행 상태, 큐, 현재 모델·effort와 설정 출처 확인 |
+| `/settings` | 현재 적용되는 모델·effort 확인 |
+| `/model model:<이름>` | main 기본 모델 또는 현재 스레드 모델 설정; `default`는 상속 복귀 |
+| `/effort level:<단계>` | main 기본 effort 또는 현재 스레드 effort 설정; `default`는 상속 복귀 |
 | `/steer prompt:<지시>` | 실행 중인 Codex 작업에 즉시 지시 추가 |
 | `/queue prompt:<요청>` | 현재 작업 다음에 별도 요청 예약 |
 | `/interrupt` | 현재 Codex turn 중단 |
@@ -194,7 +218,7 @@ sandbox=danger-full-access
 network=enabled
 ```
 
-Claude Code도 기본적으로 `bypassPermissions`를 사용합니다. 따라서 private Discord와 제한된 Operator 역할이 매우 중요합니다.
+Claude Code도 기본적으로 `bypassPermissions`를 사용합니다. Agent effort 기본값은 Codex `xhigh`, Claude Code `max`이며, 모델 기본값은 각 CLI 설정을 따릅니다. Discord main 채널의 `/model`과 `/effort`로 컴퓨터별 기본값을 명시할 수 있습니다. 따라서 private Discord와 제한된 Operator 역할이 매우 중요합니다.
 
 권한을 낮추고 싶다면 설치를 맡은 AI 에이전트에게 아래처럼 요청하세요.
 

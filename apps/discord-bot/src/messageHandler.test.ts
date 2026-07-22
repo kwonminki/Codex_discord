@@ -1531,7 +1531,7 @@ describe("createDiscordMessageHandler", () => {
 
     expect(replies).toEqual([
       expect.objectContaining({
-        embeds: [expect.objectContaining({ title: "Codex model updated" })],
+        embeds: [expect.objectContaining({ title: "Codex settings updated" })],
       }),
     ]);
     expect(submitCodexPrompt).toHaveBeenCalledWith(
@@ -1579,6 +1579,116 @@ describe("createDiscordMessageHandler", () => {
         }),
       }),
     );
+  });
+
+  it("persists main defaults and applies them to Codex and Claude threads", async () => {
+    let defaults = {
+      codex: { model: null as string | null, effort: "xhigh" as const },
+      claude: { model: null as string | null, effort: "max" as const },
+    };
+    const updateAgentDefaults = vi.fn(async (agent, patch) => {
+      defaults = {
+        ...defaults,
+        [agent]: { ...defaults[agent as keyof typeof defaults], ...patch },
+      } as typeof defaults;
+      return defaults;
+    });
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "codex-job",
+      result: { status: "completed", finalMessage: "done", sessionId: "codex-session" },
+    });
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "claude-job",
+      result: { status: "completed", finalMessage: "done", sessionId: "claude-session" },
+    });
+    const contexts: Record<string, ManagedDiscordChannelContext> = {
+      "codex-main": { ...channelContext, agentMain: "codex", agentDefaults: defaults },
+      "codex-thread": { ...sessionChannelContext, agentDefaults: defaults },
+      "claude-main": { ...claudeChannelContext, agentMain: "claude", agentDefaults: defaults },
+      "claude-thread": { ...claudeChannelContext, agentDefaults: defaults },
+    };
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async (channelId) => contexts[channelId] ?? null,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      submitClaudePrompt,
+      updateAgentDefaults,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const send = (channelId: string, content: string) => handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId,
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    await send("codex-main", "model gpt-5.6-sol");
+    await send("codex-main", "effort max");
+    await send("claude-main", "model claude-fable-5[1m]");
+    await send("claude-main", "effort max");
+    await send("codex-thread", "이 설정으로 작업해줘");
+    await send("claude-thread", "이 설정으로 작업해줘");
+
+    expect(updateAgentDefaults).toHaveBeenCalledWith("codex", { model: "gpt-5.6-sol" });
+    expect(updateAgentDefaults).toHaveBeenCalledWith("codex", { effort: "xhigh" });
+    expect(updateAgentDefaults).toHaveBeenCalledWith("claude", { model: "claude-fable-5[1m]" });
+    expect(updateAgentDefaults).toHaveBeenCalledWith("claude", { effort: "max" });
+    expect(submitCodexPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ model: "gpt-5.6-sol", reasoningEffort: "xhigh" }),
+    }));
+    expect(submitClaudePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ model: "claude-fable-5[1m]", effort: "max" }),
+    }));
+  });
+
+  it("persists thread overrides and includes effective settings in status", async () => {
+    const replies: unknown[] = [];
+    const updateSessionAgentSettings = vi.fn().mockResolvedValue(undefined);
+    const submitClaudePrompt = vi.fn().mockResolvedValue({
+      jobId: "claude-job",
+      result: { status: "completed", finalMessage: "done", sessionId: "claude-session" },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        agentDefaults: {
+          codex: { model: null, effort: "xhigh" },
+          claude: { model: "claude-fable-5[1m]", effort: "max" },
+        },
+      }),
+      submitCommandJob: vi.fn(),
+      submitClaudePrompt,
+      updateSessionAgentSettings,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const send = (content: string) => handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-thread",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        replies.push(payload);
+        return { edit: async () => undefined };
+      },
+    });
+
+    await send("model sonnet");
+    await send("effort high");
+    await send("status");
+    await send("설정을 확인해줘");
+
+    expect(updateSessionAgentSettings).toHaveBeenNthCalledWith(1, "claude-thread", { model: "sonnet" });
+    expect(updateSessionAgentSettings).toHaveBeenNthCalledWith(2, "claude-thread", { effort: "high" });
+    expect(JSON.stringify(replies)).toContain("sonnet (thread override)");
+    expect(JSON.stringify(replies)).toContain("high (thread override)");
+    expect(submitClaudePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ model: "sonnet", effort: "high" }),
+    }));
   });
 
   it("submits explicit Claude Code prompts and resumes the channel Claude session", async () => {

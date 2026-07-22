@@ -2,6 +2,14 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ChannelMode } from "../../../packages/core/src/index.js";
+import {
+  DEFAULT_AGENT_SETTINGS,
+  normalizeAgentDefaultSettings,
+  normalizeAgentSettingsOverride,
+  type AgentDefaultSettings,
+  type AgentEffort,
+  type AgentKind,
+} from "./agentSettings.js";
 
 export interface SyncedWorkspaceState {
   workspaceRoot: string;
@@ -27,6 +35,8 @@ export interface SyncedSessionChannelState {
   discordDeliveryMode?: DiscordSessionDeliveryMode;
   channelMode?: ChannelMode;
   claudeSessionId?: string | null;
+  agentModelOverride?: string | null;
+  agentEffortOverride?: AgentEffort | null;
   pendingForkSourceDiscordChannelId?: string | null;
   pendingForkSourceSessionId?: string | null;
   channelName: string;
@@ -84,6 +94,7 @@ export interface DiscordRequestedCodexSessionState {
 
 export interface DirectSyncState {
   version: 1;
+  agentDefaults: AgentDefaultSettings;
   transcriptSyncMode: TranscriptSyncMode;
   archivedCodexSessionIds: string[];
   workspaces: SyncedWorkspaceState[];
@@ -102,6 +113,7 @@ export interface DirectSyncState {
 export type DirectSyncStateWriteInput = Omit<
   DirectSyncState,
   | "transcriptSyncMode"
+  | "agentDefaults"
   | "scheduledCommands"
   | "taskCompletionNotificationsInitializedAt"
   | "taskCompletionNotifications"
@@ -111,6 +123,7 @@ export type DirectSyncStateWriteInput = Omit<
   | "discordRequestedCodexSessionRequests"
 > & {
   transcriptSyncMode?: TranscriptSyncMode;
+  agentDefaults?: AgentDefaultSettings;
   scheduledCommands?: ScheduledCommandState[];
   taskCompletionNotificationsInitializedAt?: string | null;
   taskCompletionNotificationScope?: string | null;
@@ -136,6 +149,14 @@ export interface DirectSyncStateStore {
     threadName?: string,
   ): Promise<void>;
   updateSessionChannelClaudeSession(discordChannelId: string, claudeSessionId: string): Promise<void>;
+  updateAgentDefaults(
+    agent: AgentKind,
+    patch: { model?: string | null; effort?: AgentEffort },
+  ): Promise<AgentDefaultSettings>;
+  updateSessionChannelAgentSettings(
+    discordChannelId: string,
+    patch: { model?: string | null; effort?: AgentEffort | null },
+  ): Promise<void>;
   removePendingSessionChannel(discordChannelId: string): Promise<boolean>;
   updateTranscriptSyncMode(mode: TranscriptSyncMode): Promise<void>;
   markDiscordRequestedCodexSession(
@@ -147,6 +168,7 @@ export interface DirectSyncStateStore {
 export function createEmptyDirectSyncState(): DirectSyncState {
   return {
     version: 1,
+    agentDefaults: DEFAULT_AGENT_SETTINGS,
     transcriptSyncMode: "realtime",
     archivedCodexSessionIds: [],
     workspaces: [],
@@ -171,12 +193,26 @@ function normalizeDirectSyncState(state: Partial<DirectSyncState>): DirectSyncSt
 
   return {
     version: 1,
+    agentDefaults: normalizeAgentDefaultSettings(state.agentDefaults),
     transcriptSyncMode,
     archivedCodexSessionIds: Array.isArray(state.archivedCodexSessionIds)
       ? state.archivedCodexSessionIds.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [],
     workspaces: Array.isArray(state.workspaces) ? state.workspaces : [],
-    sessionChannels: Array.isArray(state.sessionChannels) ? state.sessionChannels : [],
+    sessionChannels: Array.isArray(state.sessionChannels)
+      ? state.sessionChannels.map((channel) => {
+          const agent = channel.channelMode === "claude-code" ? "claude" : "codex";
+          const override = normalizeAgentSettingsOverride(agent, {
+            model: channel.agentModelOverride,
+            effort: channel.agentEffortOverride,
+          });
+          return {
+            ...channel,
+            ...(Object.hasOwn(channel, "agentModelOverride") ? { agentModelOverride: override.model } : {}),
+            ...(Object.hasOwn(channel, "agentEffortOverride") ? { agentEffortOverride: override.effort } : {}),
+          };
+        })
+      : [],
     scheduledCommands: Array.isArray(state.scheduledCommands)
       ? state.scheduledCommands.filter(
           (schedule): schedule is ScheduledCommandState =>
@@ -446,6 +482,46 @@ export function createDirectSyncStateStore(statePath = defaultDirectSyncStatePat
                   updatedAt: new Date().toISOString(),
                   pendingForkSourceDiscordChannelId: null,
                   pendingForkSourceSessionId: null,
+                }
+              : channel,
+          ),
+        };
+      });
+    },
+    async updateAgentDefaults(agent, patch) {
+      return store.update((state) => ({
+        ...state,
+        agentDefaults: normalizeAgentDefaultSettings({
+          ...state.agentDefaults,
+          [agent]: {
+            ...state.agentDefaults[agent],
+            ...patch,
+          },
+        }),
+      })).then((state) => state.agentDefaults);
+    },
+    async updateSessionChannelAgentSettings(discordChannelId, patch) {
+      await store.update((state) => {
+        const target = state.sessionChannels.find((channel) => channel.discordChannelId === discordChannelId);
+
+        if (!target) {
+          throw new Error(`Discord session channel was not found: ${discordChannelId}`);
+        }
+
+        const agent = target.channelMode === "claude-code" ? "claude" : "codex";
+        const override = normalizeAgentSettingsOverride(agent, {
+          model: Object.hasOwn(patch, "model") ? patch.model : target.agentModelOverride,
+          effort: Object.hasOwn(patch, "effort") ? patch.effort : target.agentEffortOverride,
+        });
+
+        return {
+          ...state,
+          sessionChannels: state.sessionChannels.map((channel) =>
+            channel.discordChannelId === discordChannelId
+              ? {
+                  ...channel,
+                  agentModelOverride: override.model,
+                  agentEffortOverride: override.effort,
                 }
               : channel,
           ),

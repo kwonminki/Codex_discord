@@ -1743,7 +1743,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const adminSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Admin slash commands",
     value: codeBlock(
-      "/where 또는 /status\n/browse\n/shell command:pwd\n/diff\n/schedule action:create mode:every every:10m command:shell pwd\n/schedule action:list\n/schedule action:delete id:<id>\n/sync limit:25\n/sync-select limit:25\n/sync-all limit:25\n/sync-status\n/sync-mode mode:realtime\n/sync-delete mode:preview\n/sync-delete mode:session session_id:<id> confirm:true\n/sync-archive session_id:<id> confirm:true\n/chat-new name:새 작업 cwd:/path/to/project category:true\n/reload mode:commands",
+      "/where 또는 /status\n/settings\n/model model:<이름 또는 default>\n/effort level:<단계>\n/browse\n/shell command:pwd\n/diff\n/schedule action:create mode:every every:10m command:shell pwd\n/schedule action:list\n/schedule action:delete id:<id>\n/sync limit:25\n/sync-select limit:25\n/sync-all limit:25\n/sync-status\n/sync-mode mode:realtime\n/sync-delete mode:preview\n/sync-delete mode:session session_id:<id> confirm:true\n/sync-archive session_id:<id> confirm:true\n/chat-new name:새 작업 cwd:/path/to/project category:true\n/reload mode:commands",
       "text",
     ),
     inline: false,
@@ -1751,7 +1751,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const sessionSlashCommandField: DiscordEmbedFieldPayload = {
     name: "Session slash commands",
     value: codeBlock(
-      "/codex prompt:README 요약해줘\n/fork\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue prompt:현재 작업 뒤에 테스트 실행\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:gpt-5.4\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
+      "/codex prompt:README 요약해줘\n/fork\n/steer prompt:현재 작업 방향 수정\n/interrupt\n/queue prompt:현재 작업 뒤에 테스트 실행\n/queue\n/queue-clear\n/review prompt:보안 위험 위주\n/fix-tests\n/summarize target:현재 채널\n/howtouse\n/compact prompt:이번 작업 맥락 정리\n/skill name:frontend-design prompt:UI 개선해줘\n/model model:<이름 또는 default>\n/effort level:<단계 또는 default>\n/settings\n/fast\n/task\n/codex-mode mode:default\n/schedule action:create mode:daily at:09:30 command:codex 오늘 계획 정리\n/archive\n/where 또는 /status\n/browse\n/shell command:pwd\n/diff",
       "text",
     ),
     inline: false,
@@ -1759,7 +1759,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
   const claudeCodeFields: DiscordEmbedFieldPayload[] = [
     {
       name: "Primary flow",
-      value: codeBlock("현재 GPU 사용량 봐봐\n이 파일 분석해줘\n버그 고치고 테스트 돌려줘\n/fork", "text"),
+      value: codeBlock("현재 GPU 사용량 봐봐\n이 파일 분석해줘\n버그 고치고 테스트 돌려줘\n/model model:sonnet\n/effort level:max\n/settings\n/fork", "text"),
       inline: false,
     },
     {
@@ -1769,7 +1769,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Claude Code",
-      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. 실행 중 일반 메시지와 `/queue prompt:<요청>`은 다음 turn으로 대기합니다. prompt 없는 `/queue`는 상태를 보여주며, `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. `/model`, `/effort`, `/settings`로 main 기본값 또는 현재 thread override를 관리합니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. 실행 중 일반 메시지와 `/queue prompt:<요청>`은 다음 turn으로 대기합니다. prompt 없는 `/queue`는 상태를 보여주며, `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
       inline: false,
     },
     {
@@ -1821,7 +1821,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Channel boundary",
-      value: "main/admin 채널은 운영 전용입니다. Codex 대화, 리뷰, 테스트 수정, 모델 설정은 새 채팅 또는 동기화된 session 채널에서 실행하세요.",
+      value: "main/admin 채널은 운영 전용입니다. 이 채널의 `/model`, `/effort`, `/settings`는 Codex 기본값을 관리하며, 대화·리뷰·테스트 수정은 새 채팅 또는 동기화된 session 채널에서 실행하세요.",
       inline: false,
     },
   ];
@@ -1840,7 +1840,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     {
       name: "Session controls",
       value: codeBlock(
-        "model gpt-5.4\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
+        "model gpt-5.4\neffort xhigh\nsettings\nmodel default\neffort default\nfast\ntask\nmode default\nclaude README 요약해줘\nreview 보안 위험 위주\nfix-tests\nsummarize 이번 채널\ncompact 이번 작업 맥락 정리\nskill frontend-design UI 개선해줘\nschedule list\nschedule every 10m command:shell pwd\nschedule daily at 09:30 command:codex 오늘 계획 정리\narchive\narchive confirm\nstatus\ndiff\nbrowse\nshell pwd\ncodex-command mcp list",
         "text",
       ),
       inline: false,
@@ -1995,7 +1995,12 @@ export function formatChannelStatus(input: {
   cwd: string;
   codexSessionId?: string | null;
   claudeSessionId?: string | null;
-  codexModel?: string | null;
+  agentSettings?: {
+    model: string | null;
+    effort: string;
+    modelSource: string;
+    effortSource: string;
+  };
   timeoutMs: number;
   execution?: {
     active: boolean;
@@ -2057,12 +2062,31 @@ export function formatChannelStatus(input: {
       });
     }
   }
+  const agentSettings = input.agentSettings ?? {
+    model: null,
+    effort: isClaudeCodeChannel ? "max" : "xhigh",
+    modelSource: "CLI default",
+    effortSource: "main default",
+  };
+  const modelSetting = agentSettings.model
+    ? `${agentSettings.model} (${agentSettings.modelSource})`
+    : "CLI default";
   const sessionFields: DiscordEmbedFieldPayload[] = isClaudeCodeChannel
     ? [
         {
           name: "Claude session",
           value: wrapDiscordText(input.claudeSessionId ?? "(not linked yet)"),
           inline: false,
+        },
+        {
+          name: "Model",
+          value: wrapDiscordText(modelSetting),
+          inline: true,
+        },
+        {
+          name: "Effort",
+          value: wrapDiscordText(`${agentSettings.effort} (${agentSettings.effortSource})`),
+          inline: true,
         },
       ]
     : [
@@ -2072,8 +2096,13 @@ export function formatChannelStatus(input: {
           inline: false,
         },
         {
-          name: "Codex model",
-          value: wrapDiscordText(input.codexModel ?? "default"),
+          name: "Model",
+          value: wrapDiscordText(modelSetting),
+          inline: true,
+        },
+        {
+          name: "Effort",
+          value: wrapDiscordText(`${agentSettings.effort} (${agentSettings.effortSource})`),
           inline: true,
         },
       ];
@@ -2151,15 +2180,38 @@ function formatElapsedTime(elapsedMs: number): string {
   return `${hours}h ${minutes}m`;
 }
 
-export function formatCodexModelResult(input: { model: string }): DiscordMessagePayload {
+export function formatAgentSettingsResult(input: {
+  agent: "codex" | "claude";
+  scope: "main default" | "thread override";
+  model: string | null;
+  effort: string;
+  modelSource: string;
+  effortSource: string;
+  updated?: "model" | "effort";
+}): DiscordMessagePayload {
+  const agentLabel = input.agent === "claude" ? "Claude Code" : "Codex";
+  const modelSetting = input.model ? `${input.model} (${input.modelSource})` : "CLI default";
+
   return messagePayload({
-    title: "Codex model updated",
+    title: input.updated ? `${agentLabel} settings updated` : `${agentLabel} settings`,
     color: COLORS.success,
-    description: "이 Discord 채널의 이후 Codex 요청에 선택한 모델을 사용합니다. 봇이 재시작되면 기본 모델로 돌아갑니다.",
+    description: input.scope === "main default"
+      ? "이 컴퓨터의 main 기본값입니다. 별도 override가 없는 모든 세션에 적용되며 봇 재시작 후에도 유지됩니다."
+      : "현재 스레드에 적용되는 값입니다. `default`로 설정하면 main 기본값을 다시 상속합니다.",
     fields: [
       {
         name: "Model",
-        value: wrapDiscordText(input.model),
+        value: wrapDiscordText(modelSetting),
+        inline: true,
+      },
+      {
+        name: "Effort",
+        value: wrapDiscordText(`${input.effort} (${input.effortSource})`),
+        inline: true,
+      },
+      {
+        name: "Scope",
+        value: wrapDiscordText(input.scope),
         inline: true,
       },
     ],
@@ -2168,7 +2220,7 @@ export function formatCodexModelResult(input: { model: string }): DiscordMessage
 
 export function formatCodexRunModeResult(input: {
   mode: "default" | "fast" | "task";
-  reasoningEffort: "low" | "xhigh";
+  reasoningEffort: "low" | "medium" | "high" | "xhigh";
 }): DiscordMessagePayload {
   return messagePayload({
     title: "Codex mode updated",

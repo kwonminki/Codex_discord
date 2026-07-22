@@ -61,6 +61,9 @@ export function createDirectControlClient(
       ];
     },
     async getChannelContext(discordChannelId) {
+      const state = await options.stateStore?.read();
+      const agentDefaults = state?.agentDefaults;
+
       if (discordChannelId === config.direct.channelId) {
         return {
           channelMode: config.direct.channelMode,
@@ -74,6 +77,8 @@ export function createDirectControlClient(
           codexSessionId: null,
           discordDeliveryMode: "channel",
           discordParentChannelId: null,
+          agentMain: "codex",
+          agentDefaults,
         };
       }
 
@@ -90,10 +95,14 @@ export function createDirectControlClient(
           codexSessionId: null,
           discordDeliveryMode: "channel",
           discordParentChannelId: null,
+          agentMain: "claude",
+          agentDefaults,
         };
       }
 
-      const syncedChannel = await options.stateStore?.findSessionChannelByDiscordId(discordChannelId);
+      const syncedChannel = state?.sessionChannels.find(
+        (channel) => channel.discordChannelId === discordChannelId,
+      ) ?? null;
 
       if (!syncedChannel) {
         return null;
@@ -114,6 +123,10 @@ export function createDirectControlClient(
         claudeSessionId: syncedChannel.claudeSessionId ?? null,
         discordDeliveryMode: syncedChannel.discordDeliveryMode ?? "channel",
         discordParentChannelId: syncedChannel.discordParentChannelId ?? null,
+        agentMain: null,
+        agentDefaults,
+        agentModelOverride: syncedChannel.agentModelOverride ?? null,
+        agentEffortOverride: syncedChannel.agentEffortOverride ?? null,
       };
     },
     async createCategoryMapping(input) {

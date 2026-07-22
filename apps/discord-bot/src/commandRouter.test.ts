@@ -361,8 +361,8 @@ describe("routeDiscordMessage", () => {
       }),
     ).toEqual({
       type: "blocked-command",
-      reason: "main 채널은 운영 전용입니다.",
-      guidance: "모델 설정과 Codex 요청은 session 채널에서 실행하세요.",
+      reason: "이 채널에는 agent 기본 설정 대상이 없습니다.",
+      guidance: "Codex 또는 Claude Code main 채널에서 모델과 effort 기본값을 설정하세요.",
     });
 
     expect(
@@ -413,7 +413,7 @@ describe("routeDiscordMessage", () => {
         userRoleIds: ["role-operator"],
         allowedRoleIds: ["role-operator"],
       }),
-    ).toEqual({ type: "codex-model", model: "gpt-5.4" });
+    ).toEqual({ type: "agent-model", model: "gpt-5.4" });
 
     expect(
       routeDiscordMessage({
@@ -476,7 +476,71 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("routes persistent agent defaults in Codex and Claude main channels", () => {
+    const base = {
+      userRoleIds: ["role-operator"],
+      allowedRoleIds: ["role-operator"],
+    };
+
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "shell-admin",
+      agentMain: "codex",
+      content: "model gpt-5.6-sol",
+    })).toEqual({ type: "agent-model", model: "gpt-5.6-sol" });
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "shell-admin",
+      agentMain: "codex",
+      content: "effort max",
+    })).toEqual({ type: "agent-effort", effort: "max" });
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "claude-code",
+      agentMain: "claude",
+      content: "model claude-fable-5[1m]",
+    })).toEqual({ type: "agent-model", model: "claude-fable-5[1m]" });
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "claude-code",
+      agentMain: "claude",
+      content: "effort max",
+    })).toEqual({ type: "agent-effort", effort: "max" });
+  });
+
+  it("routes per-thread settings and inheritance resets for both agents", () => {
+    const base = {
+      userRoleIds: ["role-operator"],
+      allowedRoleIds: ["role-operator"],
+    };
+
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "session-linked",
+      content: "effort high",
+    })).toEqual({ type: "agent-effort", effort: "high" });
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "claude-code",
+      content: "model default",
+    })).toEqual({ type: "agent-model", model: null });
+    expect(routeDiscordMessage({
+      ...base,
+      channelMode: "claude-code",
+      content: "/settings",
+    })).toEqual({ type: "agent-settings" });
+  });
+
   it("routes bridge slash-equivalent shortcuts from chat messages", () => {
+    expect(
+      routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "codex-command model default",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({ type: "agent-model", model: null });
+
     expect(
       routeDiscordMessage({
         channelMode: "session-linked",

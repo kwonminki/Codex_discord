@@ -15,6 +15,8 @@ export interface RunClaudePromptInput {
   sessionName?: string | null;
   claudeCommand?: string | null;
   permissionMode?: string | null;
+  model?: string | null;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
   onProgress?: (event: ClaudeRunnerProgressEvent) => Promise<void> | void;
 }
 
@@ -57,6 +59,14 @@ function claudeArgs(input: RunClaudePromptInput): string[] {
 
   if (input.sessionName?.trim()) {
     args.push("--name", input.sessionName.trim());
+  }
+
+  if (input.model?.trim()) {
+    args.push("--model", input.model.trim());
+  }
+
+  if (input.effort?.trim()) {
+    args.push("--effort", input.effort.trim());
   }
 
   if (permissionMode) {

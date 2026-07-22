@@ -150,14 +150,37 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "model",
-    description: "이 Discord 채널의 이후 Codex 요청에 사용할 모델을 설정합니다.",
+    description: "main 기본값 또는 현재 agent 스레드의 모델을 설정합니다.",
     options: [
       stringOption({
         name: "model",
-        description: "전환하거나 확인할 모델 이름",
+        description: "모델 이름 또는 main 기본값을 상속할 default",
         required: true,
       }),
     ],
+  },
+  {
+    name: "effort",
+    description: "main 기본값 또는 현재 agent 스레드의 생각 강도를 설정합니다.",
+    options: [
+      stringOption({
+        name: "level",
+        description: "생각 강도 또는 main 기본값을 상속할 default",
+        required: true,
+        choices: [
+          { name: "default", value: "default" },
+          { name: "low", value: "low" },
+          { name: "medium", value: "medium" },
+          { name: "high", value: "high" },
+          { name: "xhigh", value: "xhigh" },
+          { name: "max", value: "max" },
+        ],
+      }),
+    ],
+  },
+  {
+    name: "settings",
+    description: "현재 채널에 적용되는 agent 모델과 생각 강도를 보여줍니다.",
   },
   {
     name: "fast",
@@ -518,6 +541,12 @@ function routeCodexCommandShortcut(commandName: string, prompt: string | null): 
       const model = prompt?.trim();
       return model ? `model ${model}` : null;
     }
+    case "effort": {
+      const level = prompt?.trim().toLowerCase();
+      return level ? `effort ${level}` : null;
+    }
+    case "settings":
+      return "settings";
     case "review":
       return `__cdc_codex_review ${prompt?.trim() || "현재 변경사항을 리뷰해줘."}`;
     case "compact":
@@ -583,6 +612,12 @@ export function routeDiscordApplicationCommand(
       const model = interaction.options.getString("model", true)?.trim();
       return model ? `model ${model}` : null;
     }
+    case "effort": {
+      const level = interaction.options.getString("level", true)?.trim().toLowerCase();
+      return level ? `effort ${level}` : null;
+    }
+    case "settings":
+      return "settings";
     case "fast":
       return "fast";
     case "task":

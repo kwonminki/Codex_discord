@@ -5,6 +5,71 @@ import { describe, expect, it } from "vitest";
 import { createDirectSyncStateStore } from "./directState.js";
 
 describe("direct sync state store", () => {
+  it("migrates agent defaults and persists main and thread settings", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
+
+    try {
+      const store = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+
+      await expect(store.read()).resolves.toMatchObject({
+        agentDefaults: {
+          codex: { model: null, effort: "xhigh" },
+          claude: { model: null, effort: "max" },
+        },
+      });
+
+      await store.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [{
+          codexSessionId: "session-1",
+          threadName: "Settings test",
+          updatedAt: "2026-07-23T00:00:00.000Z",
+          cwd: "/repo",
+          workspaceRoot: "/repo",
+          workspaceDisplayName: "repo",
+          discordCategoryId: null,
+          discordChannelId: "thread-1",
+          channelMode: "session-linked",
+          channelName: "settings-test",
+          computerId: "local-dev",
+          workspaceId: "local-dev:/repo",
+        }],
+      });
+
+      await store.updateAgentDefaults("codex", { model: "gpt-5.6-sol", effort: "high" });
+      await store.updateAgentDefaults("claude", { model: "claude-fable-5[1m]", effort: "max" });
+      await store.updateSessionChannelAgentSettings("thread-1", {
+        model: "gpt-5.4",
+        effort: "medium",
+      });
+
+      await expect(store.read()).resolves.toMatchObject({
+        agentDefaults: {
+          codex: { model: "gpt-5.6-sol", effort: "high" },
+          claude: { model: "claude-fable-5[1m]", effort: "max" },
+        },
+        sessionChannels: [{
+          discordChannelId: "thread-1",
+          agentModelOverride: "gpt-5.4",
+          agentEffortOverride: "medium",
+        }],
+      });
+
+      await store.updateSessionChannelAgentSettings("thread-1", { model: null, effort: null });
+      await expect(store.read()).resolves.toMatchObject({
+        sessionChannels: [{
+          discordChannelId: "thread-1",
+          agentModelOverride: null,
+          agentEffortOverride: null,
+        }],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("defaults transcript sync to realtime and persists transcript markers", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "direct-state-"));
 

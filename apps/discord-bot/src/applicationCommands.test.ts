@@ -31,6 +31,8 @@ describe("Discord application commands", () => {
       "compact",
       "skill",
       "model",
+      "effort",
+      "settings",
       "fast",
       "task",
       "codex-mode",
@@ -151,6 +153,18 @@ describe("Discord application commands", () => {
         options: options({ model: "gpt-5.4" }),
       }),
     ).toBe("model gpt-5.4");
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "effort",
+        options: options({ level: "max" }),
+      }),
+    ).toBe("effort max");
+    expect(
+      routeDiscordApplicationCommand({
+        commandName: "settings",
+        options: options({}),
+      }),
+    ).toBe("settings");
     expect(
       routeDiscordApplicationCommand({
         commandName: "fast",

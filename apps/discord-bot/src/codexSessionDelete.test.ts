@@ -33,6 +33,10 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 function seededState() {
   return {
     version: 1 as const,
+    agentDefaults: {
+      codex: { model: null, effort: "xhigh" as const },
+      claude: { model: null, effort: "max" as const },
+    },
     transcriptSyncMode: "on-chat" as const,
     archivedCodexSessionIds: [],
     workspaces: [
@@ -148,6 +152,10 @@ describe("synced Discord session deletion", () => {
       expect(guild.deleteCategory).toHaveBeenCalledWith("category-1");
       await expect(store.read()).resolves.toEqual({
         version: 1,
+        agentDefaults: {
+          codex: { model: null, effort: "xhigh" },
+          claude: { model: null, effort: "max" },
+        },
         transcriptSyncMode: "on-chat",
         archivedCodexSessionIds: [],
         workspaces: [],

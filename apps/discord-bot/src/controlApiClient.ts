@@ -51,6 +51,8 @@ export interface RunClaudePromptJobPayload {
   sessionId: string | null;
   forkSession?: boolean;
   sessionName?: string | null;
+  model?: string | null;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
 }
 
 export type CodexPromptProgressEvent =

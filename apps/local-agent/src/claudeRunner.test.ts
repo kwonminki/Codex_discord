@@ -138,4 +138,44 @@ describe("runClaudePrompt", () => {
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("passes selected model and effort to Claude Code", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-runner-"));
+    const fakeClaude = path.join(tempRoot, "claude");
+    const argsPath = path.join(tempRoot, "args.json");
+
+    try {
+      await writeFile(
+        fakeClaude,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+          "console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'claude-session-1', result: 'done' }));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeClaude, 0o755);
+
+      await runClaudePrompt({
+        workspaceRoot: tempRoot,
+        cwd: tempRoot,
+        prompt: "Use the configured model",
+        timeoutMs: 5_000,
+        claudeCommand: fakeClaude,
+        model: "claude-fable-5[1m]",
+        effort: "max",
+      });
+
+      const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+      expect(args).toEqual(expect.arrayContaining([
+        "--model",
+        "claude-fable-5[1m]",
+        "--effort",
+        "max",
+      ]));
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });

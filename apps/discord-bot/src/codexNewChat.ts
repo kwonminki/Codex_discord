@@ -402,6 +402,8 @@ export async function createForkedDiscordSessionThread(
     discordParentChannelId: parentChannelId,
     discordDeliveryMode: "thread",
     channelMode,
+    agentModelOverride: sourceChannel.agentModelOverride ?? null,
+    agentEffortOverride: sourceChannel.agentEffortOverride ?? null,
     pendingForkSourceDiscordChannelId: input.sourceDiscordChannelId,
     pendingForkSourceSessionId: sourceSessionId,
     channelName,

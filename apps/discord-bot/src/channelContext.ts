@@ -1,4 +1,5 @@
 import type { ChannelMode } from "../../../packages/core/src/index.js";
+import type { AgentDefaultSettings, AgentEffort, AgentKind } from "./agentSettings.js";
 import type { DiscordSessionDeliveryMode } from "./directState.js";
 
 export interface ManagedDiscordChannelContext {
@@ -14,4 +15,8 @@ export interface ManagedDiscordChannelContext {
   claudeSessionId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
   discordParentChannelId?: string | null;
+  agentMain?: AgentKind | null;
+  agentDefaults?: AgentDefaultSettings | null;
+  agentModelOverride?: string | null;
+  agentEffortOverride?: AgentEffort | null;
 }
