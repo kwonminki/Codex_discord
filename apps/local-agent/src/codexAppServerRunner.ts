@@ -1395,7 +1395,7 @@ async function runPromptAgainstAppServer(input: {
         id: message.id,
         error: {
           code: -32601,
-          message: "Codex Discord app-server runner does not support this server request yet.",
+          message: "AI Agent Discord Connector app-server runner does not support this server request yet.",
         },
       }),
     );

@@ -55,7 +55,7 @@ describe("release announcement", () => {
       "v1.0: 첫 공개 버전\n\n- 자동 공지",
     )));
 
-    assert.equal(payload.username, "Codex Releases");
+    assert.equal(payload.username, "AI Agent Releases");
     assert.deepEqual(payload.allowed_mentions, { parse: [] });
     assert.equal(payload.embeds[0].title, "AI Agent Discord Connector v1.0");
     assert.equal(payload.embeds[0].description, "**첫 공개 버전**\n\n- 자동 공지");

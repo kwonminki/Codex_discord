@@ -97,7 +97,7 @@ After the bot has joined, use the Discord API and the existing token to configur
 7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
 8. Register guild slash commands.
 9. On a dedicated private connector server, call `PATCH /guilds/{guild.id}` with `default_message_notifications: 1` and verify the returned value. This sets the guild default to `ONLY_MENTIONS`. On a shared or ambiguous server, explain the guild-wide effect and ask first.
-10. Optionally create a release channel and webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
+10. Optionally create an `#ai-agent-releases` channel and an `AI Agent Releases` webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
 
 Before creating anything, search for matching roles, categories, channels, and webhooks. Do not delete or overwrite resources with unclear ownership. Re-running setup after a partial failure must not create duplicates.
 

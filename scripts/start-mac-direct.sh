@@ -33,7 +33,7 @@ if [[ -z "${CODEX_DISCORD_CLAUDE_COMMAND:-}" ]] && command -v claude >/dev/null 
 fi
 
 if [[ ! -f "$REPO_ROOT/package.json" ]]; then
-  echo "Codex Discord repo was not found at $REPO_ROOT" >&2
+  echo "AI Agent Discord Connector repo was not found at $REPO_ROOT" >&2
   echo "Set CODEX_DISCORD_REPO_ROOT to the source checkout path." >&2
   exit 1
 fi

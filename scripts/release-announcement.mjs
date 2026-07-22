@@ -52,7 +52,7 @@ export function buildDiscordReleasePayload(release) {
   );
 
   return {
-    username: "Codex Releases",
+    username: "AI Agent Releases",
     allowed_mentions: { parse: [] },
     embeds: [{
       title: `AI Agent Discord Connector v${release.version}`,

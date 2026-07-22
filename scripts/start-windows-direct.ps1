@@ -16,7 +16,7 @@ $repoRoot = if ($env:CODEX_DISCORD_REPO_ROOT) {
 $repoRoot = (Resolve-Path $repoRoot).Path
 
 if (-not (Test-Path (Join-Path $repoRoot "package.json") -PathType Leaf)) {
-  throw "Codex Discord repo was not found at $repoRoot. Set CODEX_DISCORD_REPO_ROOT to the checkout path."
+  throw "AI Agent Discord Connector repo was not found at $repoRoot. Set CODEX_DISCORD_REPO_ROOT to the checkout path."
 }
 
 function Find-Application([string]$name) {
