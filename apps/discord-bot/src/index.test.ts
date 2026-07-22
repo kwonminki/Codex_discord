@@ -137,12 +137,12 @@ describe("bot entrypoint", () => {
     expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
       { login, once, on },
       expect.any(Function),
-      { answerCopyStore: expect.any(Object) },
+      { answerCopyStore: expect.any(Object), locale: "ko" },
     );
     expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
       { login, once, on },
       expect.any(Function),
-      { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object) },
+      { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object), locale: "ko" },
     );
     expect(login).toHaveBeenCalledWith("discord-token");
   }, 15_000);
@@ -161,6 +161,7 @@ describe("bot entrypoint", () => {
             token: "discord-token",
             guildId: "guild-1",
             allowedRoleIds: ["role-operator"],
+            locale: "en",
           },
           direct: {
             computerId: "local-dev",
@@ -203,20 +204,20 @@ describe("bot entrypoint", () => {
       expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
         { login, once, on },
         expect.any(Function),
-        { answerCopyStore: expect.any(Object) },
+        { answerCopyStore: expect.any(Object), locale: "en" },
       );
-    expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
-      { login, once, on },
-      expect.any(Function),
-      { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object) },
-    );
+      expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
+        { login, once, on },
+        expect.any(Function),
+        { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object), locale: "en" },
+      );
       expect(login).toHaveBeenCalledWith("discord-token");
 
       const readyHandler = once.mock.calls.find(([eventName]) => eventName === "ready")?.[1] as
         | (() => void)
         | undefined;
       readyHandler?.();
-      expect(registerDiscordApplicationCommands).toHaveBeenCalledWith({ login, once, on }, "guild-1");
+      expect(registerDiscordApplicationCommands).toHaveBeenCalledWith({ login, once, on }, "guild-1", "en");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

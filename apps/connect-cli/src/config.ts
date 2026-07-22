@@ -1,6 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  resolveConnectorLocale,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
 
 export type ConnectMode = "direct" | "hub";
 
@@ -8,6 +12,7 @@ export interface DiscordConfig {
   token: string;
   guildId: string;
   allowedRoleIds: string[];
+  locale: ConnectorLocale;
 }
 
 export interface DirectConnectConfig {
@@ -52,6 +57,7 @@ export interface BuildDirectConfigInput {
   computerDisplayName?: string;
   codexHome?: string;
   timeoutMs?: number;
+  locale?: string;
 }
 
 export interface BuildHubConfigInput {
@@ -60,6 +66,7 @@ export interface BuildHubConfigInput {
   roleIds: string | string[];
   controlApiUrl?: string;
   controlWsUrl?: string;
+  locale?: string;
 }
 
 export function parseRoleIds(roleIds: string | string[]): string[] {
@@ -84,6 +91,7 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
       token: input.token,
       guildId: input.guildId,
       allowedRoleIds: parseRoleIds(input.roleIds),
+      locale: resolveConnectorLocale(input.locale),
     },
     direct: {
       computerId,
@@ -108,6 +116,7 @@ export function buildHubConfig(input: BuildHubConfigInput): HubConnectConfig {
       token: input.token,
       guildId: input.guildId,
       allowedRoleIds: parseRoleIds(input.roleIds),
+      locale: resolveConnectorLocale(input.locale),
     },
     hub: {
       controlApiUrl: input.controlApiUrl ?? "http://127.0.0.1:4317",
@@ -125,6 +134,7 @@ export function renderEnvFile(config: ConnectConfig): string {
     `DISCORD_TOKEN="${config.discord.token}"`,
     `DISCORD_GUILD_ID="${config.discord.guildId}"`,
     `DISCORD_ALLOWED_ROLE_IDS="${config.discord.allowedRoleIds.join(",")}"`,
+    `CONNECT_LOCALE="${config.discord.locale}"`,
   ];
 
   if (config.mode === "hub") {

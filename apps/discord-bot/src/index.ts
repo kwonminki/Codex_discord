@@ -2,6 +2,10 @@ import os from "node:os";
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
+import {
+  resolveConnectorLocale,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
 import { createAnswerCopyStore, type AnswerCopyStore } from "./answerCopyStore.js";
 import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
 import {
@@ -232,6 +236,7 @@ function resolveReadyGuildSurface(
   client: ReturnType<typeof createDiscordClient>,
   guildId?: string,
   answerCopyStore?: AnswerCopyStore,
+  locale: ConnectorLocale = "ko",
 ): DiscordGuildSurface | null {
   const cache = client.guilds?.cache;
   if (!cache) {
@@ -239,12 +244,15 @@ function resolveReadyGuildSurface(
   }
   const guild = guildId ? cache.get(guildId) : cache.first();
 
-  return createDiscordGuildSurface(guild ?? null, { answerCopyStore });
+  return createDiscordGuildSurface(guild ?? null, { answerCopyStore, locale });
 }
 
 export async function startBot(): Promise<void> {
   const connectConfig = await loadConnectConfig();
   const token = process.env.DISCORD_TOKEN ?? connectConfig?.discord.token;
+  const locale = resolveConnectorLocale(
+    process.env.CONNECT_LOCALE ?? connectConfig?.discord.locale,
+  );
 
   if (!token) {
     throw new Error("DISCORD_TOKEN is required");
@@ -504,7 +512,7 @@ export async function startBot(): Promise<void> {
     execution: BotReloadExecutionState;
     force: boolean;
   }) => {
-    await registerDiscordApplicationCommands(client, connectConfig?.discord.guildId);
+    await registerDiscordApplicationCommands(client, connectConfig?.discord.guildId, locale);
     const workerExecution = await directWorkerClient?.executionState();
     const execution = workerExecution
       ? {
@@ -657,6 +665,7 @@ export async function startBot(): Promise<void> {
           })
       : undefined;
   const processMessage = createDiscordMessageHandler({
+    locale,
     resolveChannelContext: controlApiClient.getChannelContext,
     submitCommandJob: controlApiClient.submitCommandJob,
     submitCodexPrompt: controlApiClient.submitCodexPrompt,
@@ -734,12 +743,12 @@ export async function startBot(): Promise<void> {
 
   client.once("ready", () => {
     console.info(`Discord bot ready as ${client.user?.tag ?? "unknown"}`);
-    void registerDiscordApplicationCommands(client, connectConfig?.discord.guildId).catch((error) => {
+    void registerDiscordApplicationCommands(client, connectConfig?.discord.guildId, locale).catch((error) => {
       console.error("discord-bot failed to register slash commands", error);
     });
 
     if (durableRequestStore) {
-      const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
+      const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore, locale);
       if (guild?.sendTextMessage) {
         void (async () => {
           const requests = await durableRequestStore.list();
@@ -805,7 +814,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore, locale);
 
         if (!guild) {
           return;
@@ -862,7 +871,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore, locale);
 
         if (!guild?.sendTextMessage) {
           return;
@@ -919,7 +928,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore, locale);
 
         if (!guild) {
           return;
@@ -973,7 +982,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore, locale);
 
         if (!guild?.sendTextMessage) {
           return;
@@ -1010,10 +1019,11 @@ export async function startBot(): Promise<void> {
       timer.unref();
     }
   });
-  attachDiscordMessageHandler(client, handleMessage, { answerCopyStore });
+  attachDiscordMessageHandler(client, handleMessage, { answerCopyStore, locale });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),
     answerCopyStore,
+    locale,
   });
 
   await client.login(token);

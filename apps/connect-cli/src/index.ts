@@ -6,6 +6,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import {
+  localizeConnectorText,
+  resolveConnectorLocale,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
+import {
   buildDirectConfig,
   buildHubConfig,
   type ConnectMode,
@@ -143,7 +148,11 @@ async function askOptional(inputValue: string | undefined, question: string): Pr
   }
 }
 
-export function discordSetupGuide(mode: ConnectMode): string[] {
+function cliText(value: string, locale: ConnectorLocale): string {
+  return localizeConnectorText(value, locale);
+}
+
+export function discordSetupGuide(mode: ConnectMode, locale: ConnectorLocale = "ko"): string[] {
   const lines = [
     "Discord 설정값 준비:",
     "  1. Bot token: Discord Developer Portal (https://discord.com/developers/applications) > 앱 선택 > Bot > Reset Token/Copy",
@@ -161,38 +170,39 @@ export function discordSetupGuide(mode: ConnectMode): string[] {
     );
   }
 
-  return lines;
+  return lines.map((line) => cliText(line, locale));
 }
 
 async function setup(flags: Map<string, string | boolean>) {
   const mode = (flag(flags, "mode") ?? (flags.has("hub") ? "hub" : "direct")) as ConnectMode;
+  const locale = resolveConnectorLocale(flag(flags, "locale") ?? process.env.CONNECT_LOCALE);
 
-  console.info(discordSetupGuide(mode).join("\n"));
+  console.info(discordSetupGuide(mode, locale).join("\n"));
   console.info("");
 
   const token = await askMissing(
     flag(flags, "token") ?? process.env.DISCORD_TOKEN,
-    "Discord bot token (Developer Portal > Bot): ",
+    cliText("Discord bot token (Developer Portal > Bot): ", locale),
   );
   const guildId = await askMissing(
     flag(flags, "guild-id") ?? process.env.DISCORD_GUILD_ID,
-    "Discord server/guild ID (server icon > Copy Server ID): ",
+    cliText("Discord server/guild ID (server icon > Copy Server ID): ", locale),
   );
   const roleIds = await askMissing(
     flag(flags, "role-ids") ?? process.env.DISCORD_ALLOWED_ROLE_IDS,
-    "Operator role IDs (comma-separated): ",
+    cliText("Operator role IDs (comma-separated): ", locale),
   );
 
   const channelId = mode === "direct"
     ? await askMissing(
         flag(flags, "channel-id") ?? process.env.CODEX_CHANNEL_ID,
-        "Codex/admin channel ID (Codex channel > Copy Channel ID): ",
+        cliText("Codex/admin channel ID (Codex channel > Copy Channel ID): ", locale),
       )
     : undefined;
   const claudeChannelId = mode === "direct"
     ? await askOptional(
         flag(flags, "claude-channel-id") ?? process.env.CLAUDE_CHANNEL_ID,
-        "Claude Code channel ID (Claude channel > Copy Channel ID, Enter to disable): ",
+        cliText("Claude Code channel ID (Claude channel > Copy Channel ID, Enter to disable): ", locale),
       )
     : undefined;
 
@@ -204,6 +214,7 @@ async function setup(flags: Map<string, string | boolean>) {
           roleIds,
           controlApiUrl: flag(flags, "control-api-url"),
           controlWsUrl: flag(flags, "control-ws-url"),
+          locale,
         })
       : buildDirectConfig({
           token,
@@ -217,6 +228,7 @@ async function setup(flags: Map<string, string | boolean>) {
           computerId: flag(flags, "computer-id"),
           computerDisplayName: flag(flags, "computer-name"),
           codexHome: flag(flags, "codex-home"),
+          locale,
         });
 
   await writeSetupFiles({ cwd: process.cwd(), config });
@@ -234,9 +246,10 @@ async function status() {
   }
 
   const rawConfig = await readFile(configPath, "utf8");
-  const config = JSON.parse(rawConfig) as { mode?: unknown };
+  const config = JSON.parse(rawConfig) as { mode?: unknown; discord?: { locale?: unknown } };
   console.info(`Connect config: ${configPath}`);
   console.info(`Mode: ${String(config.mode ?? "unknown")}`);
+  console.info(`Locale: ${String(config.discord?.locale ?? "ko")}`);
 }
 
 async function start(flags: Map<string, string | boolean>) {
@@ -341,6 +354,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   console.info("Usage:");
   console.info("  cdc install --direct");
+  console.info("  cdc install --direct --locale en");
   console.info("  cdc setup --direct");
   console.info("  cdc setup --hub");
   console.info("  cdc start --direct");

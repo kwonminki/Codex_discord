@@ -1,9 +1,11 @@
 import {
   authorizeCommand,
+  localizeConnectorText,
   parseDiscordMessageCommand,
   type ChannelMode,
+  type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
-import { CODEX_DISCORD_HOW_TO_USE_PROMPT } from "./codexUsagePrompt.js";
+import { codexDiscordHowToUsePrompt } from "./codexUsagePrompt.js";
 import type { AgentEffort, AgentKind } from "./agentSettings.js";
 import type { TranscriptSyncMode } from "./directState.js";
 import type { ScheduleCommandRequest } from "./scheduler.js";
@@ -14,6 +16,7 @@ export interface RouteDiscordMessageInput {
   content: string;
   userRoleIds: string[];
   allowedRoleIds: string[];
+  locale?: ConnectorLocale;
 }
 
 export type RoutedDiscordMessage =
@@ -76,16 +79,22 @@ function parseComponentShellCommand(content: string): { command: string; confirm
   return parseExplicitConfirmation(content.slice("__cdc_exec ".length).trim());
 }
 
-function parseInternalCodexReview(content: string): { prompt: string } | null {
+function parseInternalCodexReview(
+  content: string,
+  locale: ConnectorLocale = "ko",
+): { prompt: string } | null {
   if (!content.startsWith("__cdc_codex_review")) {
     return null;
   }
 
   const prompt = content.slice("__cdc_codex_review".length).trim();
-  return { prompt: prompt || "현재 변경사항을 리뷰해줘." };
+  return { prompt: prompt || localizeConnectorText("현재 변경사항을 리뷰해줘.", locale) };
 }
 
-function parseCodexReviewCommand(content: string): { prompt: string } | null {
+function parseCodexReviewCommand(
+  content: string,
+  locale: ConnectorLocale = "ko",
+): { prompt: string } | null {
   const normalized = content.replace(/\s+/g, " ").trim();
   const match = normalized.match(/^(?:codex\s+)?review(?:\s+(.+))?$/i);
 
@@ -93,25 +102,34 @@ function parseCodexReviewCommand(content: string): { prompt: string } | null {
     return null;
   }
 
-  return { prompt: match[1]?.trim() || "현재 변경사항을 리뷰해줘." };
+  return {
+    prompt: match[1]?.trim() || localizeConnectorText("현재 변경사항을 리뷰해줘.", locale),
+  };
 }
 
-function parseCodexShortcut(content: string): { content: string } | null {
+function parseCodexShortcut(
+  content: string,
+  locale: ConnectorLocale = "ko",
+): { content: string } | null {
   const normalized = content.replace(/\s+/g, " ").trim();
   const compact = normalized.match(/^compact(?:\s+(.+))?$/i);
 
   if (compact) {
     const prompt = compact[1]?.trim();
+    const generatedPrompt = prompt
+      ? `지금까지의 작업 맥락을 압축 요약해줘. ${prompt}`
+      : "지금까지의 작업 맥락을 압축 요약해줘.";
     return {
-      content: prompt
-        ? `지금까지의 작업 맥락을 압축 요약해줘. ${prompt}`
-        : "지금까지의 작업 맥락을 압축 요약해줘.",
+      content: localizeConnectorText(generatedPrompt, locale),
     };
   }
 
   if (/^fix-tests$/i.test(normalized)) {
     return {
-      content: "테스트를 실행하고 실패 원인을 분석한 뒤 수정해줘. 수정 후 테스트를 다시 실행해줘",
+      content: localizeConnectorText(
+        "테스트를 실행하고 실패 원인을 분석한 뒤 수정해줘. 수정 후 테스트를 다시 실행해줘",
+        locale,
+      ),
     };
   }
 
@@ -119,7 +137,10 @@ function parseCodexShortcut(content: string): { content: string } | null {
 
   if (summarize) {
     return {
-      content: `${summarize[1]?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`,
+      content: localizeConnectorText(
+        `${summarize[1]?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`,
+        locale,
+      ),
     };
   }
 
@@ -127,22 +148,32 @@ function parseCodexShortcut(content: string): { content: string } | null {
 
   if (skill) {
     return {
-      content: `${skill[1]} skill을 적용해서 다음 요청을 처리해줘: ${skill[2].trim()}`,
+      content: localizeConnectorText(
+        `${skill[1]} skill을 적용해서 다음 요청을 처리해줘: ${skill[2].trim()}`,
+        locale,
+      ),
     };
   }
 
   return null;
 }
 
-function parseAgentUsageShortcut(content: string): { content: string } | null {
+function parseAgentUsageShortcut(
+  content: string,
+  locale: ConnectorLocale = "ko",
+): { content: string } | null {
   const normalized = content.replace(/\s+/g, " ").trim();
 
   return /^\/(?:howtouse|how-to-use|사용법)$/i.test(normalized)
-    ? { content: CODEX_DISCORD_HOW_TO_USE_PROMPT }
+    ? { content: codexDiscordHowToUsePrompt(locale) }
     : null;
 }
 
-function codexCommandShortcut(commandName: string, prompt: string | null): RoutedDiscordMessage | null {
+function codexCommandShortcut(
+  commandName: string,
+  prompt: string | null,
+  locale: ConnectorLocale = "ko",
+): RoutedDiscordMessage | null {
   switch (commandName) {
     case "status":
       return { type: "channel-status" };
@@ -163,14 +194,18 @@ function codexCommandShortcut(commandName: string, prompt: string | null): Route
       return mode ? { type: "codex-run-mode", mode } : null;
     }
     case "review":
-      return { type: "codex-review", prompt: prompt?.trim() || "현재 변경사항을 리뷰해줘." };
+      return {
+        type: "codex-review",
+        prompt: prompt?.trim() || localizeConnectorText("현재 변경사항을 리뷰해줘.", locale),
+      };
     case "compact": {
       const compact = prompt?.trim();
+      const generatedPrompt = compact
+        ? `지금까지의 작업 맥락을 압축 요약해줘. ${compact}`
+        : "지금까지의 작업 맥락을 압축 요약해줘.";
       return {
         type: "codex-chat",
-        content: compact
-          ? `지금까지의 작업 맥락을 압축 요약해줘. ${compact}`
-          : "지금까지의 작업 맥락을 압축 요약해줘.",
+        content: localizeConnectorText(generatedPrompt, locale),
       };
     }
     case "mcp":
@@ -184,7 +219,10 @@ function codexCommandShortcut(commandName: string, prompt: string | null): Route
   }
 }
 
-function parseBridgeShortcut(content: string): RoutedDiscordMessage | null {
+function parseBridgeShortcut(
+  content: string,
+  locale: ConnectorLocale = "ko",
+): RoutedDiscordMessage | null {
   const normalized = content.replace(/\s+/g, " ").trim();
 
   if (/^(?:diff|git diff)$/i.test(normalized)) {
@@ -204,7 +242,11 @@ function parseBridgeShortcut(content: string): RoutedDiscordMessage | null {
   const codexCommand = normalized.match(/^codex-command\s+([a-z0-9_-]{1,32})(?:\s+(.+))?$/i);
 
   if (codexCommand) {
-    const routed = codexCommandShortcut(codexCommand[1].toLowerCase(), codexCommand[2] ?? null);
+    const routed = codexCommandShortcut(
+      codexCommand[1].toLowerCase(),
+      codexCommand[2] ?? null,
+      locale,
+    );
 
     if (!routed) {
       return null;
@@ -1114,7 +1156,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     }
   }
 
-  const agentUsageShortcut = parseAgentUsageShortcut(trimmedContent);
+  const agentUsageShortcut = parseAgentUsageShortcut(trimmedContent, input.locale);
 
   if (agentUsageShortcut) {
     const denied = authorizationDenied(input);
@@ -1128,7 +1170,7 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
       : { type: "codex-chat", content: agentUsageShortcut.content };
   }
 
-  const bridgeShortcut = parseBridgeShortcut(trimmedContent);
+  const bridgeShortcut = parseBridgeShortcut(trimmedContent, input.locale);
 
   if (
     input.channelMode === "claude-code" &&
@@ -1181,7 +1223,8 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
   const codexReview =
     input.channelMode === "claude-code"
       ? null
-      : parseInternalCodexReview(trimmedContent) ?? parseCodexReviewCommand(trimmedContent);
+      : parseInternalCodexReview(trimmedContent, input.locale) ??
+        parseCodexReviewCommand(trimmedContent, input.locale);
 
   if (codexReview) {
     const denied = authorizationDenied(input);
@@ -1193,7 +1236,9 @@ export function routeDiscordMessage(input: RouteDiscordMessageInput): RoutedDisc
     return { type: "codex-review", prompt: codexReview.prompt };
   }
 
-  const codexShortcut = input.channelMode === "claude-code" ? null : parseCodexShortcut(trimmedContent);
+  const codexShortcut = input.channelMode === "claude-code"
+    ? null
+    : parseCodexShortcut(trimmedContent, input.locale);
 
   if (codexShortcut) {
     const denied = authorizationDenied(input);

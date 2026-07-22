@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ChannelMode } from "../../../packages/core/src/index.js";
+import type {
+  ChannelMode,
+  ConnectorLocale,
+} from "../../../packages/core/src/index.js";
 
 export interface DirectConnectConfig {
   mode: "direct";
@@ -8,6 +11,7 @@ export interface DirectConnectConfig {
     token: string;
     guildId: string;
     allowedRoleIds: string[];
+    locale?: ConnectorLocale;
   };
   direct: {
     computerId: string;
@@ -30,6 +34,7 @@ export interface HubConnectConfig {
     token: string;
     guildId: string;
     allowedRoleIds: string[];
+    locale?: ConnectorLocale;
   };
   hub: {
     controlApiUrl: string;

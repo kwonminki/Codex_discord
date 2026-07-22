@@ -1,4 +1,7 @@
-import { classifyCommand } from "../../../packages/core/src/index.js";
+import {
+  classifyCommand,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
 import type { ManagedDiscordChannelContext } from "./channelContext.js";
 import type {
   DeletePreviewResult,
@@ -143,6 +146,7 @@ export interface DiscordReplyLike {
 export type DiscordOutgoingMessage = string | DiscordMessagePayload;
 
 export interface CreateDiscordMessageHandlerInput {
+  locale?: ConnectorLocale;
   resolveChannelContext(channelId: string): Promise<ManagedDiscordChannelContext | null>;
   submitCommandJob: ControlApiClient["submitCommandJob"];
   submitCodexPrompt?: ControlApiClient["submitCodexPrompt"];
@@ -832,6 +836,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         content: entry.message.content,
         userRoleIds: entry.message.roleIds,
         allowedRoleIds: channelContext.allowedRoleIds,
+        locale: input.locale,
       });
 
       return routed.type === "codex-chat" ||
@@ -852,6 +857,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       content: message.content,
       userRoleIds: message.roleIds,
       allowedRoleIds: channelContext.allowedRoleIds,
+      locale: input.locale,
     });
   }
 

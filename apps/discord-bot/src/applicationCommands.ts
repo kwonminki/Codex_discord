@@ -1,3 +1,8 @@
+import {
+  localizeConnectorText,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
+
 const OPTION_TYPES = {
   string: 3,
   integer: 4,
@@ -510,6 +515,23 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
 ];
 
+export function discordApplicationCommands(
+  locale: ConnectorLocale = "ko",
+): DiscordApplicationCommandDefinition[] {
+  return DISCORD_APPLICATION_COMMANDS.map((command) => ({
+    ...command,
+    description: localizeConnectorText(command.description, locale),
+    options: command.options?.map((option) => ({
+      ...option,
+      description: localizeConnectorText(option.description, locale),
+      choices: option.choices?.map((choice) => ({
+        ...choice,
+        name: localizeConnectorText(choice.name, locale),
+      })),
+    })),
+  }));
+}
+
 function normalizeSlashCommandName(command: string): string | null {
   const normalized = command.trim().replace(/^\/+/, "").toLowerCase();
 
@@ -520,18 +542,26 @@ function normalizeSlashCommandName(command: string): string | null {
   return normalized;
 }
 
-function compactPrompt(prompt: string | null): string {
+function compactPrompt(prompt: string | null, locale: ConnectorLocale): string {
   const normalizedPrompt = prompt?.trim() ?? "";
-  return normalizedPrompt.length > 0
+  const generatedPrompt = normalizedPrompt.length > 0
     ? `codex 지금까지의 작업 맥락을 압축 요약해줘. ${normalizedPrompt}`
     : "codex 지금까지의 작업 맥락을 압축 요약해줘.";
+  return localizeConnectorText(generatedPrompt, locale);
 }
 
-function skillPrompt(skillName: string, prompt: string): string {
-  return `codex ${skillName} skill을 적용해서 다음 요청을 처리해줘: ${prompt}`;
+function skillPrompt(skillName: string, prompt: string, locale: ConnectorLocale): string {
+  return localizeConnectorText(
+    `codex ${skillName} skill을 적용해서 다음 요청을 처리해줘: ${prompt}`,
+    locale,
+  );
 }
 
-function routeCodexCommandShortcut(commandName: string, prompt: string | null): string | null {
+function routeCodexCommandShortcut(
+  commandName: string,
+  prompt: string | null,
+  locale: ConnectorLocale,
+): string | null {
   switch (commandName) {
     case "status":
       return "where";
@@ -548,13 +578,16 @@ function routeCodexCommandShortcut(commandName: string, prompt: string | null): 
     case "settings":
       return "settings";
     case "review":
-      return `__cdc_codex_review ${prompt?.trim() || "현재 변경사항을 리뷰해줘."}`;
+      return `__cdc_codex_review ${prompt?.trim() || localizeConnectorText("현재 변경사항을 리뷰해줘.", locale)}`;
     case "compact":
-      return compactPrompt(prompt);
+      return compactPrompt(prompt, locale);
     case "mcp":
       return prompt?.trim() ? `__cdc_exec codex mcp ${prompt.trim()}` : "__cdc_exec codex mcp list";
     default:
-      return `codex Codex CLI 명령 '${commandName}'을 직접 실행할 수 있는지 확인하고, 가능하면 대체 실행 방법을 제안해줘. 인자: ${prompt?.trim() || "(none)"}`;
+      return localizeConnectorText(
+        `codex Codex CLI 명령 '${commandName}'을 직접 실행할 수 있는지 확인하고, 가능하면 대체 실행 방법을 제안해줘. 인자: ${prompt?.trim() || "(none)"}`,
+        locale,
+      );
   }
 }
 
@@ -581,6 +614,7 @@ function encodedScheduleCommand(input: {
 
 export function routeDiscordApplicationCommand(
   interaction: DiscordApplicationCommandInteractionLike,
+  locale: ConnectorLocale = "ko",
 ): string | null {
   const commandName = interaction.commandName.trim().toLowerCase();
 
@@ -594,10 +628,10 @@ export function routeDiscordApplicationCommand(
         return null;
       }
 
-      return routeCodexCommandShortcut(commandName, interaction.options.getString("prompt"));
+      return routeCodexCommandShortcut(commandName, interaction.options.getString("prompt"), locale);
     }
     case "compact":
-      return compactPrompt(interaction.options.getString("prompt"));
+      return compactPrompt(interaction.options.getString("prompt"), locale);
     case "skill": {
       const skillName = interaction.options.getString("name", true)?.trim();
       const prompt = interaction.options.getString("prompt", true)?.trim();
@@ -606,7 +640,7 @@ export function routeDiscordApplicationCommand(
         return null;
       }
 
-      return skillPrompt(skillName, prompt);
+      return skillPrompt(skillName, prompt, locale);
     }
     case "model": {
       const model = interaction.options.getString("model", true)?.trim();
@@ -631,11 +665,17 @@ export function routeDiscordApplicationCommand(
     case "diff":
       return "__cdc_exec git diff --stat";
     case "review":
-      return `__cdc_codex_review ${interaction.options.getString("prompt")?.trim() || "현재 변경사항을 리뷰해줘."}`;
+      return `__cdc_codex_review ${interaction.options.getString("prompt")?.trim() || localizeConnectorText("현재 변경사항을 리뷰해줘.", locale)}`;
     case "fix-tests":
-      return "codex 테스트를 실행하고 실패 원인을 분석한 뒤 수정해줘. 수정 후 테스트를 다시 실행해줘";
+      return localizeConnectorText(
+        "codex 테스트를 실행하고 실패 원인을 분석한 뒤 수정해줘. 수정 후 테스트를 다시 실행해줘",
+        locale,
+      );
     case "summarize":
-      return `codex ${interaction.options.getString("target")?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`;
+      return localizeConnectorText(
+        `codex ${interaction.options.getString("target")?.trim() || "현재 채널"}을 요약하고 다음 액션을 제안해줘`,
+        locale,
+      );
     case "howtouse":
     case "how-to-use":
     case "how_to_use":
@@ -760,7 +800,10 @@ export function routeDiscordApplicationCommand(
 export async function registerDiscordApplicationCommands(
   client: DiscordCommandRegistrationClient,
   guildId?: string,
+  locale: ConnectorLocale = "ko",
 ): Promise<void> {
+  const commands = discordApplicationCommands(locale);
+
   if (guildId) {
     const guild = client.guilds?.cache?.get(guildId) ?? (await client.guilds?.fetch?.(guildId));
 
@@ -768,7 +811,7 @@ export async function registerDiscordApplicationCommands(
       throw new Error(`Discord guild ${guildId} is not available for command registration.`);
     }
 
-    await guild.commands.set(DISCORD_APPLICATION_COMMANDS);
+    await guild.commands.set(commands);
     return;
   }
 
@@ -776,5 +819,5 @@ export async function registerDiscordApplicationCommands(
     throw new Error("Discord application is not available for command registration.");
   }
 
-  await client.application.commands.set(DISCORD_APPLICATION_COMMANDS);
+  await client.application.commands.set(commands);
 }

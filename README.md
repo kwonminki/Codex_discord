@@ -1,5 +1,7 @@
 # Codex Discord Connector
 
+한국어 | [English](README.en.md)
+
 Mac이나 Ubuntu 서버에서 실행되는 **Codex와 Claude Code를 Discord 스레드로 사용하는 개인용 브리지**입니다.
 
 Discord에서 평소처럼 메시지를 보내면 agent가 해당 컴퓨터에서 작업하고, 중간 진행과 최종 답변을 Discord로 돌려줍니다. 이미지, 영상, 오디오, 일반 파일도 양방향으로 주고받을 수 있습니다.
@@ -18,6 +20,8 @@ https://github.com/kwonminki/Codex_discord
 Codex runner는 app-server를 사용하고, Discord bot과 worker는 서로 분리된
 LaunchAgent 또는 systemd 서비스로 등록해줘.
 기존 실행 작업이 있다면 먼저 확인하고 안전하게 배포해줘.
+내 대화 언어를 확인해서 connector 언어를 선택해줘. 한국어는 ko, 영어는 en을
+사용하고, 그 밖의 언어라면 docs/localization.md에 따라 번역 catalog만 추가해줘.
 설치 후 pnpm typecheck와 pnpm test를 실행하고 Discord ready 로그까지 확인해줘.
 첫 설치라면 private Discord 서버 생성, application/bot 생성, 서버 초대를
 한 단계씩 안내하고 내가 완료할 때마다 다음 단계로 진행해줘.
@@ -27,6 +31,22 @@ API로 확인할 수 없는 token과 값만 나에게 하나씩 물어봐.
 ```
 
 AI 에이전트가 읽어야 할 전체 설치·구조·운영 문서는 [AI Agent Guide](docs/AI_AGENT_GUIDE.md)입니다.
+
+## 언어 선택
+
+Connector UI는 인스턴스별로 언어를 선택합니다. 현재 기본 제공 언어는 한국어(`ko`, 기본값)와 영어(`en`)입니다. 버튼, 모달, embed, 상태 문구, slash command 설명과 `/howtouse` 안내가 선택한 언어로 표시되며, 사용자 메시지와 agent가 작성한 답변은 번역하지 않습니다.
+
+```bash
+# 한국어 설치
+pnpm connect install --direct --locale ko
+
+# 영어 설치
+pnpm connect install --direct --locale en
+```
+
+기존 설치는 `.connect/config.json`의 `discord.locale` 또는 서비스 환경 변수 `CONNECT_LOCALE=en`으로 바꾼 뒤 **bot service만** 재시작하고 slash command 재등록을 확인하세요. 같은 bot token을 쓰는 여러 컴퓨터도 각 인스턴스마다 다른 언어를 사용할 수 있습니다.
+
+한국어·영어가 아닌 언어는 핵심 로직을 복제하지 않고 locale catalog 하나를 추가하도록 구성되어 있습니다. 번역할 파일, 등록 절차, 번역하면 안 되는 protocol 값은 [Localization Guide](docs/localization.md)에 정리했습니다.
 
 ## 사용자가 준비할 것
 
@@ -316,6 +336,7 @@ OS 권한, macOS 개인정보 보호 설정, Linux 사용자 권한, `sudo`, 컨
 ## 자세한 문서
 
 - [AI Agent Guide: 설치, Discord bot 생성, 코드 구조, 서비스, 운영, 디버깅](docs/AI_AGENT_GUIDE.md)
+- [Localization Guide: 영어 설치와 새 언어 추가](docs/localization.md)
 - [Mac Direct Mode](docs/mac-direct-setup.md)
 - [Ubuntu Server Direct Mode](docs/ubuntu-server-direct-setup.ko.md)
 - [Operator Guide](docs/operator-guide.md)

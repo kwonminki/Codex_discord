@@ -1,4 +1,8 @@
 import {
+  localizeConnectorText,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
+import {
   MAX_DISCORD_ATTACHMENT_DISCORD_LABEL,
   MAX_DISCORD_ATTACHMENT_LABEL,
 } from "./discordAttachmentLimits.js";
@@ -52,3 +56,9 @@ export const CODEX_DISCORD_HOW_TO_USE_PROMPT = [
   "",
   "Codex 또는 Claude Code 중 현재 실행 중인 agent로서 이 안내를 짧게 확인하고, 이후부터 필요할 때 이 형식을 사용하세요.",
 ].join("\n");
+
+export function codexDiscordHowToUsePrompt(
+  locale: ConnectorLocale = "ko",
+): string {
+  return localizeConnectorText(CODEX_DISCORD_HOW_TO_USE_PROMPT, locale);
+}

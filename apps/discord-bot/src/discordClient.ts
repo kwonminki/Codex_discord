@@ -5,6 +5,10 @@ import {
   type Guild,
   type Message,
 } from "discord.js";
+import {
+  localizeConnectorText,
+  type ConnectorLocale,
+} from "../../../packages/core/src/index.js";
 import type { AnswerCopyStore } from "./answerCopyStore.js";
 import {
   DISCORD_APPLICATION_COMMANDS,
@@ -14,6 +18,7 @@ import {
 import type { DiscordGuildSurface } from "./codexSessionSync.js";
 import type { DiscordMessageLike } from "./messageHandler.js";
 import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
+import { localizeDiscordModal, localizeDiscordOutgoing } from "./i18n.js";
 import {
   getAnswerCopyText,
   withRoleMentions,
@@ -34,10 +39,12 @@ interface DiscordInteractionEventClient {
 interface DiscordInteractionHandlerOptions {
   isManagedChannel?(channelId: string): boolean | Promise<boolean>;
   answerCopyStore?: AnswerCopyStore;
+  locale?: ConnectorLocale;
 }
 
 interface DiscordMessageHandlerOptions {
   answerCopyStore?: AnswerCopyStore;
+  locale?: ConnectorLocale;
 }
 
 export function createDiscordClient(): Client {
@@ -167,32 +174,30 @@ async function prepareOutgoingMessage(
   content: string | DiscordMessagePayload,
   options?: { mentionRoleIds?: string[] },
   answerCopyStore?: AnswerCopyStore,
+  locale: ConnectorLocale = "ko",
 ): Promise<string | DiscordMessagePayload> {
   const mentionRoleIds = options?.mentionRoleIds?.filter(Boolean) ?? [];
-  const preparedContent = mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
+  let preparedContent = mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
 
-  if (typeof preparedContent === "string" || !answerCopyStore) {
-    return preparedContent;
+  if (typeof preparedContent !== "string" && answerCopyStore) {
+    const answer = getAnswerCopyText(preparedContent);
+
+    if (answer) {
+      try {
+        const copyId = await answerCopyStore.save(answer);
+        preparedContent = withAnswerCopyButton(preparedContent, copyId);
+      } catch (error) {
+        console.warn("discord-bot failed to cache an answer for copying", error);
+      }
+    }
   }
 
-  const answer = getAnswerCopyText(preparedContent);
-
-  if (!answer) {
-    return preparedContent;
-  }
-
-  try {
-    const copyId = await answerCopyStore.save(answer);
-    return withAnswerCopyButton(preparedContent, copyId);
-  } catch (error) {
-    console.warn("discord-bot failed to cache an answer for copying", error);
-    return preparedContent;
-  }
+  return localizeDiscordOutgoing(preparedContent, locale);
 }
 
 export function createDiscordGuildSurface(
   guild: Guild | null,
-  surfaceOptions: { answerCopyStore?: AnswerCopyStore } = {},
+  surfaceOptions: { answerCopyStore?: AnswerCopyStore; locale?: ConnectorLocale } = {},
 ): DiscordGuildSurface | null {
   if (!guild) {
     return null;
@@ -239,7 +244,12 @@ export function createDiscordGuildSurface(
         throw new Error("Discord channel cannot receive text messages.");
       }
 
-      const preparedContent = await prepareOutgoingMessage(content, options, surfaceOptions.answerCopyStore);
+      const preparedContent = await prepareOutgoingMessage(
+        content,
+        options,
+        surfaceOptions.answerCopyStore,
+        surfaceOptions.locale,
+      );
       const sentMessage = await sender.send(preparedContent);
       return isEditableDiscordMessage(sentMessage) ? { id: sentMessage.id } : undefined;
     },
@@ -255,7 +265,12 @@ export function createDiscordGuildSurface(
         throw new Error("Discord message cannot be edited.");
       }
 
-      const preparedContent = await prepareOutgoingMessage(content, undefined, surfaceOptions.answerCopyStore);
+      const preparedContent = await prepareOutgoingMessage(
+        content,
+        undefined,
+        surfaceOptions.answerCopyStore,
+        surfaceOptions.locale,
+      );
       const editedMessage = await message.edit(preparedContent);
       return isEditableDiscordMessage(editedMessage) ? { id: editedMessage.id } : { id: message.id };
     },
@@ -303,7 +318,12 @@ export function attachDiscordMessageHandler(
           ...clearInput,
         }),
       reply: async (replyMessage) => {
-        const preparedReply = await prepareOutgoingMessage(replyMessage, undefined, options.answerCopyStore);
+        const preparedReply = await prepareOutgoingMessage(
+          replyMessage,
+          undefined,
+          options.answerCopyStore,
+          options.locale,
+        );
         const sentMessage = await discordMessage.reply(preparedReply);
 
         if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
@@ -312,7 +332,12 @@ export function attachDiscordMessageHandler(
 
         return {
           edit: async (nextMessage) => {
-            const preparedMessage = await prepareOutgoingMessage(nextMessage, undefined, options.answerCopyStore);
+            const preparedMessage = await prepareOutgoingMessage(
+              nextMessage,
+              undefined,
+              options.answerCopyStore,
+              options.locale,
+            );
             return sentMessage.edit(preparedMessage);
           },
         };
@@ -652,6 +677,7 @@ function interactionReplyAdapter(
     initialReplyDeferred?: boolean;
     initialReplySent?: boolean;
     answerCopyStore?: AnswerCopyStore;
+    locale?: ConnectorLocale;
   } = {},
 ) {
   let hasInitialReply = options.initialReplySent ?? false;
@@ -668,6 +694,7 @@ function interactionReplyAdapter(
       message as string | DiscordMessagePayload,
       undefined,
       options.answerCopyStore,
+      options.locale,
     );
   };
 
@@ -749,6 +776,8 @@ export function attachDiscordInteractionHandler(
   handleMessage: (message: DiscordMessageLike) => Promise<void>,
   options: DiscordInteractionHandlerOptions = {},
 ): void {
+  const locale = options.locale ?? "ko";
+
   client.on("interactionCreate", (interaction) => {
     if (isChatInputCommandInteraction(interaction) && interaction.isChatInputCommand()) {
       void (async () => {
@@ -765,12 +794,12 @@ export function attachDiscordInteractionHandler(
             await interaction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
-              content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+              content: localizeConnectorText("이 Discord 클라이언트는 모달을 열 수 없습니다.", locale),
             });
             return;
           }
 
-          await showModal.call(interaction, forkSessionModal());
+          await showModal.call(interaction, localizeDiscordModal(forkSessionModal(), locale));
           return;
         }
 
@@ -781,7 +810,7 @@ export function attachDiscordInteractionHandler(
           await deferReply.call(interaction);
         }
 
-        const content = routeDiscordApplicationCommand(interaction);
+        const content = routeDiscordApplicationCommand(interaction, locale);
 
         if (!content) {
           console.warn("discord-bot received unhandled slash command", {
@@ -791,7 +820,10 @@ export function attachDiscordInteractionHandler(
 
           const fallback = {
             allowedMentions: { parse: [] },
-            content: `이 slash command는 아직 연결되어 있지 않습니다: /${commandName}`,
+            content: localizeConnectorText(
+              `이 slash command는 아직 연결되어 있지 않습니다: /${commandName}`,
+              locale,
+            ),
           };
 
           if (initialReplyDeferred && typeof interaction.editReply === "function") {
@@ -818,6 +850,7 @@ export function attachDiscordInteractionHandler(
           reply: interactionReplyAdapter(interaction, {
             initialReplyDeferred,
             answerCopyStore: options.answerCopyStore,
+            locale,
           }),
         });
       })().catch((error) => {
@@ -834,7 +867,7 @@ export function attachDiscordInteractionHandler(
       void interaction.reply({
         allowedMentions: { parse: [] },
         ephemeral: true,
-        content: "복사용 창을 닫았습니다.",
+        content: localizeConnectorText("복사용 창을 닫았습니다.", locale),
       }).catch((error) => {
         console.error("discord-bot failed to close the answer copy modal", error);
       });
@@ -857,7 +890,7 @@ export function attachDiscordInteractionHandler(
           await interaction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
-            content: "요청 내용이 비어 있습니다.",
+            content: localizeConnectorText("요청 내용이 비어 있습니다.", locale),
           });
           return;
         }
@@ -869,7 +902,10 @@ export function attachDiscordInteractionHandler(
           content: `codex ${prompt}`,
           roleIds: getMemberRoleIds(interaction.member),
           guild: createDiscordGuildSurface(interaction.guild, options),
-          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
+          reply: interactionReplyAdapter(interaction, {
+            answerCopyStore: options.answerCopyStore,
+            locale,
+          }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle Codex modal submit", error);
@@ -892,7 +928,7 @@ export function attachDiscordInteractionHandler(
             await interaction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
-              content: "요청 내용이 비어 있습니다.",
+              content: localizeConnectorText("요청 내용이 비어 있습니다.", locale),
             });
             return;
           }
@@ -907,7 +943,10 @@ export function attachDiscordInteractionHandler(
             }),
             roleIds: getMemberRoleIds(interaction.member),
             guild: createDiscordGuildSurface(interaction.guild, options),
-            reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
+            reply: interactionReplyAdapter(interaction, {
+              answerCopyStore: options.answerCopyStore,
+              locale,
+            }),
           });
         })().catch((error) => {
           console.error("discord-bot failed to handle Codex continue modal submit", error);
@@ -938,7 +977,10 @@ export function attachDiscordInteractionHandler(
           }),
           roleIds: getMemberRoleIds(interaction.member),
           guild: createDiscordGuildSurface(interaction.guild, options),
-          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
+          reply: interactionReplyAdapter(interaction, {
+            answerCopyStore: options.answerCopyStore,
+            locale,
+          }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle new chat modal submit", error);
@@ -958,7 +1000,7 @@ export function attachDiscordInteractionHandler(
           await interaction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
-            content: "스레드 이름이 비어 있습니다.",
+            content: localizeConnectorText("스레드 이름이 비어 있습니다.", locale),
           });
           return;
         }
@@ -970,7 +1012,10 @@ export function attachDiscordInteractionHandler(
           content: encodedForkSessionCommand({ name }),
           roleIds: getMemberRoleIds(interaction.member),
           guild: createDiscordGuildSurface(interaction.guild, options),
-          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
+          reply: interactionReplyAdapter(interaction, {
+            answerCopyStore: options.answerCopyStore,
+            locale,
+          }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle fork modal submit", error);
@@ -999,20 +1044,28 @@ export function attachDiscordInteractionHandler(
             await componentInteraction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
-              content: "복사용 답변이 만료되었거나 이 봇 인스턴스에 없습니다.",
+              content: localizeConnectorText(
+                "복사용 답변이 만료되었거나 이 봇 인스턴스에 없습니다.",
+                locale,
+              ),
             });
             return;
           }
 
           if (answer.length <= MAX_ANSWER_COPY_MODAL_LENGTH && typeof componentInteraction.showModal === "function") {
-            await componentInteraction.showModal(answerCopyModal(answer, answerCopyId));
+            await componentInteraction.showModal(
+              localizeDiscordModal(answerCopyModal(answer, answerCopyId), locale),
+            );
             return;
           }
 
           await componentInteraction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
-            content: "답변이 길어서 전체 원문을 텍스트 파일로 준비했습니다.",
+            content: localizeConnectorText(
+              "답변이 길어서 전체 원문을 텍스트 파일로 준비했습니다.",
+              locale,
+            ),
             files: [{ attachment: Buffer.from(answer, "utf8"), name: "answer.txt" }],
           });
           return;
@@ -1025,12 +1078,14 @@ export function attachDiscordInteractionHandler(
             await componentInteraction.reply({
               allowedMentions: { parse: [] },
               ephemeral: true,
-              content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+              content: localizeConnectorText("이 Discord 클라이언트는 모달을 열 수 없습니다.", locale),
             });
             return;
           }
 
-          await componentInteraction.showModal(codexContinueModal(continueSessionId));
+          await componentInteraction.showModal(
+            localizeDiscordModal(codexContinueModal(continueSessionId), locale),
+          );
           return;
         }
       }
@@ -1040,12 +1095,12 @@ export function attachDiscordInteractionHandler(
           await componentInteraction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
-            content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+            content: localizeConnectorText("이 Discord 클라이언트는 모달을 열 수 없습니다.", locale),
           });
           return;
         }
 
-        await componentInteraction.showModal(codexPromptModal());
+        await componentInteraction.showModal(localizeDiscordModal(codexPromptModal(), locale));
         return;
       }
 
@@ -1054,13 +1109,13 @@ export function attachDiscordInteractionHandler(
           await componentInteraction.reply({
             allowedMentions: { parse: [] },
             ephemeral: true,
-            content: "이 Discord 클라이언트는 모달을 열 수 없습니다.",
+            content: localizeConnectorText("이 Discord 클라이언트는 모달을 열 수 없습니다.", locale),
           });
           return;
         }
 
         const kind = componentInteraction.customId === COMPONENT_IDS.newGeneralChat ? "general" : "current";
-        await componentInteraction.showModal(newChatModal(kind));
+        await componentInteraction.showModal(localizeDiscordModal(newChatModal(kind), locale));
         return;
       }
 
@@ -1070,7 +1125,10 @@ export function attachDiscordInteractionHandler(
         await componentInteraction.reply({
           allowedMentions: { parse: [] },
           ephemeral: true,
-          content: "이 버튼은 더 이상 사용할 수 없습니다. `help`를 다시 눌러 최신 버튼을 열어주세요.",
+          content: localizeConnectorText(
+            "이 버튼은 더 이상 사용할 수 없습니다. `help`를 다시 눌러 최신 버튼을 열어주세요.",
+            locale,
+          ),
         });
         return;
       }
@@ -1081,7 +1139,10 @@ export function attachDiscordInteractionHandler(
         await componentInteraction.reply({
           allowedMentions: { parse: [] },
           ephemeral: true,
-          content: "설문 선택을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+          content: localizeConnectorText(
+            "설문 선택을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+            locale,
+          ),
         });
       }
 
@@ -1095,6 +1156,7 @@ export function attachDiscordInteractionHandler(
         reply: interactionReplyAdapter(componentInteraction, {
           initialReplySent: queuedSurveySelection,
           answerCopyStore: options.answerCopyStore,
+          locale,
         }),
       });
     })().catch((error) => {

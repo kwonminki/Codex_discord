@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DISCORD_APPLICATION_COMMANDS,
+  discordApplicationCommands,
   registerDiscordApplicationCommands,
   routeDiscordApplicationCommand,
 } from "./applicationCommands.js";
@@ -86,6 +87,26 @@ describe("Discord application commands", () => {
         ],
       }),
     );
+  });
+
+  it("registers English slash command descriptions without changing command names", () => {
+    const commands = discordApplicationCommands("en");
+    const codex = commands.find((command) => command.name === "codex");
+
+    expect(codex?.description).toBe("Send a natural-language request to Codex.");
+    expect(codex?.options?.[0]?.name).toBe("prompt");
+    expect(codex?.options?.[0]?.description).toBe("Request to send to Codex");
+  });
+
+  it("uses English for generated agent prompts in an English installation", () => {
+    expect(routeDiscordApplicationCommand({
+      commandName: "fix-tests",
+      options: options({}),
+    }, "en")).toBe("codex Run the tests, analyze any failures, fix them, and run the tests again.");
+    expect(routeDiscordApplicationCommand({
+      commandName: "compact",
+      options: options({ prompt: "Keep API compatibility." }),
+    }, "en")).toBe("codex Compact and summarize the work context so far. Keep API compatibility.");
   });
 
   it("routes /compact as an exec-compatible Codex summary prompt", () => {

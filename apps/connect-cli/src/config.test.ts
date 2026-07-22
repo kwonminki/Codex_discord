@@ -37,6 +37,7 @@ describe("connect setup config", () => {
         token: "discord-token",
         guildId: "guild-1",
         allowedRoleIds: ["role-operator", "role-admin"],
+        locale: "ko",
       },
       direct: {
         computerId: "local-dev",
@@ -52,6 +53,7 @@ describe("connect setup config", () => {
       },
     });
     expect(renderEnvFile(config)).toContain('CLAUDE_CHANNEL_ID="claude-channel-1"');
+    expect(renderEnvFile(config)).toContain('CONNECT_LOCALE="ko"');
   });
 
   it("can keep the direct workspace root broader than the initial cwd", () => {
@@ -81,6 +83,22 @@ describe("connect setup config", () => {
     expect(guide).toContain("Codex/admin channel ID");
     expect(guide).toContain("Claude Code channel ID");
     expect(guide).toContain("Public Key와 OAuth2 Client ID는 connector 설정에 넣지 않습니다");
+  });
+
+  it("builds English config and setup guidance", () => {
+    const config = buildDirectConfig({
+      token: "discord-token",
+      guildId: "guild-1",
+      channelId: "channel-1",
+      roleIds: "role-operator",
+      workspaceRoot: "/repo",
+      locale: "english",
+    });
+
+    expect(config.discord.locale).toBe("en");
+    expect(discordSetupGuide("direct", "en").join("\n")).toContain(
+      "Public Key and OAuth2 Client ID are not connector settings",
+    );
   });
 
   it("rejects using the same Discord channel for Codex and Claude Code", () => {

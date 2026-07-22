@@ -124,6 +124,44 @@ describe("routeDiscordMessage", () => {
     });
   });
 
+  it("sends English attachment guidance to agents in an English installation", () => {
+    const route = routeDiscordMessage({
+      channelMode: "session-linked",
+      content: "/howtouse",
+      userRoleIds: ["role-operator"],
+      allowedRoleIds: ["role-operator"],
+      locale: "en",
+    });
+
+    expect(route).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("The final answer from this agent session"),
+    });
+    expect(route).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("10MiB per file"),
+    });
+    expect(JSON.stringify(route)).not.toContain("입력 첨부파일");
+  });
+
+  it("uses English for connector-generated text shortcuts", () => {
+    const base = {
+      channelMode: "session-linked" as const,
+      userRoleIds: ["role-operator"],
+      allowedRoleIds: ["role-operator"],
+      locale: "en" as const,
+    };
+
+    expect(routeDiscordMessage({ ...base, content: "fix-tests" })).toEqual({
+      type: "codex-chat",
+      content: "Run the tests, analyze any failures, fix them, and run the tests again.",
+    });
+    expect(routeDiscordMessage({ ...base, content: "compact Keep API compatibility." })).toEqual({
+      type: "codex-chat",
+      content: "Compact and summarize the work context so far. Keep API compatibility.",
+    });
+  });
+
   it("routes component-generated shell commands in session-linked channels", () => {
     expect(
       routeDiscordMessage({
