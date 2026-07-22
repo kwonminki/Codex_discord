@@ -78,6 +78,14 @@ describe("routeDiscordMessage", () => {
       type: "codex-chat",
       content: expect.stringContaining("파일 전용 Discord 메시지 여러 개로 자동 분할"),
     });
+    expect(codexRoute).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("request_user_input"),
+    });
+    expect(codexRoute).toEqual({
+      type: "codex-chat",
+      content: expect.stringContaining("같은 실행 중 turn으로 전달"),
+    });
     expect(JSON.stringify(codexRoute)).not.toContain("최대 10개");
 
     expect(
@@ -90,6 +98,17 @@ describe("routeDiscordMessage", () => {
     ).toEqual({
       type: "claude-chat",
       content: expect.stringContaining("codex-discord-send"),
+    });
+    expect(
+      routeDiscordMessage({
+        channelMode: "claude-code",
+        content: "/howtouse",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+      }),
+    ).toEqual({
+      type: "claude-chat",
+      content: expect.stringContaining("실시간 질문 왕복이 아직 연결되어 있지 않습니다"),
     });
 
     expect(
