@@ -1,12 +1,16 @@
 import { enLocale } from "./en.js";
+import { jaLocale } from "./ja.js";
 import { koLocale } from "./ko.js";
+import { zhLocale } from "./zh.js";
 import type { ConnectorLocaleCatalog, ConnectorLocaleTemplate } from "./types.js";
 
-export type ConnectorLocale = "ko" | "en";
+export type ConnectorLocale = "ko" | "en" | "zh" | "ja";
 
 const localeCatalogs: Readonly<Record<ConnectorLocale, ConnectorLocaleCatalog>> = {
   ko: koLocale,
   en: enLocale,
+  zh: zhLocale,
+  ja: jaLocale,
 };
 
 const localeAliases: Readonly<Record<string, ConnectorLocale>> = {
@@ -19,6 +23,18 @@ const localeAliases: Readonly<Record<string, ConnectorLocale>> = {
   "en-gb": "en",
   english: "en",
   영어: "en",
+  zh: "zh",
+  "zh-cn": "zh",
+  "zh-hans": "zh",
+  chinese: "zh",
+  中文: "zh",
+  简体中文: "zh",
+  중국어: "zh",
+  ja: "ja",
+  "ja-jp": "ja",
+  japanese: "ja",
+  日本語: "ja",
+  일본어: "ja",
 };
 
 export const SUPPORTED_CONNECTOR_LOCALES = Object.freeze(

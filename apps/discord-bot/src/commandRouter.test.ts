@@ -144,6 +144,27 @@ describe("routeDiscordMessage", () => {
     expect(JSON.stringify(route)).not.toContain("입력 첨부파일");
   });
 
+  it("sends Chinese and Japanese attachment guidance without Korean fallback", () => {
+    for (const [locale, expected] of [
+      ["zh", "此 agent 会话的最终回答会发送到已连接的 Discord 频道。"],
+      ["ja", "この agent セッションの最終回答は接続された Discord チャンネルへ送信されます。"],
+    ] as const) {
+      const route = routeDiscordMessage({
+        channelMode: "session-linked",
+        content: "/howtouse",
+        userRoleIds: ["role-operator"],
+        allowedRoleIds: ["role-operator"],
+        locale,
+      });
+
+      expect(route).toEqual({
+        type: "codex-chat",
+        content: expect.stringContaining(expected),
+      });
+      expect(JSON.stringify(route)).not.toMatch(/[가-힣]/);
+    }
+  });
+
   it("uses English for connector-generated text shortcuts", () => {
     const base = {
       channelMode: "session-linked" as const,

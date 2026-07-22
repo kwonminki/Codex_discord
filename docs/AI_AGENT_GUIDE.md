@@ -1,5 +1,7 @@
 # AI Agent Guide: Codex Discord Connector
 
+한국어 | [English](AI_AGENT_GUIDE.en.md)
+
 > 이 문서는 이 저장소를 설치, 수정, 배포하거나 장애를 진단하는 AI 에이전트를 위한 전체 기술 가이드입니다. 일반 사용자는 저장소 루트의 [README](../README.md)를 먼저 읽으세요.
 
 Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 Discord 서버에서 조작할 수 있게 연결하는 브리지입니다. Discord의 카테고리/채널 구조를 Codex의 폴더/세션 구조와 맞춰서, Discord 안에서 Codex와 대화하고 로컬 파일을 탐색하며 필요한 shell 명령을 실행할 수 있습니다.
@@ -10,7 +12,7 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 
 사용자가 이 저장소 URL과 이 문서를 제시했다면 다음 순서로 작업합니다.
 
-1. 사용자가 대화하는 언어를 보고 connector locale을 내부적으로 결정합니다. 한국어는 `ko`, 영어는 `en`입니다. 사용자에게 언어 코드나 설정 방법을 설명하지 말고, 언어가 정말 애매할 때만 자연어로 한 번 질문합니다.
+1. 사용자가 대화하는 언어를 보고 connector locale을 내부적으로 결정합니다. 한국어, 영어, 중국어(간체), 일본어를 기본 지원합니다. 사용자에게 언어 코드나 설정 방법을 설명하지 말고, 언어가 정말 애매할 때만 자연어로 한 번 질문합니다.
 2. 저장소의 현재 branch, commit, dirty worktree, 실행 중인 bot/worker와 활성 job을 먼저 확인합니다.
 3. 이 문서만 믿고 덮어쓰지 말고 실제 코드, `package.json`, `.env.example`, 기존 `.connect/config.json`, 서비스 정의를 대조합니다.
 4. 기본 배포는 외부 API를 열지 않는 **Direct mode**를 선택합니다.
@@ -28,10 +30,12 @@ Codex Discord Connector는 로컬 컴퓨터의 Codex 세션과 파일 작업을 
 
 - 한국어 사용자: `pnpm connect install --direct --locale ko`
 - 영어 사용자: `pnpm connect install --direct --locale en`
+- 중국어(간체) 사용자: `pnpm connect install --direct --locale zh`
+- 일본어 사용자: `pnpm connect install --direct --locale ja`
 - 기존 설정: `.connect/config.json`의 `discord.locale`을 우선 확인하고, 명시적 `CONNECT_LOCALE` 환경 변수가 있으면 그것이 override합니다.
 - locale은 Discord 사용자 개인별이 아니라 **bot 인스턴스별**입니다. 같은 token을 쓰는 여러 컴퓨터가 서로 다른 locale을 사용할 수 있습니다.
 
-사용자 언어가 한국어도 영어도 아니라면, 설치를 멈추고 전체 로직을 번역하거나 복제하지 않습니다. [Localization Guide](localization.md)에 따라 `packages/core/src/locales/<code>.ts` catalog를 하나 만들고, locale registry와 테스트만 추가합니다. custom ID, slash command name과 option value, 내부 `__cdc_*` command, JSON code fence 이름, 사용자 prompt와 agent 답변은 번역하지 않습니다. 번역 추가 후 `pnpm typecheck`, `pnpm test`를 통과시키고 해당 locale로 설치합니다.
+사용자 언어가 위 네 가지 지원 언어가 아니라면, 설치를 멈추고 전체 로직을 번역하거나 복제하지 않습니다. [Localization Guide](localization.md)에 따라 `packages/core/src/locales/<code>.ts` catalog를 하나 만들고, locale registry와 테스트만 추가합니다. custom ID, slash command name과 option value, 내부 `__cdc_*` command, JSON code fence 이름, 사용자 prompt와 agent 답변은 번역하지 않습니다. 번역 추가 후 `pnpm typecheck`, `pnpm test`를 통과시키고 해당 locale로 설치합니다.
 
 ## 첫 설치 대화형 온보딩
 

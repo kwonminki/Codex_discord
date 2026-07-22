@@ -8,11 +8,23 @@ import {
 
 describe("connector locales", () => {
   it("resolves supported locale aliases and rejects unknown locales", () => {
-    expect(SUPPORTED_CONNECTOR_LOCALES).toEqual(["ko", "en"]);
+    expect(SUPPORTED_CONNECTOR_LOCALES).toEqual(["ko", "en", "zh", "ja"]);
     expect(resolveConnectorLocale(undefined)).toBe("ko");
     expect(resolveConnectorLocale("한국어")).toBe("ko");
     expect(resolveConnectorLocale("en-US")).toBe("en");
+    expect(resolveConnectorLocale("简体中文")).toBe("zh");
+    expect(resolveConnectorLocale("日本語")).toBe("ja");
     expect(() => resolveConnectorLocale("fr")).toThrow("Unsupported connector locale");
+  });
+
+  it("localizes common UI and dynamic metadata in Chinese and Japanese", () => {
+    expect(localizeConnectorText("답변 복사", "zh")).toBe("复制回答");
+    expect(localizeConnectorText("Codex 작업 완료", "zh")).toBe("Codex 任务已完成");
+    expect(localizeConnectorText("위치: /tmp/project", "zh")).toBe("位置：/tmp/project");
+
+    expect(localizeConnectorText("답변 복사", "ja")).toBe("回答をコピー");
+    expect(localizeConnectorText("Codex 작업 완료", "ja")).toBe("Codex のタスクが完了しました");
+    expect(localizeConnectorText("위치: /tmp/project", "ja")).toBe("場所：/tmp/project");
   });
 
   it("keeps Korean unchanged and translates exact, markdown, and template lines", () => {

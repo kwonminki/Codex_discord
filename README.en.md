@@ -15,7 +15,7 @@ Give the following request to Codex, Claude Code, or another coding agent on the
 ```text
 https://github.com/kwonminki/Codex_discord
 
-Clone this repository and read docs/AI_AGENT_GUIDE.md completely first.
+Clone this repository and read docs/AI_AGENT_GUIDE.en.md completely first.
 Inspect the current code and my OS, then install it in Direct mode.
 Configure the connector UI in the language I am using without asking me for language codes or config values.
 Use the Codex app-server runner and register the Discord bot and worker as separate
@@ -27,13 +27,14 @@ to configure roles, categories, Codex/Claude channels, permissions, slash comman
 and the optional release webhook. Ask me only for values that cannot be discovered.
 ```
 
-The complete installation and operations contract for agents is in [AI Agent Guide](docs/AI_AGENT_GUIDE.md).
+The complete installation and operations contract for agents is in [AI Agent Guide](docs/AI_AGENT_GUIDE.en.md).
 
 ## Language is automatic
 
 The installation agent detects the language used in the conversation and configures the connector UI to match. Users do not need to know language codes, environment variables, or configuration paths.
 
-- Korean and English work immediately.
+- The connector UI supports Korean, English, Simplified Chinese, and Japanese.
+- User-facing READMEs are maintained only in Korean and English.
 - For another language, the installation agent adds only the translation catalog, verifies it, and launches the connector.
 - Buttons, modals, status text, slash command descriptions, setup prompts, and `/howtouse` use the configured language.
 - User messages and agent-authored answers are preserved as written.
@@ -163,7 +164,7 @@ Before updating, check the dirty worktree, active queue, worker jobs, and curren
 
 ## More documentation
 
-- [AI Agent Guide](docs/AI_AGENT_GUIDE.md)
+- [AI Agent Guide](docs/AI_AGENT_GUIDE.en.md)
 - [Localization Guide](docs/localization.md)
 - [Mac Direct Mode](docs/mac-direct-setup.md)
 - [Ubuntu Direct Mode](docs/ubuntu-server-direct-setup.ko.md)

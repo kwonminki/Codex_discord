@@ -1,0 +1,522 @@
+# AI Agent Guide: Codex Discord Connector
+
+[한국어](AI_AGENT_GUIDE.md) | English
+
+This document is the installation, modification, deployment, and troubleshooting contract for AI coding agents. Human users should start with the repository [README](../README.en.md).
+
+Codex Discord Connector links Codex and Claude Code sessions running on a Mac or Ubuntu machine to trusted Discord channels and threads. It can execute commands and modify files on the connected machine.
+
+> Security notice: install this only on machines controlled by the user, connect it only to a trusted private Discord server, and restrict execution with an Operator role allowlist.
+
+## Agent contract
+
+When a user gives you this repository URL, work in this order:
+
+1. Infer the connector UI language from the conversation. Do not ask the user for locale codes or configuration details unless the language is genuinely ambiguous.
+2. Inspect the current branch, commit, dirty worktree, running bot and worker services, and active jobs before changing anything.
+3. Compare this guide with the current code, `package.json`, `.env.example`, `.connect/config.json`, and installed service definitions.
+4. Prefer Direct mode. It does not expose an inbound Control API.
+5. Use `CODEX_DISCORD_CODEX_RUNNER=app-server` unless an old Codex CLI requires compatibility mode.
+6. Run the Discord gateway and Direct Worker as separate LaunchAgent or systemd services. Restarting the bot must not kill active agent jobs.
+7. Preserve user changes, secrets, state, queues, transcripts, and active jobs. Never commit `.env`, `.connect/`, tokens, or transcripts.
+8. Ask the user only for account actions or values that cannot be discovered safely. Never echo a token in output, logs, or commit messages.
+9. Run `pnpm typecheck`, `pnpm test`, service checks, Discord ready-log verification, and a short round trip after installation.
+10. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
+11. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
+
+## Language selection
+
+Select the locale internally from the language used by the user:
+
+| Conversation language | Locale |
+| --- | --- |
+| Korean | `ko` |
+| English | `en` |
+| Simplified Chinese | `zh` |
+| Japanese | `ja` |
+
+Use the matching setup option without asking the user to choose a code:
+
+```bash
+pnpm connect install --direct --locale en
+```
+
+For a language not listed above, follow [Localization Guide](localization.md). Add only a locale catalog and registry entry. Do not duplicate runtime code or translate protocol identifiers. Run all tests before launching.
+
+Never translate Discord custom IDs, slash command names or option values, internal `__cdc_*` commands, JSON keys, `codex-discord-send`, `codex-discord-survey`, user prompts, agent-authored answers, commands, paths, or IDs.
+
+## First-install conversation
+
+Do not ask for the token, guild ID, role ID, and channel IDs all at once. Guide the user one step at a time and wait for confirmation after each account-level action.
+
+First determine whether this is really a new installation by checking `.connect/config.json`, `.env`, and existing services. Reuse existing Discord resources for an additional machine or reinstall.
+
+### 1. Private Discord server
+
+Ask:
+
+```text
+Do you already have a private Discord server for this connector?
+If not, create one with Add a Server (+) > Create My Own, then tell me when it is ready.
+```
+
+A Discord application belongs to the user account, not to a channel. Always say that the bot is invited to the server.
+
+### 2. Application and bot
+
+Guide the user through the [Discord Developer Portal](https://discord.com/developers/applications):
+
+1. Create a New Application.
+2. Create its bot user on the Bot page.
+3. Enable Message Content Intent.
+4. Generate or copy the Bot Token.
+
+The token is a password. Prefer a local secret prompt or environment entry. Confirm receipt without repeating any part of it. Public Key is not required. Application/Client ID is used for the invite URL but is not a connector runtime setting.
+
+### 3. Invite the bot
+
+Use the Installation page or OAuth2 URL Generator with these scopes:
+
+- `bot`
+- `applications.commands`
+
+Temporary Administrator permission is the simplest first setup in a private personal server. When the user prefers least privilege, include the permissions in the table below plus Manage Roles, Manage Channels, and Manage Webhooks for automated setup.
+
+Wait while the user completes OAuth approval, login, 2FA, or CAPTCHA. Do not create Discord resources until the bot appears in the server member list.
+
+### 4. Automate Discord resources
+
+After the bot has joined, use the Discord API and the existing token to configure resources idempotently:
+
+1. Query bot identity and joined guilds. Auto-select only when there is one; otherwise ask the user to choose by server name.
+2. Identify the Discord user who should receive the Operator role.
+3. Reuse or create a `Codex Operator` role and assign it. Verify that the bot role is above it.
+4. Ask only for the computer display name, workspace root, and whether Claude Code is needed.
+5. Create a computer category, Codex/admin parent channel, and optional Claude Code parent channel.
+6. Apply permission overwrites for the bot and Operator role. Do not expose execution channels to unrelated members.
+7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
+8. Register guild slash commands.
+9. Optionally create a release channel and webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
+
+Before creating anything, search for matching roles, categories, channels, and webhooks. Do not delete or overwrite resources with unclear ownership. Re-running setup after a partial failure must not create duplicates.
+
+### 5. Install services
+
+Clone the repository, install dependencies, generate Direct mode configuration, verify Codex and optional Claude Code, register separate bot and worker services, and run smoke tests.
+
+The final Discord-side request to the user should be setting each operations channel notification mode to **Only @mentions**. The Discord API cannot change a user's personal notification preference.
+
+### Required values
+
+For an existing manually managed Discord layout:
+
+- Discord Bot Token
+- Guild/Server ID
+- One or more Operator Role IDs
+- Per-machine Codex/admin Channel ID
+- Workspace root and initial working directory
+
+Optional:
+
+- Per-machine Claude Code Channel ID
+- Computer and workspace display names
+- A custom `CODEX_HOME`
+- A narrower sandbox and approval policy
+
+The same bot token may be used by multiple computers, but their Codex and Claude parent channel IDs must never overlap.
+
+### Installation completion criteria
+
+- `.connect/config.json` and `.env` exist and are ignored by Git.
+- `codex --version` works; `claude --version` works when Claude is enabled.
+- Codex app-server can start.
+- Bot and worker have different services and PIDs.
+- Bot log contains `Discord bot ready as ...`.
+- Worker log contains `direct-worker ready with PID ...`.
+- `/status`, `/chat-new`, and a short Codex round trip work.
+- Steering, `/queue prompt:...`, `/howtouse`, and `/fork` pass smoke tests.
+- Restarting only the bot preserves the worker PID and any active job.
+
+## Discord permissions
+
+| Permission | Feature |
+| --- | --- |
+| View Channels | Access operations channels and session threads |
+| Send Messages | Send status and results |
+| Send Messages in Threads | Converse in session threads |
+| Read Message History | Fetch and edit connector messages |
+| Embed Links | Render status and answer embeds |
+| Attach Files | Send images, video, audio, and files |
+| Create Public Threads | `/chat-new` and session thread creation |
+| Manage Threads | Archive and manage threads |
+| Manage Channels | Create or remove workspace categories and synced channels |
+| Manage Roles | Create and assign the Operator role |
+| Manage Webhooks | Optional release announcement webhook |
+| Manage Messages | `/clear` only |
+
+Thread messaging requires Send Messages in Threads in addition to Send Messages. Also inspect parent-channel permission overwrites.
+
+## Code ownership
+
+| Path | Responsibility |
+| --- | --- |
+| `apps/connect-cli/src/index.ts` | setup, install, start, process supervision |
+| `apps/connect-cli/src/config.ts` | `.connect/config.json` and `.env` generation |
+| `apps/discord-bot/src/index.ts` | Discord gateway assembly, polling, durable restore |
+| `apps/discord-bot/src/discordClient.ts` | discord.js messages, interactions, channels, threads |
+| `apps/discord-bot/src/i18n.ts` | outbound UI localization while preserving authored content |
+| `apps/discord-bot/src/messageHandler.ts` | per-channel FIFO, steering, approvals, questions, orchestration |
+| `apps/discord-bot/src/applicationCommands.ts` | slash command declarations and registration |
+| `apps/discord-bot/src/commandRouter.ts` | text and slash command routing |
+| `apps/discord-bot/src/responses.ts` | embeds, buttons, answer splitting, attachment output |
+| `apps/discord-bot/src/directWorkerClient.ts` | durable bot-to-worker spool client |
+| `apps/local-agent/src/directWorker.ts` | independent worker, queue serialization, graceful drain |
+| `apps/local-agent/src/codexAppServerRunner.ts` | Codex app-server resume, fork, steer, interrupt, approval, questions |
+| `apps/local-agent/src/codexRunner.ts` | compatibility `codex exec` runner |
+| `apps/local-agent/src/claudeRunner.ts` | Claude Code headless stream JSON, resume, fork, model, effort |
+| `packages/core/src/locales` | locale registry and translation catalogs |
+| `packages/codex-adapter` | Codex native session and transcript parsing |
+
+Primary flow:
+
+```text
+Discord message
+  -> discordClient
+  -> messageHandler channel queue
+  -> durableRequestStore
+  -> directWorkerClient
+  -> .connect/worker job spool
+  -> directWorker
+  -> Codex app-server or Claude Code
+  -> progress / approval / question / result
+  -> Discord thread
+```
+
+An ordinary follow-up message steers an active Codex app-server turn. `/queue prompt:` guarantees a separate next turn. Claude Code headless has no live steering, so messages wait in FIFO order.
+
+## Persistent state and restart behavior
+
+- `.connect/config.json`: runtime configuration and token
+- `.env`: environment and secrets
+- `.connect/state.json`: channel/session mapping, model and effort defaults, sync, schedules, notifications
+- `.connect/discord-queue`: durable Discord requests
+- `.connect/worker/jobs`: jobs, progress, approvals, questions, and results
+- `.connect/incoming-attachments`: temporary Discord downloads
+- `.connect/answer-copies`: final-answer copy cache
+- `$CODEX_HOME`: native Codex sessions and transcripts
+- `~/.claude/projects`: native Claude Code sessions
+
+The Discord gateway does not own agent child processes. If only the bot dies, the worker continues and a new gateway reconnects by request ID and event cursor. If the worker is force-killed, its Codex, Claude, shell, and child processes may terminate.
+
+## Quick start
+
+Requirements:
+
+- Node.js `^20.19.0` or `>=22.12.0`
+- pnpm `9.15.0`
+- Logged-in Codex CLI
+- Optional logged-in Claude Code CLI
+
+```bash
+git clone https://github.com/kwonminki/Codex_discord.git
+cd Codex_discord
+corepack enable
+corepack prepare pnpm@9.15.0 --activate
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm connect install --direct --locale en
+pnpm connect start --direct
+```
+
+For noninteractive setup:
+
+```bash
+pnpm connect install --direct \
+  --locale en \
+  --token "DISCORD_BOT_TOKEN" \
+  --guild-id "DISCORD_GUILD_ID" \
+  --role-ids "ROLE_ID_1,ROLE_ID_2" \
+  --channel-id "CODEX_ADMIN_CHANNEL_ID" \
+  --claude-channel-id "CLAUDE_CODE_CHANNEL_ID" \
+  --workspace-root "$PWD" \
+  --workspace-name "Workspace"
+```
+
+Use a broad allowed root with a narrower start directory when needed:
+
+```bash
+pnpm connect install --direct \
+  --workspace-root "/home/user/projects" \
+  --initial-cwd "/home/user/projects/current-app"
+```
+
+## Codex runner
+
+Direct mode defaults to app-server. Make it explicit in services:
+
+```bash
+CODEX_DISCORD_CODEX_RUNNER=app-server
+```
+
+Compatibility mode `CODEX_DISCORD_CODEX_RUNNER=exec` does not support session fork, live steering, or live `request_user_input` responses. Use it only for old CLI compatibility.
+
+Codex prompt timeout defaults to five hours. Set `CONNECT_CODEX_PROMPT_TIMEOUT_MS=0` to disable the overall timeout.
+
+## Service topology
+
+Production installations must separate gateway and worker:
+
+```text
+Discord gateway service
+  - Discord WebSocket, commands, polling, message delivery
+  - safe to restart while an agent job is active
+
+Direct Worker service
+  - owns Codex, Claude Code, shell, and child processes
+  - stops accepting new jobs on SIGTERM and drains active work
+```
+
+Always resolve absolute paths first:
+
+```bash
+pwd
+command -v node
+command -v codex
+command -v claude
+```
+
+Service processes do not automatically inherit interactive shell aliases or rc-file PATH changes.
+
+### macOS LaunchAgent
+
+Use `scripts/start-mac-direct.sh` or a machine-local wrapper with explicit `HOME`, `PATH`, repository root, config paths, locale, and agent command paths.
+
+Create separate labels such as:
+
+```text
+com.USER.codex-discord-connector.bot
+com.USER.codex-discord-connector.worker
+```
+
+Both should use `RunAtLoad` and `KeepAlive`. The worker should have a long drain timeout:
+
+```xml
+<key>ExitTimeOut</key>
+<integer>21600</integer>
+```
+
+Apply and inspect:
+
+```bash
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.USER.codex-discord-connector.bot.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.USER.codex-discord-connector.worker.plist"
+launchctl print "gui/$(id -u)/com.USER.codex-discord-connector.bot"
+launchctl print "gui/$(id -u)/com.USER.codex-discord-connector.worker"
+```
+
+macOS privacy controls may block Documents, Desktop, or external disks for LaunchAgents even when Terminal works. Verify file access as the service user.
+
+### Ubuntu systemd
+
+Use separate units. Essential worker settings:
+
+```ini
+[Service]
+Type=simple
+User=USER_NAME
+WorkingDirectory=REPO_DIR
+Environment=HOME=/home/USER_NAME
+Environment=PATH=/home/USER_NAME/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CONNECT_MODE=direct
+Environment=CONNECT_LOCALE=en
+Environment=CONNECT_CONFIG_PATH=REPO_DIR/.connect/config.json
+Environment=CONNECT_STATE_PATH=REPO_DIR/.connect/state.json
+Environment=CONNECT_WORKER_ROOT=REPO_DIR/.connect/worker
+Environment=CONNECT_DISCORD_QUEUE_ROOT=REPO_DIR/.connect/discord-queue
+Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
+ExecStart=/absolute/path/to/node --import tsx apps/local-agent/src/directWorker.ts
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=infinity
+```
+
+The bot unit uses the same state paths but starts `apps/discord-bot/src/index.ts`. Start and inspect:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now codex-discord-worker codex-discord-bot
+sudo systemctl status codex-discord-worker codex-discord-bot --no-pager
+journalctl -u codex-discord-worker -u codex-discord-bot -f
+```
+
+## Launch checklist
+
+- Service user matches the user who owns Codex and Claude sessions.
+- `HOME`, `CODEX_HOME`, and `~/.claude/projects` match IDE and CLI usage.
+- Workspace root is broad enough but not unnecessarily permissive.
+- Service user can read and write the workspace and `.connect` directories.
+- GPU access works as the same service user before testing through the connector.
+- Guild and parent channel IDs belong to the intended machine.
+- Codex and Claude parent channels differ.
+- No other connector instance owns the same channels.
+- Operator role is assigned and channel overwrites allow the bot and operator.
+- `.env` and `.connect/config.json` are mode `600` where practical and ignored by Git.
+- Exactly one worker owns a given `CONNECT_WORKER_ROOT`.
+- Bot starts after the worker.
+
+Smoke test sequence:
+
+1. Confirm worker ready log and PID.
+2. Confirm bot ready log and identity.
+3. Run `/status`.
+4. Create a test thread with `/chat-new`.
+5. Run a short file-read request.
+6. Test ordinary-message steering and `/queue prompt:`.
+7. Run `/howtouse` and send a small attachment both directions.
+8. Test one approval or `request_user_input` flow.
+9. Restart only the bot and confirm that worker PID and active work survive.
+
+## Safe updates
+
+Before an update:
+
+```bash
+git status --short
+git rev-parse --short HEAD
+git fetch origin
+git diff --name-only HEAD..origin/master
+```
+
+Classify restart scope:
+
+| Changed area | Action |
+| --- | --- |
+| README and docs only | No service restart |
+| `apps/discord-bot/` only | Restart bot |
+| Slash command definitions | Restart bot and verify registration |
+| `apps/local-agent/`, worker store, runner | Gracefully drain and restart worker |
+| Shared packages or config schema | Restart bot and worker |
+| Dependencies or lockfile | Install, test, then restart affected services |
+
+Check `/status`, `.connect/worker/jobs/*/state.json`, durable queues, bot PID, worker PID, and child processes. If active work exists, offer these choices:
+
+- Restart bot now and preserve worker work.
+- Drain worker and replace it after active jobs finish.
+- Force-stop worker and lose active work, only with explicit approval.
+
+Apply only to a clean or understood worktree:
+
+```bash
+git pull --ff-only origin master
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+git diff --check
+```
+
+For multiple servers, update one canary, run an end-to-end request, then roll out sequentially. Record old and new commits, service names, worker PIDs, active jobs, and ready logs.
+
+Do not repeatedly restart a failing service. Stop the loop, inspect logs, compare Node, pnpm, Codex, and Claude versions, then fix or roll back.
+
+## Runtime behavior
+
+- Use `/chat-new` in a Codex or Claude parent channel to create a new thread and agent session.
+- Use `/fork` inside a session thread to clone conversation context into a new session.
+- Ordinary messages steer an active Codex turn.
+- `/queue prompt:<request>` schedules a separate next turn.
+- `/interrupt` stops an active Codex turn.
+- `/status` shows connection, session, active task, activity time, model, effort, and queue.
+- `/model`, `/effort`, and `/settings` manage parent defaults and thread overrides.
+- `/howtouse` teaches the active agent the attachment and media-survey protocol.
+- Agent questions, approval requests, completion, and failure mention the Operator role.
+- Progress messages do not mention the role.
+
+Users attach files directly to ordinary Discord messages. The bot downloads them and appends local metadata to the agent prompt. Agents return files with `codex-discord-send` only after receiving `/howtouse` instructions.
+
+Default attachment limits:
+
+- Input: 10 files per message, 100 MiB each, 250 MiB total
+- Output: 10 MiB per file
+
+Final media surveys work for Codex and Claude Code. Live mid-task `request_user_input` round trips require Codex app-server.
+
+## Permissions and models
+
+Trusted personal Direct mode defaults:
+
+```text
+approval=never
+sandbox=danger-full-access
+network=enabled
+```
+
+Claude Code uses `bypassPermissions`. Default effort is Codex `xhigh` and Claude Code `max`. Models follow each CLI unless overridden in Discord.
+
+The connector cannot bypass OS permissions, sudo, macOS privacy controls, Linux ACLs, or container GPU exposure.
+
+## Version compatibility
+
+Record actual versions during installation and incident reports:
+
+```bash
+node --version
+pnpm --version
+codex --version
+claude --version
+git rev-parse --short HEAD
+```
+
+After Codex or Claude upgrades, smoke-test app-server startup, stream parsing, resume, fork, approval, user input, and final answers before fleet rollout.
+
+## Troubleshooting
+
+### Slash command is missing
+
+1. Confirm `applications.commands` scope.
+2. Confirm Guild ID and bot identity.
+3. Inspect command registration logs.
+4. Restart the bot or run command registration from the admin channel.
+5. Verify that this connector instance owns the channel.
+
+### A command appears but does not run
+
+Check channel ownership filtering, Operator role membership, channel permission overwrites, and whether another instance uses the same channel or bot interaction.
+
+### Session messages mix after fork
+
+Run `/status` in both threads and compare session IDs and control keys. New forks should have distinct mappings. Do not run source and fork against the same native session ID.
+
+### Discord work disappeared after update
+
+Check whether the worker was restarted or killed. Bot-only restart preserves jobs; worker termination may stop child processes. Inspect `.connect/worker/jobs`, durable requests, service history, and old PIDs.
+
+### GPU is not visible
+
+Run `nvidia-smi` as the exact service user and environment. Check PATH, device permissions, container runtime, `/dev/nvidia*`, mounts, and sandbox policy. The connector does not add GPU access by itself.
+
+### Unexpected old completion notifications
+
+Initial background scans may establish a baseline without sending old notifications. Test with a new task after the baseline. Ensure multiple instances do not own the same channels.
+
+## Verification commands
+
+```bash
+pnpm typecheck
+pnpm test
+git diff --check
+npm pack --dry-run --ignore-scripts
+```
+
+Before publishing, verify that the package contains both user READMEs, both AI Agent Guides, localization docs, runtime source, and no secrets or machine state.
+
+## References
+
+- [English README](../README.en.md)
+- [Korean AI Agent Guide](AI_AGENT_GUIDE.md)
+- [Localization Guide](localization.md)
+- [Mac Direct Setup](mac-direct-setup.md)
+- [Ubuntu Direct Setup](ubuntu-server-direct-setup.ko.md)
+- [Operator Guide](operator-guide.md)
+- [Security Policy](../SECURITY.md)

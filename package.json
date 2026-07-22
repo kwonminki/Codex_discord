@@ -42,6 +42,8 @@
     "prisma/schema.prisma",
     "docs/operator-guide.md",
     "docs/localization.md",
+    "docs/AI_AGENT_GUIDE.md",
+    "docs/AI_AGENT_GUIDE.en.md",
     "!apps/**/*.test.ts",
     "!apps/**/package.json",
     "!packages/**/*.test.ts",

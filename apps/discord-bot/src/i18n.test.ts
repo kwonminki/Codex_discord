@@ -92,6 +92,16 @@ describe("Discord UI localization", () => {
     }
   });
 
+  it("keeps Chinese and Japanese help free of Korean fallback text", () => {
+    const chinese = localizeDiscordPayload(formatHelp("session-linked"), "zh");
+    const japanese = localizeDiscordPayload(formatHelp("session-linked"), "ja");
+
+    expect(JSON.stringify(chinese)).toContain("Codex 操作控制台");
+    expect(JSON.stringify(japanese)).toContain("Codex 操作コンソール");
+    expect(JSON.stringify(chinese)).not.toMatch(/[가-힣]/);
+    expect(JSON.stringify(japanese)).not.toMatch(/[가-힣]/);
+  });
+
   it("localizes completion metadata without translating the agent answer", () => {
     const result = formatAgentResultUpdate({
       computerDisplayName: "Mac",
@@ -112,5 +122,25 @@ describe("Discord UI localization", () => {
     expect(translated.content).toContain("Session ID: `session-1`");
     expect(translated.embeds[0]?.title).toBe("Answer");
     expect(translated.embeds[0]?.description).toBe("작업을 완료했습니다. 답변은 한국어입니다.");
+  });
+
+  it("localizes completion UI in Chinese and Japanese while preserving the answer", () => {
+    for (const [locale, expected] of [
+      ["zh", "**Codex 任务已完成**"],
+      ["ja", "**Codex のタスクが完了しました**"],
+    ] as const) {
+      const result = formatAgentResultUpdate({
+        computerDisplayName: "Host",
+        workspaceDisplayName: "Project",
+        cwd: "/tmp/project",
+        prompt: "original prompt",
+      }, {
+        result: { status: "completed", finalMessage: "original answer" },
+      });
+      const translated = localizeDiscordPayload(result, locale);
+
+      expect(translated.content).toContain(expected);
+      expect(translated.embeds[0]?.description).toBe("original answer");
+    }
   });
 });

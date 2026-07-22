@@ -98,6 +98,16 @@ describe("Discord application commands", () => {
     expect(codex?.options?.[0]?.description).toBe("Request to send to Codex");
   });
 
+  it("registers Chinese and Japanese slash command descriptions", () => {
+    const chinese = discordApplicationCommands("zh").find((command) => command.name === "codex");
+    const japanese = discordApplicationCommands("ja").find((command) => command.name === "codex");
+
+    expect(chinese?.description).toBe("向 Codex 发送自然语言请求。");
+    expect(chinese?.options?.[0]?.description).toBe("发送给 Codex 的请求");
+    expect(japanese?.description).toBe("Codex に自然言語で依頼します。");
+    expect(japanese?.options?.[0]?.description).toBe("Codex に送るリクエスト");
+  });
+
   it("uses English for generated agent prompts in an English installation", () => {
     expect(routeDiscordApplicationCommand({
       commandName: "fix-tests",
