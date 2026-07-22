@@ -144,3 +144,5 @@ The default automation setup can access files and commands broadly on the connec
 ## License
 
 MIT
+
+This project began with the idea and early foundation of [joungminsung/codex-discord-connector](https://github.com/joungminsung/codex-discord-connector), and I am grateful to its original author for sharing that starting point. The current version extensively redesigns and expands most of the codebase and workflow, including multi-agent support, independent workers, multi-machine operation, file and media round trips, localized UI, and cross-platform deployment.
