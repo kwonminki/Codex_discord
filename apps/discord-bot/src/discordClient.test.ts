@@ -272,8 +272,10 @@ describe("attachDiscordInteractionHandler", () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "answer-copy-interaction-"));
     const answerCopyStore = createAnswerCopyStore(tempRoot);
     const shortAnswer = "짧은 답변 전체입니다.";
+    const secondShortAnswer = "두 번째 답변은 다른 내용입니다.";
     const longAnswer = "긴 답변입니다. ".repeat(700);
     const shortId = await answerCopyStore.save(shortAnswer);
+    const secondShortId = await answerCopyStore.save(secondShortAnswer);
     const longId = await answerCopyStore.save(longAnswer);
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {
@@ -303,14 +305,44 @@ describe("attachDiscordInteractionHandler", () => {
       expect(showModal).toHaveBeenCalledWith(
         expect.objectContaining({
           title: "답변 복사",
+          custom_id: `cdc:answer:copy:modal:${shortId}`,
           components: [
             expect.objectContaining({
-              components: [expect.objectContaining({ value: shortAnswer })],
+              components: [expect.objectContaining({
+                custom_id: `answer-${shortId}`,
+                value: shortAnswer,
+              })],
             }),
           ],
         }),
       );
       expect(shortReply).not.toHaveBeenCalled();
+
+      handlers.get("interactionCreate")?.({
+        isButton: () => true,
+        customId: `cdc:answer:copy:${secondShortId}`,
+        user: { id: "discord-user-1" },
+        channelId: "thread-1",
+        member: { roles: { cache: new Map() } },
+        guild: null,
+        reply: shortReply,
+        showModal,
+      });
+
+      await vi.waitFor(() => expect(showModal).toHaveBeenCalledTimes(2));
+      expect(showModal).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          custom_id: `cdc:answer:copy:modal:${secondShortId}`,
+          components: [
+            expect.objectContaining({
+              components: [expect.objectContaining({
+                custom_id: `answer-${secondShortId}`,
+                value: secondShortAnswer,
+              })],
+            }),
+          ],
+        }),
+      );
 
       const longReply = vi.fn().mockResolvedValue(undefined);
       handlers.get("interactionCreate")?.({

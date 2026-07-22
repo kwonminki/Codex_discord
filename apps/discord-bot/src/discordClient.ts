@@ -484,20 +484,20 @@ function codexContinueModal(sessionId: string) {
   };
 }
 
-const ANSWER_COPY_MODAL_ID = "cdc:answer:copy:submit";
+const ANSWER_COPY_MODAL_PREFIX = "cdc:answer:copy:modal:";
 const MAX_ANSWER_COPY_MODAL_LENGTH = 4_000;
 
-function answerCopyModal(answer: string) {
+function answerCopyModal(answer: string, copyId: string) {
   return {
     title: "답변 복사",
-    custom_id: ANSWER_COPY_MODAL_ID,
+    custom_id: `${ANSWER_COPY_MODAL_PREFIX}${copyId}`,
     components: [
       {
         type: 1,
         components: [
           {
             type: 4,
-            custom_id: "answer",
+            custom_id: `answer-${copyId}`,
             label: "전체 선택 후 복사",
             style: 2,
             required: false,
@@ -516,6 +516,15 @@ function parseAnswerCopyButton(customId: string): string | null {
   }
 
   const copyId = customId.slice(COMPONENT_IDS.answerCopyPrefix.length).toLowerCase();
+  return /^[a-f0-9]{32}$/.test(copyId) ? copyId : null;
+}
+
+function parseAnswerCopyModal(customId: string): string | null {
+  if (!customId.startsWith(ANSWER_COPY_MODAL_PREFIX)) {
+    return null;
+  }
+
+  const copyId = customId.slice(ANSWER_COPY_MODAL_PREFIX.length).toLowerCase();
   return /^[a-f0-9]{32}$/.test(copyId) ? copyId : null;
 }
 
@@ -820,7 +829,7 @@ export function attachDiscordInteractionHandler(
     if (
       isModalSubmitInteraction(interaction) &&
       interaction.isModalSubmit() &&
-      interaction.customId === ANSWER_COPY_MODAL_ID
+      parseAnswerCopyModal(interaction.customId)
     ) {
       void interaction.reply({
         allowedMentions: { parse: [] },
@@ -996,7 +1005,7 @@ export function attachDiscordInteractionHandler(
           }
 
           if (answer.length <= MAX_ANSWER_COPY_MODAL_LENGTH && typeof componentInteraction.showModal === "function") {
-            await componentInteraction.showModal(answerCopyModal(answer));
+            await componentInteraction.showModal(answerCopyModal(answer, answerCopyId));
             return;
           }
 
