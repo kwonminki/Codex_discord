@@ -410,24 +410,30 @@ describe("notifyCodexTaskCompletions", () => {
         sessions: [session({ completionKey: "complete-2", assistantAnswer: longAnswer })],
       });
 
-      expect(sendTextMessage).toHaveBeenCalledTimes(1);
-      const payload = sendTextMessage.mock.calls[0]?.[1];
-      expect(payload).toMatchObject({
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      const answerPayload = sendTextMessage.mock.calls[0]?.[1];
+      const filePayload = sendTextMessage.mock.calls[1]?.[1];
+      expect(answerPayload).toMatchObject({
         embeds: [
           {
             title: "답변",
             description: expect.stringContaining("전체 답변은 첨부 파일"),
           },
         ],
+      });
+      expect(answerPayload.files).toBeUndefined();
+      expect(filePayload).toMatchObject({
+        embeds: [],
         files: [
           {
             name: "codex-answer.txt",
           },
         ],
       });
-      expect(payload.embeds[0].description.length).toBeLessThanOrEqual(3_800);
-      expect(Buffer.isBuffer(payload.files[0].attachment)).toBe(true);
-      expect(payload.files[0].attachment.toString("utf8")).toBe(longAnswer.trim());
+      expect(filePayload.content).toBeUndefined();
+      expect(answerPayload.embeds[0].description.length).toBeLessThanOrEqual(3_800);
+      expect(Buffer.isBuffer(filePayload.files[0].attachment)).toBe(true);
+      expect(filePayload.files[0].attachment.toString("utf8")).toBe(longAnswer.trim());
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -474,21 +480,27 @@ describe("notifyCodexTaskCompletions", () => {
         ],
       });
 
-      expect(sendTextMessage).toHaveBeenCalledTimes(1);
-      const payload = sendTextMessage.mock.calls[0]?.[1];
-      expect(payload).toMatchObject({
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      const answerPayload = sendTextMessage.mock.calls[0]?.[1];
+      const filePayload = sendTextMessage.mock.calls[1]?.[1];
+      expect(answerPayload).toMatchObject({
         embeds: [
           expect.objectContaining({
             title: "답변",
             description: "테스트 동영상 파일을 만들었습니다.\n테스트용 MP4와 WAV 파일입니다.",
           }),
         ],
+      });
+      expect(answerPayload.files).toBeUndefined();
+      expect(filePayload).toMatchObject({
+        embeds: [],
         files: [
           { attachment: videoPath, name: "preview.mp4" },
           { attachment: audioPath, name: "preview.wav" },
         ],
       });
-      expect(JSON.stringify(payload)).not.toContain("codex-discord-send");
+      expect(filePayload.content).toBeUndefined();
+      expect(JSON.stringify(answerPayload)).not.toContain("codex-discord-send");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -521,17 +533,23 @@ describe("notifyCodexTaskCompletions", () => {
         ],
       });
 
-      expect(sendTextMessage).toHaveBeenCalledTimes(1);
-      const payload = sendTextMessage.mock.calls[0]?.[1];
-      expect(payload).toMatchObject({
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      const answerPayload = sendTextMessage.mock.calls[0]?.[1];
+      const filePayload = sendTextMessage.mock.calls[1]?.[1];
+      expect(answerPayload).toMatchObject({
         embeds: [
           expect.objectContaining({
             title: "답변",
             description: `확인용 영상입니다: [sample overlay](${videoPath})`,
           }),
         ],
+      });
+      expect(answerPayload.files).toBeUndefined();
+      expect(filePayload).toMatchObject({
+        embeds: [],
         files: [{ attachment: videoPath, name: "sample.mp4" }],
       });
+      expect(filePayload.content).toBeUndefined();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

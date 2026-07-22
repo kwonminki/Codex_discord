@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_CODEX_PROMPT_TIMEOUT_MS,
@@ -2549,6 +2552,82 @@ describe("createDiscordMessageHandler", () => {
       "**Claude Code 작업 완료**",
       { mentionRoleIds: ["role-operator"] },
     );
+  });
+
+  it("sends generated attachments after the answer in a file-only message", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "discord-result-attachment-"));
+    const videoPath = path.join(tempRoot, "preview.mp4");
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+
+    try {
+      await writeFile(videoPath, "fake video");
+      const submitCodexPrompt = vi.fn().mockResolvedValue({
+        jobId: "job-1",
+        result: {
+          status: "completed",
+          finalMessage: [
+            "영상 생성이 끝났습니다.",
+            "",
+            "```codex-discord-send",
+            JSON.stringify({ files: [{ path: videoPath, name: "preview.mp4" }] }),
+            "```",
+          ].join("\n"),
+          sessionId: "session-1",
+        },
+      });
+      const handleMessage = createDiscordMessageHandler({
+        resolveChannelContext: async () => ({
+          ...sessionChannelContext,
+          codexSessionId: "session-1",
+          discordDeliveryMode: "thread",
+        }),
+        submitCommandJob: vi.fn(),
+        submitCodexPrompt,
+        updateChannelCwd: vi.fn(),
+        recordCommandAudit: vi.fn(),
+      });
+
+      await handleMessage({
+        authorBot: false,
+        userId: "discord-user-1",
+        channelId: "thread-1",
+        content: "영상 만들어줘",
+        roleIds: ["role-operator"],
+        guild: {
+          createCategory: vi.fn(),
+          createTextChannel: vi.fn(),
+          sendTextMessage,
+        },
+        reply: async () => ({ edit: async () => undefined }),
+      });
+
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        1,
+        "thread-1",
+        expect.objectContaining({
+          content: expect.stringContaining("**Codex 작업 완료**"),
+          embeds: [expect.objectContaining({ description: "영상 생성이 끝났습니다." })],
+        }),
+      );
+      expect(sendTextMessage.mock.calls[0]?.[1]?.files).toBeUndefined();
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        2,
+        "thread-1",
+        {
+          allowedMentions: { parse: [] },
+          embeds: [],
+          files: [{ attachment: videoPath, name: "preview.mp4" }],
+        },
+      );
+      expect(sendTextMessage).toHaveBeenNthCalledWith(
+        3,
+        "thread-1",
+        "**Codex 작업 완료**",
+        { mentionRoleIds: ["role-operator"] },
+      );
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("sends every long Codex answer chunk before the completion mention", async () => {

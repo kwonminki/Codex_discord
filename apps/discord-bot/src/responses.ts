@@ -102,6 +102,7 @@ export interface CodexProgressState {
 }
 
 const codexResultContinuationMessages = new WeakMap<DiscordMessagePayload, DiscordMessagePayload[]>();
+const answerCopyTextByPayload = new WeakMap<DiscordMessagePayload, string>();
 
 export interface DiscordFilePayload {
   attachment: string | Buffer;
@@ -271,6 +272,72 @@ export function getCodexResultContinuationMessages(
   payload: DiscordMessagePayload,
 ): DiscordMessagePayload[] {
   return [...(codexResultContinuationMessages.get(payload) ?? [])];
+}
+
+export function appendCodexResultContinuationMessages(
+  payload: DiscordMessagePayload,
+  continuations: DiscordMessagePayload[],
+): void {
+  if (continuations.length === 0) {
+    return;
+  }
+
+  codexResultContinuationMessages.set(payload, [
+    ...(codexResultContinuationMessages.get(payload) ?? []),
+    ...continuations,
+  ]);
+}
+
+export function registerAnswerCopyText(payload: DiscordMessagePayload, answer: string): void {
+  const normalized = answer.trimEnd();
+
+  if (normalized.length > 0) {
+    answerCopyTextByPayload.set(payload, normalized);
+  }
+}
+
+export function getAnswerCopyText(payload: DiscordMessagePayload): string | null {
+  return answerCopyTextByPayload.get(payload) ?? null;
+}
+
+export function withAnswerCopyButton(payload: DiscordMessagePayload, copyId: string): DiscordMessagePayload {
+  const customId = `${COMPONENT_IDS.answerCopyPrefix}${copyId}`;
+  const rows = payload.components ?? [];
+
+  if (rows.some((row) => row.components.some((component) => "custom_id" in component && component.custom_id === customId))) {
+    return payload;
+  }
+
+  const copyButton = button({
+    customId,
+    label: "답변 복사",
+    style: BUTTON_STYLES.secondary,
+  });
+  const compatibleRow = rows.find((row) =>
+    row.components.length < 5 && row.components.every((component) => component.type === 2),
+  );
+
+  if (compatibleRow) {
+    compatibleRow.components.push(copyButton);
+  } else {
+    payload.components = [...rows, actionRow([copyButton])];
+  }
+
+  return payload;
+}
+
+export function discordFileOnlyPayloads(files: DiscordFilePayload[]): DiscordMessagePayload[] {
+  const payloads: DiscordMessagePayload[] = [];
+
+  for (let index = 0; index < files.length; index += MAX_DISCORD_FILES) {
+    payloads.push({
+      allowedMentions: { parse: [] },
+      embeds: [],
+      files: files.slice(index, index + MAX_DISCORD_FILES),
+    });
+  }
+
+  return payloads;
 }
 
 function codeBlock(value: string, language: string): string {
@@ -535,7 +602,7 @@ export function extractCodexDiscordSendOutputs(text: string): {
           continue;
         }
 
-        if (seenPaths.has(reference.filePath) || attachments.length >= MAX_DISCORD_FILES) {
+        if (seenPaths.has(reference.filePath)) {
           continue;
         }
 
@@ -597,7 +664,7 @@ export function extractLocalMediaLinkOutputs(text: string): {
 
     const filePath = normalizeLocalAttachmentPath(rawReference);
 
-    if (!filePath || seenPaths.has(filePath) || attachments.length >= MAX_DISCORD_FILES) {
+    if (!filePath || seenPaths.has(filePath)) {
       continue;
     }
 
@@ -659,7 +726,7 @@ function deduplicateDiscordFiles(files: DiscordFilePayload[]): DiscordFilePayloa
   for (const file of files) {
     const key = typeof file.attachment === "string" ? file.attachment : file.name ?? `buffer-${deduped.length}`;
 
-    if (seen.has(key) || deduped.length >= MAX_DISCORD_FILES) {
+    if (seen.has(key)) {
       continue;
     }
 
@@ -3587,13 +3654,11 @@ export function formatCodexResultUpdate(
       ],
     };
 
-    if (finalFiles.length > 0) {
-      payload.files = finalFiles;
-    }
-
-    if (continuationPayloads.length > 0) {
-      codexResultContinuationMessages.set(payload, continuationPayloads);
-    }
+    registerAnswerCopyText(payload, finalContent);
+    appendCodexResultContinuationMessages(payload, [
+      ...continuationPayloads,
+      ...discordFileOnlyPayloads(finalFiles),
+    ]);
 
     return payload;
   }

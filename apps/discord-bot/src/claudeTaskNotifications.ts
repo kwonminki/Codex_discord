@@ -7,8 +7,12 @@ import type {
   DirectSyncStateStore,
 } from "./directState.js";
 import {
+  appendCodexResultContinuationMessages,
+  discordFileOnlyPayloads,
   extractCodexDiscordSendOutputs,
   extractLocalMediaLinkOutputs,
+  getCodexResultContinuationMessages,
+  registerAnswerCopyText,
   type DiscordFilePayload,
   type DiscordMessagePayload,
 } from "./responses.js";
@@ -142,7 +146,7 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
     `Claude session: \`${session.id}\``,
   ].filter((line): line is string => Boolean(line));
 
-  return {
+  const payload: DiscordMessagePayload = {
     allowedMentions: { parse: [] },
     content: lines.join("\n"),
     embeds: [
@@ -153,15 +157,19 @@ function formatClaudeCompleteNotification(session: DiscoveredClaudeCodeSession):
       },
     ],
     components: [],
-    ...(answerPreview.clipped || parsedAnswer.files.length > 0
-      ? {
-          files: [
-            ...(answerPreview.clipped ? [answerAttachment(answer)] : []),
-            ...parsedAnswer.files,
-          ],
-        }
-      : {}),
   };
+
+  registerAnswerCopyText(payload, answer);
+  const files = [
+    ...(answerPreview.clipped ? [answerAttachment(answer)] : []),
+    ...parsedAnswer.files,
+  ];
+
+  if (files.length > 0) {
+    appendCodexResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+  }
+
+  return payload;
 }
 
 function isClaudeCompletionCandidate(session: DiscoveredClaudeCodeSession, input: { now: Date; idleMs: number }): boolean {
@@ -268,6 +276,10 @@ export async function notifyClaudeCodeTaskCompletions(
       await input.guild.sendTextMessage(syncedChannel.discordChannelId, notification, { mentionRoleIds });
     } else {
       await input.guild.sendTextMessage(syncedChannel.discordChannelId, notification);
+    }
+
+    for (const continuation of getCodexResultContinuationMessages(notification)) {
+      await input.guild.sendTextMessage(syncedChannel.discordChannelId, continuation);
     }
 
     notifiedSessions += 1;

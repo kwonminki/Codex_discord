@@ -5,6 +5,7 @@ import {
   type Guild,
   type Message,
 } from "discord.js";
+import type { AnswerCopyStore } from "./answerCopyStore.js";
 import {
   DISCORD_APPLICATION_COMMANDS,
   registerDiscordApplicationCommands,
@@ -14,7 +15,9 @@ import type { DiscordGuildSurface } from "./codexSessionSync.js";
 import type { DiscordMessageLike } from "./messageHandler.js";
 import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
 import {
+  getAnswerCopyText,
   withRoleMentions,
+  withAnswerCopyButton,
   type DiscordMessagePayload,
 } from "./responses.js";
 
@@ -30,6 +33,11 @@ interface DiscordInteractionEventClient {
 
 interface DiscordInteractionHandlerOptions {
   isManagedChannel?(channelId: string): boolean | Promise<boolean>;
+  answerCopyStore?: AnswerCopyStore;
+}
+
+interface DiscordMessageHandlerOptions {
+  answerCopyStore?: AnswerCopyStore;
 }
 
 export function createDiscordClient(): Client {
@@ -155,15 +163,37 @@ function isEditableDiscordMessage(message: unknown): message is EditableDiscordM
   );
 }
 
-function prepareOutgoingMessage(
+async function prepareOutgoingMessage(
   content: string | DiscordMessagePayload,
   options?: { mentionRoleIds?: string[] },
-): string | DiscordMessagePayload {
+  answerCopyStore?: AnswerCopyStore,
+): Promise<string | DiscordMessagePayload> {
   const mentionRoleIds = options?.mentionRoleIds?.filter(Boolean) ?? [];
-  return mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
+  const preparedContent = mentionRoleIds.length > 0 ? withRoleMentions(content, mentionRoleIds) : content;
+
+  if (typeof preparedContent === "string" || !answerCopyStore) {
+    return preparedContent;
+  }
+
+  const answer = getAnswerCopyText(preparedContent);
+
+  if (!answer) {
+    return preparedContent;
+  }
+
+  try {
+    const copyId = await answerCopyStore.save(answer);
+    return withAnswerCopyButton(preparedContent, copyId);
+  } catch (error) {
+    console.warn("discord-bot failed to cache an answer for copying", error);
+    return preparedContent;
+  }
 }
 
-export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurface | null {
+export function createDiscordGuildSurface(
+  guild: Guild | null,
+  surfaceOptions: { answerCopyStore?: AnswerCopyStore } = {},
+): DiscordGuildSurface | null {
   if (!guild) {
     return null;
   }
@@ -209,7 +239,7 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
         throw new Error("Discord channel cannot receive text messages.");
       }
 
-      const preparedContent = prepareOutgoingMessage(content, options);
+      const preparedContent = await prepareOutgoingMessage(content, options, surfaceOptions.answerCopyStore);
       const sentMessage = await sender.send(preparedContent);
       return isEditableDiscordMessage(sentMessage) ? { id: sentMessage.id } : undefined;
     },
@@ -225,7 +255,8 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
         throw new Error("Discord message cannot be edited.");
       }
 
-      const editedMessage = await message.edit(content);
+      const preparedContent = await prepareOutgoingMessage(content, undefined, surfaceOptions.answerCopyStore);
+      const editedMessage = await message.edit(preparedContent);
       return isEditableDiscordMessage(editedMessage) ? { id: editedMessage.id } : { id: message.id };
     },
     async deleteChannel(id) {
@@ -242,6 +273,7 @@ export function createDiscordGuildSurface(guild: Guild | null): DiscordGuildSurf
 export function attachDiscordMessageHandler(
   client: DiscordMessageEventClient,
   handleMessage: (message: DiscordMessageLike) => Promise<void>,
+  options: DiscordMessageHandlerOptions = {},
 ): void {
   client.on("messageCreate", (message) => {
     const discordMessage = message as Message;
@@ -263,7 +295,7 @@ export function attachDiscordMessageHandler(
       roleIds: getRoleIds(discordMessage),
       ...(discordMessage.id ? { messageId: discordMessage.id } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
-      guild: createDiscordGuildSurface(discordMessage.guild),
+      guild: createDiscordGuildSurface(discordMessage.guild, options),
       clearMessages: (clearInput) =>
         clearChannelMessages({
           guild: discordMessage.guild,
@@ -271,7 +303,8 @@ export function attachDiscordMessageHandler(
           ...clearInput,
         }),
       reply: async (replyMessage) => {
-        const sentMessage = await discordMessage.reply(replyMessage);
+        const preparedReply = await prepareOutgoingMessage(replyMessage, undefined, options.answerCopyStore);
+        const sentMessage = await discordMessage.reply(preparedReply);
 
         if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
           return sentMessage;
@@ -279,7 +312,8 @@ export function attachDiscordMessageHandler(
 
         return {
           edit: async (nextMessage) => {
-            return sentMessage.edit(nextMessage);
+            const preparedMessage = await prepareOutgoingMessage(nextMessage, undefined, options.answerCopyStore);
+            return sentMessage.edit(preparedMessage);
           },
         };
       },
@@ -450,6 +484,41 @@ function codexContinueModal(sessionId: string) {
   };
 }
 
+const ANSWER_COPY_MODAL_ID = "cdc:answer:copy:submit";
+const MAX_ANSWER_COPY_MODAL_LENGTH = 4_000;
+
+function answerCopyModal(answer: string) {
+  return {
+    title: "답변 복사",
+    custom_id: ANSWER_COPY_MODAL_ID,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "answer",
+            label: "전체 선택 후 복사",
+            style: 2,
+            required: false,
+            max_length: MAX_ANSWER_COPY_MODAL_LENGTH,
+            value: answer,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function parseAnswerCopyButton(customId: string): string | null {
+  if (!customId.startsWith(COMPONENT_IDS.answerCopyPrefix)) {
+    return null;
+  }
+
+  const copyId = customId.slice(COMPONENT_IDS.answerCopyPrefix.length).toLowerCase();
+  return /^[a-f0-9]{32}$/.test(copyId) ? copyId : null;
+}
+
 function parseCodexContinueButton(customId: string): string | null {
   const match = customId.match(/^cdc:codex:continue:([0-9a-f-]{32,36})$/i);
   return match?.[1]?.toLowerCase() ?? null;
@@ -570,14 +639,31 @@ async function fetchInteractionReply(interaction: { fetchReply?(): Promise<unkno
 
 function interactionReplyAdapter(
   interaction: InteractionReplySource,
-  options: { initialReplyDeferred?: boolean } = {},
+  options: { initialReplyDeferred?: boolean; answerCopyStore?: AnswerCopyStore } = {},
 ) {
   let hasInitialReply = false;
 
+  const prepareReply = async (message: unknown): Promise<unknown> => {
+    if (
+      typeof message !== "string" &&
+      (typeof message !== "object" || message === null || !("embeds" in message))
+    ) {
+      return message;
+    }
+
+    return prepareOutgoingMessage(
+      message as string | DiscordMessagePayload,
+      undefined,
+      options.answerCopyStore,
+    );
+  };
+
   return async (replyMessage: unknown) => {
+    const preparedReply = await prepareReply(replyMessage);
+
     if (options.initialReplyDeferred && !hasInitialReply) {
       const editedInitialMessage =
-        typeof interaction.editReply === "function" ? await interaction.editReply(replyMessage) : null;
+        typeof interaction.editReply === "function" ? await interaction.editReply(preparedReply) : null;
       hasInitialReply = true;
       const initialMessage = isEditableDiscordMessage(editedInitialMessage)
         ? editedInitialMessage
@@ -589,7 +675,7 @@ function interactionReplyAdapter(
 
       return {
         edit: async (nextMessage: unknown) => {
-          return interaction.editReply?.(nextMessage);
+          return interaction.editReply?.(await prepareReply(nextMessage));
         },
       };
     }
@@ -597,9 +683,9 @@ function interactionReplyAdapter(
     if (hasInitialReply) {
       const sentMessage =
         typeof interaction.channel?.send === "function"
-          ? await interaction.channel.send(replyMessage)
+          ? await interaction.channel.send(preparedReply)
           : typeof interaction.followUp === "function"
-            ? await interaction.followUp(replyMessage)
+            ? await interaction.followUp(preparedReply)
             : null;
 
       if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
@@ -608,12 +694,12 @@ function interactionReplyAdapter(
 
       return {
         edit: async (nextMessage: unknown) => {
-          return sentMessage.edit?.(nextMessage);
+          return sentMessage.edit?.(await prepareReply(nextMessage));
         },
       };
     }
 
-    await interaction.reply(replyMessage);
+    await interaction.reply(preparedReply);
     hasInitialReply = true;
     const initialMessage = await fetchInteractionReply(interaction);
 
@@ -623,7 +709,7 @@ function interactionReplyAdapter(
 
     return {
       edit: async (nextMessage: unknown) => {
-        return interaction.editReply?.(nextMessage);
+        return interaction.editReply?.(await prepareReply(nextMessage));
       },
     };
   };
@@ -709,17 +795,35 @@ export function attachDiscordInteractionHandler(
           channelId: interaction.channelId,
           content,
           roleIds: getMemberRoleIds(interaction.member),
-          guild: createDiscordGuildSurface(interaction.guild),
+          guild: createDiscordGuildSurface(interaction.guild, options),
           clearMessages: (clearInput) =>
             clearChannelMessages({
               guild: interaction.guild,
               channelId: interaction.channelId,
               ...clearInput,
             }),
-          reply: interactionReplyAdapter(interaction, { initialReplyDeferred }),
+          reply: interactionReplyAdapter(interaction, {
+            initialReplyDeferred,
+            answerCopyStore: options.answerCopyStore,
+          }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle slash command", error);
+      });
+      return;
+    }
+
+    if (
+      isModalSubmitInteraction(interaction) &&
+      interaction.isModalSubmit() &&
+      interaction.customId === ANSWER_COPY_MODAL_ID
+    ) {
+      void interaction.reply({
+        allowedMentions: { parse: [] },
+        ephemeral: true,
+        content: "복사용 창을 닫았습니다.",
+      }).catch((error) => {
+        console.error("discord-bot failed to close the answer copy modal", error);
       });
       return;
     }
@@ -751,8 +855,8 @@ export function attachDiscordInteractionHandler(
           channelId: interaction.channelId,
           content: `codex ${prompt}`,
           roleIds: getMemberRoleIds(interaction.member),
-          guild: createDiscordGuildSurface(interaction.guild),
-          reply: interactionReplyAdapter(interaction),
+          guild: createDiscordGuildSurface(interaction.guild, options),
+          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle Codex modal submit", error);
@@ -789,8 +893,8 @@ export function attachDiscordInteractionHandler(
               prompt,
             }),
             roleIds: getMemberRoleIds(interaction.member),
-            guild: createDiscordGuildSurface(interaction.guild),
-            reply: interactionReplyAdapter(interaction),
+            guild: createDiscordGuildSurface(interaction.guild, options),
+            reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
           });
         })().catch((error) => {
           console.error("discord-bot failed to handle Codex continue modal submit", error);
@@ -820,8 +924,8 @@ export function attachDiscordInteractionHandler(
             initialPrompt,
           }),
           roleIds: getMemberRoleIds(interaction.member),
-          guild: createDiscordGuildSurface(interaction.guild),
-          reply: interactionReplyAdapter(interaction),
+          guild: createDiscordGuildSurface(interaction.guild, options),
+          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle new chat modal submit", error);
@@ -852,8 +956,8 @@ export function attachDiscordInteractionHandler(
           channelId: interaction.channelId,
           content: encodedForkSessionCommand({ name }),
           roleIds: getMemberRoleIds(interaction.member),
-          guild: createDiscordGuildSurface(interaction.guild),
-          reply: interactionReplyAdapter(interaction),
+          guild: createDiscordGuildSurface(interaction.guild, options),
+          reply: interactionReplyAdapter(interaction, { answerCopyStore: options.answerCopyStore }),
         });
       })().catch((error) => {
         console.error("discord-bot failed to handle fork modal submit", error);
@@ -873,6 +977,34 @@ export function attachDiscordInteractionHandler(
       }
 
       if (componentInteraction.isButton()) {
+        const answerCopyId = parseAnswerCopyButton(componentInteraction.customId);
+
+        if (answerCopyId) {
+          const answer = await options.answerCopyStore?.read(answerCopyId);
+
+          if (!answer) {
+            await componentInteraction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: "복사용 답변이 만료되었거나 이 봇 인스턴스에 없습니다.",
+            });
+            return;
+          }
+
+          if (answer.length <= MAX_ANSWER_COPY_MODAL_LENGTH && typeof componentInteraction.showModal === "function") {
+            await componentInteraction.showModal(answerCopyModal(answer));
+            return;
+          }
+
+          await componentInteraction.reply({
+            allowedMentions: { parse: [] },
+            ephemeral: true,
+            content: "답변이 길어서 전체 원문을 텍스트 파일로 준비했습니다.",
+            files: [{ attachment: Buffer.from(answer, "utf8"), name: "answer.txt" }],
+          });
+          return;
+        }
+
         const continueSessionId = parseCodexContinueButton(componentInteraction.customId);
 
         if (continueSessionId) {
@@ -936,8 +1068,8 @@ export function attachDiscordInteractionHandler(
         channelId: componentInteraction.channelId,
         content,
         roleIds: getMemberRoleIds(componentInteraction.member),
-        guild: createDiscordGuildSurface(componentInteraction.guild),
-        reply: interactionReplyAdapter(componentInteraction),
+        guild: createDiscordGuildSurface(componentInteraction.guild, options),
+        reply: interactionReplyAdapter(componentInteraction, { answerCopyStore: options.answerCopyStore }),
       });
     })().catch((error) => {
       console.error("discord-bot failed to handle interaction", error);

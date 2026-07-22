@@ -2,6 +2,7 @@ import os from "node:os";
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
+import { createAnswerCopyStore, type AnswerCopyStore } from "./answerCopyStore.js";
 import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
 import {
   createForkedDiscordSessionThread,
@@ -230,6 +231,7 @@ function outgoingMessageToText(message: DiscordOutgoingMessage): string {
 function resolveReadyGuildSurface(
   client: ReturnType<typeof createDiscordClient>,
   guildId?: string,
+  answerCopyStore?: AnswerCopyStore,
 ): DiscordGuildSurface | null {
   const cache = client.guilds?.cache;
   if (!cache) {
@@ -237,7 +239,7 @@ function resolveReadyGuildSurface(
   }
   const guild = guildId ? cache.get(guildId) : cache.first();
 
-  return createDiscordGuildSurface(guild ?? null);
+  return createDiscordGuildSurface(guild ?? null, { answerCopyStore });
 }
 
 export async function startBot(): Promise<void> {
@@ -255,6 +257,7 @@ export async function startBot(): Promise<void> {
   const directWorkerClient = connectConfig?.mode === "direct" ? createDirectWorkerClient() : null;
   const durableRequestStore = connectConfig?.mode === "direct" ? createDurableDiscordRequestStore() : null;
   const incomingAttachmentStore = connectConfig?.mode === "direct" ? createIncomingAttachmentStore() : null;
+  const answerCopyStore = createAnswerCopyStore();
   const activelyStreamedSessionIds = new Set<string>();
 
   if (requestedMode === "direct" && connectConfig?.mode !== "direct") {
@@ -730,7 +733,7 @@ export async function startBot(): Promise<void> {
     });
 
     if (durableRequestStore) {
-      const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+      const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
       if (guild?.sendTextMessage) {
         void (async () => {
           const requests = await durableRequestStore.list();
@@ -796,7 +799,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
 
         if (!guild) {
           return;
@@ -853,7 +856,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
 
         if (!guild?.sendTextMessage) {
           return;
@@ -910,7 +913,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
 
         if (!guild) {
           return;
@@ -964,7 +967,7 @@ export async function startBot(): Promise<void> {
           return;
         }
 
-        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId);
+        const guild = resolveReadyGuildSurface(client, connectConfig?.discord.guildId, answerCopyStore);
 
         if (!guild?.sendTextMessage) {
           return;
@@ -1001,9 +1004,10 @@ export async function startBot(): Promise<void> {
       timer.unref();
     }
   });
-  attachDiscordMessageHandler(client, handleMessage);
+  attachDiscordMessageHandler(client, handleMessage, { answerCopyStore });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),
+    answerCopyStore,
   });
 
   await client.login(token);

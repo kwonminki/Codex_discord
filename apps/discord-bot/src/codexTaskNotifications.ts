@@ -14,8 +14,12 @@ import type {
   SyncedSessionChannelState,
 } from "./directState.js";
 import {
+  appendCodexResultContinuationMessages,
+  discordFileOnlyPayloads,
   extractCodexDiscordSendOutputs,
   extractLocalMediaLinkOutputs,
+  getCodexResultContinuationMessages,
+  registerAnswerCopyText,
   type DiscordFilePayload,
   type DiscordMessagePayload,
 } from "./responses.js";
@@ -191,15 +195,22 @@ function formatTaskCompleteNotification(
         ],
       },
     ],
-    ...(rawAnswer && (answerPreview?.clipped || answerFiles.length > 0)
-      ? {
-          files: [
-            ...(answerPreview?.clipped ? [answerAttachment(answer ?? rawAnswer)] : []),
-            ...answerFiles,
-          ],
-        }
-      : {}),
   };
+
+  if (answer) {
+    registerAnswerCopyText(payload, answer);
+  }
+
+  const files = rawAnswer
+    ? [
+        ...(answerPreview?.clipped ? [answerAttachment(answer ?? rawAnswer)] : []),
+        ...answerFiles,
+      ]
+    : [];
+
+  if (files.length > 0) {
+    appendCodexResultContinuationMessages(payload, discordFileOnlyPayloads(files));
+  }
 
   return payload;
 }
@@ -467,6 +478,10 @@ export async function notifyCodexTaskCompletions(
         await input.guild.sendTextMessage(targetChannelId, notification, { mentionRoleIds });
       } else {
         await input.guild.sendTextMessage(targetChannelId, notification);
+      }
+
+      for (const continuation of getCodexResultContinuationMessages(notification)) {
+        await input.guild.sendTextMessage(targetChannelId, continuation);
       }
       notifiedSessions += 1;
 

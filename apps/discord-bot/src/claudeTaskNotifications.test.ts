@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -229,6 +229,75 @@ describe("notifyClaudeCodeTaskCompletions", () => {
       expect(sendTextMessage).toHaveBeenCalledTimes(1);
       expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({
         embeds: [expect.objectContaining({ description: "최종 답변입니다." })],
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("sends Claude Code attachments in a separate file-only message", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-notify-attachment-"));
+    const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+    const videoPath = path.join(tempRoot, "preview.mp4");
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+
+    try {
+      await writeFile(videoPath, "fake video");
+      await stateStore.write({
+        version: 1,
+        archivedCodexSessionIds: [],
+        workspaces: [],
+        sessionChannels: [
+          {
+            codexSessionId: null,
+            claudeSessionId: "claude-session-1",
+            threadName: "테스트 대화야",
+            updatedAt: "2026-07-20T04:31:45.812Z",
+            cwd: "/repo",
+            workspaceRoot: "/repo",
+            workspaceDisplayName: "repo",
+            discordCategoryId: null,
+            discordChannelId: "thread-claude",
+            discordParentChannelId: "parent-claude",
+            discordDeliveryMode: "thread",
+            channelMode: "claude-code",
+            channelName: "test",
+            computerId: "mac",
+            workspaceId: "mac:/repo",
+          },
+        ],
+        claudeCompletionNotificationsInitializedAt: "2026-07-20T04:30:00.000Z",
+        claudeCompletionNotificationScope: "external-claude-code-idle-assistant-messages-v2",
+      });
+
+      await notifyClaudeCodeTaskCompletions({
+        guild: { sendTextMessage },
+        stateStore,
+        sessions: [
+          claudeSession({
+            latestAssistantMessage: [
+              "영상 생성이 끝났습니다.",
+              "",
+              "```codex-discord-send",
+              JSON.stringify({ files: [{ path: videoPath, name: "preview.mp4" }] }),
+              "```",
+            ].join("\n"),
+            latestAssistantMessageKey: "claude-session-1:2026-07-20T04:52:00.000Z:4",
+            updatedAt: "2026-07-20T04:52:00.000Z",
+          }),
+        ],
+        now: new Date("2026-07-20T04:55:00.000Z"),
+      });
+
+      expect(sendTextMessage).toHaveBeenCalledTimes(2);
+      expect(sendTextMessage.mock.calls[0]?.[1]).toMatchObject({
+        embeds: [expect.objectContaining({ description: "영상 생성이 끝났습니다." })],
+      });
+      expect(sendTextMessage.mock.calls[0]?.[1]?.files).toBeUndefined();
+      expect(sendTextMessage.mock.calls[1]?.[1]).toEqual({
+        allowedMentions: { parse: [] },
+        embeds: [],
+        files: [{ attachment: videoPath, name: "preview.mp4" }],
       });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });

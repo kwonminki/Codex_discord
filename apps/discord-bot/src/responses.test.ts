@@ -626,8 +626,7 @@ describe("responses", () => {
     try {
       await writeFile(imagePath, "fake image");
 
-      expect(
-        formatCodexResultUpdate(
+      const payload = formatCodexResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -641,14 +640,21 @@ describe("responses", () => {
               sessionId: "session-1",
             },
           },
-        ),
-      ).toEqual(
+        );
+      expect(payload).toEqual(
         expect.objectContaining({
           content: expect.stringContaining("**Codex 작업 완료**"),
           embeds: [expect.objectContaining({ title: "답변", description: "생성했습니다." })],
-          files: [{ attachment: imagePath, name: "result.png" }],
         }),
       );
+      expect(payload.files).toBeUndefined();
+      expect(getCodexResultContinuationMessages(payload)).toEqual([
+        {
+          allowedMentions: { parse: [] },
+          embeds: [],
+          files: [{ attachment: imagePath, name: "result.png" }],
+        },
+      ]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -663,8 +669,7 @@ describe("responses", () => {
       await writeFile(videoPath, "fake video");
       await writeFile(audioPath, "fake audio");
 
-      expect(
-        formatCodexResultUpdate(
+      const payload = formatCodexResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -690,8 +695,8 @@ describe("responses", () => {
               sessionId: "session-1",
             },
           },
-        ),
-      ).toEqual(
+        );
+      expect(payload).toEqual(
         expect.objectContaining({
           content: expect.stringContaining("**Codex 작업 완료**"),
           embeds: [
@@ -700,12 +705,19 @@ describe("responses", () => {
               description: "완료했습니다.\n동영상과 오디오를 첨부합니다.",
             }),
           ],
+        }),
+      );
+      expect(payload.files).toBeUndefined();
+      expect(getCodexResultContinuationMessages(payload)).toEqual([
+        {
+          allowedMentions: { parse: [] },
+          embeds: [],
           files: [
             { attachment: videoPath, name: "preview.mp4" },
             { attachment: audioPath, name: "tone.wav" },
           ],
-        }),
-      );
+        },
+      ]);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -718,8 +730,7 @@ describe("responses", () => {
     try {
       await writeFile(videoPath, "fake video");
 
-      expect(
-        formatCodexResultUpdate(
+      const payload = formatCodexResultUpdate(
           {
             computerDisplayName: "Local Dev",
             workspaceDisplayName: "CodexDiscordConnector",
@@ -733,8 +744,8 @@ describe("responses", () => {
               sessionId: "session-1",
             },
           },
-        ),
-      ).toEqual(
+        );
+      expect(payload).toEqual(
         expect.objectContaining({
           content: expect.stringContaining("**Codex 작업 완료**"),
           embeds: [
@@ -743,9 +754,55 @@ describe("responses", () => {
               description: `확인용 영상입니다: [sample overlay](${videoPath})`,
             }),
           ],
-          files: [{ attachment: videoPath, name: "sample.mp4" }],
         }),
       );
+      expect(payload.files).toBeUndefined();
+      expect(getCodexResultContinuationMessages(payload)).toEqual([
+        {
+          allowedMentions: { parse: [] },
+          embeds: [],
+          files: [{ attachment: videoPath, name: "sample.mp4" }],
+        },
+      ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("splits more than ten output files across file-only messages", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-many-files-"));
+    const filePaths = Array.from({ length: 12 }, (_, index) => path.join(tempRoot, `result-${index + 1}.txt`));
+
+    try {
+      await Promise.all(filePaths.map((filePath, index) => writeFile(filePath, `result ${index + 1}`)));
+      const payload = formatCodexResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "CodexDiscordConnector",
+          cwd: "/repo",
+          prompt: "결과 파일 전부 보내줘",
+        },
+        {
+          result: {
+            status: "completed",
+            finalMessage: [
+              "결과 파일 12개를 보냅니다.",
+              "",
+              "```codex-discord-send",
+              JSON.stringify({ files: filePaths }),
+              "```",
+            ].join("\n"),
+            sessionId: "session-1",
+          },
+        },
+      );
+      const filePayloads = getCodexResultContinuationMessages(payload);
+
+      expect(filePayloads).toHaveLength(2);
+      expect(filePayloads[0]?.files).toHaveLength(10);
+      expect(filePayloads[1]?.files).toHaveLength(2);
+      expect(filePayloads.every((filePayload) => !filePayload.content && filePayload.embeds.length === 0)).toBe(true);
+      expect(filePayloads.flatMap((filePayload) => filePayload.files ?? []).map((file) => file.attachment)).toEqual(filePaths);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

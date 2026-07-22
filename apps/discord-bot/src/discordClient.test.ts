@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { createAnswerCopyStore } from "./answerCopyStore.js";
 import {
   attachDiscordMessageHandler,
   attachDiscordInteractionHandler,
@@ -152,6 +153,49 @@ describe("attachDiscordMessageHandler", () => {
     });
   });
 
+  it("adds a durable answer copy button when sending a final answer", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "answer-copy-client-"));
+    const answerCopyStore = createAnswerCopyStore(tempRoot);
+    const send = vi.fn().mockResolvedValue({ id: "message-1" });
+    const guild = {
+      channels: {
+        fetch: vi.fn().mockResolvedValue({ send }),
+      },
+    };
+
+    try {
+      const payload = formatCodexResultUpdate(
+        {
+          computerDisplayName: "Local Dev",
+          workspaceDisplayName: "repo",
+          cwd: "/repo",
+          prompt: "요약해줘",
+        },
+        {
+          result: {
+            status: "completed",
+            finalMessage: "복사할 최종 답변입니다.",
+            sessionId: "session-1",
+          },
+        },
+      );
+      const guildSurface = createDiscordGuildSurface(guild as never, { answerCopyStore });
+
+      await guildSurface?.sendTextMessage?.("thread-1", payload);
+
+      const sentPayload = send.mock.calls[0]?.[0];
+      const copyButton = sentPayload.components[0].components.find(
+        (component: { custom_id?: string }) => component.custom_id?.startsWith("cdc:answer:copy:"),
+      );
+      const copyId = copyButton.custom_id.slice("cdc:answer:copy:".length);
+
+      expect(copyButton).toMatchObject({ label: "답변 복사", style: 2 });
+      await expect(answerCopyStore.read(copyId)).resolves.toBe("복사할 최종 답변입니다.");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("preserves role mentions while editing a Codex progress message", async () => {
     const handlers = new Map<string, (message: unknown) => void>();
     const client = {
@@ -224,6 +268,75 @@ describe("attachDiscordMessageHandler", () => {
 });
 
 describe("attachDiscordInteractionHandler", () => {
+  it("opens short answers in a copyable modal and returns long answers as text files", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "answer-copy-interaction-"));
+    const answerCopyStore = createAnswerCopyStore(tempRoot);
+    const shortAnswer = "짧은 답변 전체입니다.";
+    const longAnswer = "긴 답변입니다. ".repeat(700);
+    const shortId = await answerCopyStore.save(shortAnswer);
+    const longId = await answerCopyStore.save(longAnswer);
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn();
+    const showModal = vi.fn().mockResolvedValue(undefined);
+    const shortReply = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      attachDiscordInteractionHandler(client, handleMessage, { answerCopyStore });
+      handlers.get("interactionCreate")?.({
+        isButton: () => true,
+        customId: `cdc:answer:copy:${shortId}`,
+        user: { id: "discord-user-1" },
+        channelId: "thread-1",
+        member: { roles: { cache: new Map() } },
+        guild: null,
+        reply: shortReply,
+        showModal,
+      });
+
+      await vi.waitFor(() => expect(showModal).toHaveBeenCalled());
+      expect(showModal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "답변 복사",
+          components: [
+            expect.objectContaining({
+              components: [expect.objectContaining({ value: shortAnswer })],
+            }),
+          ],
+        }),
+      );
+      expect(shortReply).not.toHaveBeenCalled();
+
+      const longReply = vi.fn().mockResolvedValue(undefined);
+      handlers.get("interactionCreate")?.({
+        isButton: () => true,
+        customId: `cdc:answer:copy:${longId}`,
+        user: { id: "discord-user-1" },
+        channelId: "thread-1",
+        member: { roles: { cache: new Map() } },
+        guild: null,
+        reply: longReply,
+        showModal,
+      });
+
+      await vi.waitFor(() => expect(longReply).toHaveBeenCalled());
+      const longPayload = longReply.mock.calls[0]?.[0];
+      expect(longPayload).toMatchObject({
+        ephemeral: true,
+        files: [{ name: "answer.txt" }],
+      });
+      expect(longPayload.files[0].attachment.toString("utf8")).toBe(longAnswer.trimEnd());
+      expect(handleMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("adapts Discord native slash command interactions into the pure message handler", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {
@@ -718,7 +831,7 @@ describe("attachDiscordInteractionHandler", () => {
     );
   });
 
-  it("preserves attachments when editing a progress message into a final answer", async () => {
+  it("keeps final answer text separate from attachments when editing a progress message", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "codex-progress-attachment-"));
     const videoPath = path.join(tempRoot, "review.mp4");
 
@@ -801,9 +914,9 @@ describe("attachDiscordInteractionHandler", () => {
               description: expect.stringContaining("우선 판단 가치가 높은 샘플을 보냅니다."),
             }),
           ],
-          files: [{ attachment: videoPath, name: "review.mp4" }],
         }),
       );
+      expect(sentMessage.edit.mock.calls[0]?.[0]?.files).toBeUndefined();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

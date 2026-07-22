@@ -1,4 +1,5 @@
 export const COMPONENT_IDS = {
+  answerCopyPrefix: "cdc:answer:copy:",
   syncDefault: "cdc:sync:25",
   syncAllDefault: "cdc:sync:all:25",
   syncSelectDefault: "cdc:sync:select:25",
