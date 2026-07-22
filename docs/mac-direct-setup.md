@@ -21,13 +21,13 @@ This repo is intended to be run from source while customizing the connector.
    - Manage Channels
    - Attach Files
    - Manage Messages, optional for `/clear`
-6. Create a dedicated operator role, for example `Codex Operator`.
-7. Create a dedicated Codex/admin channel, for example `#mac-codex`, and a separate Claude Code channel, for example `#mac-claude-code`.
+6. Create a dedicated operator role, preferably `AI Agent Operator`. An existing `Codex Operator` role may be reused.
+7. Create a dedicated AI agent/admin channel, for example `#mac-agent-admin`, and a separate Claude Code channel, for example `#mac-claude-code`.
 8. Gather the setup values:
    - Bot token: open the [Discord Developer Portal](https://discord.com/developers/applications), select the application, then use `Bot > Reset Token/Copy`. The Public Key and OAuth2 Client ID are not connector inputs.
    - Guild/server ID: enable `User Settings > Advanced > Developer Mode`, right-click the server icon, and select `Copy Server ID`.
    - Operator role ID: open `Server Settings > Roles`, open the role menu, and select `Copy Role ID`. Assign this role to every connector operator.
-   - Codex/admin channel ID: right-click the dedicated Codex channel and select `Copy Channel ID`.
+   - AI agent/admin channel ID: right-click the dedicated agent admin channel and select `Copy Channel ID`.
    - Claude Code channel ID: right-click the dedicated Claude Code channel and select `Copy Channel ID`.
 
 The Codex and Claude Code channel IDs must be different. See Discord's [official ID guide](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID) if the copy-ID actions are not visible.
@@ -54,13 +54,13 @@ pnpm connect install --direct \
   --channel-id "MAC_ADMIN_CHANNEL_ID" \
   --claude-channel-id "MAC_CLAUDE_CHANNEL_ID" \
   --workspace-root "/Users/me/Documents/Codex" \
-  --initial-cwd "/Users/me/Documents/Codex/Codex_discord" \
+  --initial-cwd "/Users/me/Documents/AI/ai-agent-discord-connector" \
   --workspace-name "My Mac Codex" \
   --computer-name "My Mac" \
   --codex-home "$HOME/.codex"
 ```
 
-This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the Codex/admin channel and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
+This writes `.connect/config.json` and `.env`. Do not commit those files. In direct mode, `--channel-id` is the AI agent/admin channel, which uses Codex as its default agent, and `--claude-channel-id` is the optional fixed Claude Code channel for the same computer.
 
 When `--claude-channel-id` is configured, the bot treats that channel as a Claude Code channel. `/chat-new` or `chat new` creates a Claude Code thread under that channel, and messages inside the thread continue the same Claude Code session. Inside a linked Codex or Claude Code thread, `/fork` asks for a new thread name and creates a sibling Discord thread. Claude Code forks use `claude --resume <session> --fork-session`; Codex forks use Codex app-server `thread/fork`.
 

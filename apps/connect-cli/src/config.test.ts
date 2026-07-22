@@ -80,7 +80,7 @@ describe("connect setup config", () => {
     expect(guide).toContain("Developer Portal");
     expect(guide).toContain("Server/Guild ID");
     expect(guide).toContain("Operator role ID");
-    expect(guide).toContain("Codex/admin channel ID");
+    expect(guide).toContain("AI agent/admin channel ID");
     expect(guide).toContain("Claude Code channel ID");
     expect(guide).toContain("Public Key와 OAuth2 Client ID는 connector 설정에 넣지 않습니다");
   });
@@ -101,7 +101,7 @@ describe("connect setup config", () => {
     );
   });
 
-  it("rejects using the same Discord channel for Codex and Claude Code", () => {
+  it("rejects using the same Discord channel for agent admin and Claude Code", () => {
     expect(() => buildDirectConfig({
       token: "discord-token",
       guildId: "guild-1",
@@ -109,7 +109,7 @@ describe("connect setup config", () => {
       claudeChannelId: "shared-channel",
       roleIds: "role-operator",
       workspaceRoot: "/repo",
-    })).toThrow("Codex/admin channel ID and Claude Code channel ID must be different.");
+    })).toThrow("AI agent/admin channel ID and Claude Code channel ID must be different.");
   });
 
   it("writes generated config and env files", async () => {

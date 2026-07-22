@@ -7,7 +7,7 @@
 ```text
 Ubuntu server Codex
   -> Ubuntu server ~/.codex session log
-  -> Ubuntu server codex-discord-connector
+  -> Ubuntu server AI Agent Discord Connector
   -> Discord 완료 알림
 ```
 
@@ -40,15 +40,15 @@ Ubuntu server Codex
    - 예: `#ubuntu-codex-admin`
 2. Claude Code도 사용한다면 별도의 private Claude channel을 만듭니다.
    - 예: `#ubuntu-claude-code`
-3. 기존 `Codex Operator` role이 두 채널을 볼 수 있게 합니다.
+3. 기존 `AI Agent Operator` role이 두 채널을 볼 수 있게 합니다. 이전 설치의 `Codex Operator` role도 그대로 재사용할 수 있습니다.
 4. 아래 값을 준비합니다.
    - Discord bot token: [Discord Developer Portal](https://discord.com/developers/applications)에서 앱을 선택하고 `Bot > Reset Token/Copy`에서 가져옵니다. Public Key와 OAuth2 Client ID는 입력하지 않습니다.
    - Discord guild/server ID: Discord `사용자 설정 > 고급 > 개발자 모드`를 켠 뒤 서버 아이콘을 우클릭하고 `서버 ID 복사`를 선택합니다.
    - Operator role ID: `서버 설정 > 역할`에서 허용할 역할의 메뉴를 열고 `역할 ID 복사`를 선택합니다.
-   - Ubuntu Codex/admin channel ID: Codex 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
+   - Ubuntu AI agent/admin channel ID: agent 관리 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
    - Ubuntu Claude Code channel ID: Claude Code 채널을 우클릭하고 `채널 ID 복사`를 선택합니다.
 
-Codex/admin 채널과 Claude Code 채널 ID는 서로 달라야 합니다. ID 복사 메뉴가 보이지 않으면 [Discord 공식 ID 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)에서 Developer Mode 설정을 확인하세요.
+AI agent/admin 채널과 Claude Code 채널 ID는 서로 달라야 합니다. ID 복사 메뉴가 보이지 않으면 [Discord 공식 ID 안내](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)에서 Developer Mode 설정을 확인하세요.
 
 Bot 권한은 Mac 설치와 동일하게 필요합니다.
 
@@ -145,14 +145,14 @@ CLI를 업데이트할 때는 서버 한 대에서 짧은 Codex 요청, 짧은 C
 ```bash
 mkdir -p "$HOME/Codes"
 cd "$HOME/Codes"
-git clone git@github.com:kwonminki/Codex_discord.git
-cd Codex_discord
+git clone git@github.com:kwonminki/ai-agent-discord-connector.git
+cd ai-agent-discord-connector
 ```
 
 서버에 GitHub SSH key가 아직 없다면 HTTPS로 clone해도 됩니다.
 
 ```bash
-git clone https://github.com/kwonminki/Codex_discord.git
+git clone https://github.com/kwonminki/ai-agent-discord-connector.git
 ```
 
 의존성을 설치하고 기본 검사를 실행합니다.
@@ -183,13 +183,13 @@ pnpm connect install --direct \
 
 설정이 끝나면 아래 파일이 생깁니다.
 
-`--channel-id`는 Codex/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다. Claude 채널에서 `/chat-new` 또는 `chat new`를 실행하면 그 Claude 채널 아래에 Claude Code 전용 Discord thread가 만들어집니다. 연결된 Codex/Claude Code thread 안에서 `/fork`를 실행하면 새 thread 이름을 입력하고, 같은 부모 채널 아래에 sibling thread를 만듭니다. Claude Code는 `--fork-session`을 사용하고, Codex는 direct app-server runner에서 `thread/fork`를 사용합니다.
+`--channel-id`는 AI agent/admin 채널이고, `--claude-channel-id`는 같은 서버의 Claude Code 전용 채널입니다. agent/admin 채널에서는 Codex가 기본 agent입니다. Claude 채널에서는 일반 자연어 메시지가 Claude Code로 전달되고, shell 명령은 `!pwd`처럼 `!` 접두어를 붙여 실행합니다. Claude 채널에서 `/chat-new` 또는 `chat new`를 실행하면 그 Claude 채널 아래에 Claude Code 전용 Discord thread가 만들어집니다. 연결된 Codex/Claude Code thread 안에서 `/fork`를 실행하면 새 thread 이름을 입력하고, 같은 부모 채널 아래에 sibling thread를 만듭니다. Claude Code는 `--fork-session`을 사용하고, Codex는 direct app-server runner에서 `thread/fork`를 사용합니다.
 
 `--claude-channel-id`가 있으면 봇은 `~/.claude/projects` 아래의 최근 Claude Code 세션 로그도 봅니다. VS Code, Antigravity 같은 IDE 확장에서 시작한 Claude Code 세션은 자동으로 Claude 채널 아래 Discord thread로 연결됩니다. 봇이 Discord에서 직접 시작한 Claude 세션은 중복 thread가 생기지 않도록 건너뜁니다.
 
 ### Discord 첨부파일 입력
 
-관리 중인 Codex/Claude Code 채널에서 이미지, 영상, 오디오 또는 일반 파일을 메시지에 첨부하면 Ubuntu 서버의 `.connect/incoming-attachments/<message-id>/`에 내려받고 agent prompt에 로컬 절대경로를 추가합니다. 파일만 보내도 기본 확인 요청으로 처리됩니다. Codex/admin 채널에서는 Codex가 기본이며, Claude Code로 보내려면 본문을 `claude <요청>`으로 시작합니다.
+관리 중인 Codex/Claude Code 채널에서 이미지, 영상, 오디오 또는 일반 파일을 메시지에 첨부하면 Ubuntu 서버의 `.connect/incoming-attachments/<message-id>/`에 내려받고 agent prompt에 로컬 절대경로를 추가합니다. 파일만 보내도 기본 확인 요청으로 처리됩니다. AI agent/admin 채널에서는 Codex가 기본이며, Claude Code로 보내려면 본문을 `claude <요청>`으로 시작합니다.
 
 기본 제한은 메시지당 10개, 파일당 100MiB, 총 250MiB, 보관 기간 7일입니다. `CONNECT_INCOMING_ATTACHMENT_ROOT`, `CONNECT_INCOMING_ATTACHMENT_MAX_FILES`, `CONNECT_INCOMING_ATTACHMENT_MAX_BYTES`, `CONNECT_INCOMING_ATTACHMENT_TOTAL_MAX_BYTES`, `CONNECT_INCOMING_ATTACHMENT_TTL_MS`로 조절할 수 있습니다. bot과 worker systemd 서비스는 같은 사용자로 실행하고 같은 첨부 디렉터리를 볼 수 있어야 합니다.
 
@@ -250,7 +250,7 @@ whoami
 pwd
 ```
 
-예를 들어 user가 `ubuntu`, repo가 `/home/ubuntu/Codes/Codex_discord`라면:
+예를 들어 user가 `ubuntu`, repo가 `/home/ubuntu/Codes/ai-agent-discord-connector`라면:
 
 ```bash
 sudo tee /etc/systemd/system/codex-discord-worker.service >/dev/null <<'EOF'
@@ -262,7 +262,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/Codes/Codex_discord
+WorkingDirectory=/home/ubuntu/Codes/ai-agent-discord-connector
 Environment=NODE_ENV=production
 Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
 Environment=CODEX_DISCORD_CODEX_APPROVAL_POLICY=never
@@ -286,7 +286,7 @@ Wants=network-online.target codex-discord-worker.service
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/Codes/Codex_discord
+WorkingDirectory=/home/ubuntu/Codes/ai-agent-discord-connector
 Environment=NODE_ENV=production
 Environment=CODEX_DISCORD_CODEX_RUNNER=app-server
 Environment=CONNECT_TASK_NOTIFICATION_INTERVAL_MS=3000
@@ -359,7 +359,7 @@ sudo systemctl restart codex-discord-worker
 Ubuntu 서버에서 connector 코드를 업데이트할 때:
 
 ```bash
-cd "$HOME/Codes/Codex_discord"
+cd "$HOME/Codes/ai-agent-discord-connector"
 git pull --ff-only
 pnpm install
 pnpm typecheck

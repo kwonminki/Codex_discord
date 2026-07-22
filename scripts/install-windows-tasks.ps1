@@ -36,7 +36,7 @@ function Register-ConnectorTask([string]$component) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Codex Discord Connector $component component" `
+    -Description "AI Agent Discord Connector $component component" `
     -Force | Out-Null
 
   if ($StartNow) {

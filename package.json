@@ -1,21 +1,22 @@
 {
-  "name": "codex-discord-connector",
+  "name": "ai-agent-discord-connector",
   "version": "0.2.0",
   "private": false,
-  "description": "Run and manage local Codex workflows from trusted Discord channels.",
+  "description": "Run and manage local AI agent workflows from trusted Discord channels.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kwonminki/Codex_discord.git"
+    "url": "git+https://github.com/kwonminki/ai-agent-discord-connector.git"
   },
   "bugs": {
-    "url": "https://github.com/kwonminki/Codex_discord/issues"
+    "url": "https://github.com/kwonminki/ai-agent-discord-connector/issues"
   },
-  "homepage": "https://github.com/kwonminki/Codex_discord#readme",
+  "homepage": "https://github.com/kwonminki/ai-agent-discord-connector#readme",
   "bin": {
     "cdc": "bin/cdc.js",
+    "ai-agent-discord-connector": "bin/cdc.js",
     "codex-discord-connector": "bin/cdc.js"
   },
   "engines": {
@@ -23,6 +24,8 @@
   },
   "keywords": [
     "codex",
+    "claude-code",
+    "ai-agent",
     "discord",
     "automation",
     "cli",

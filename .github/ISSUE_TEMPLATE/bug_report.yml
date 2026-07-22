@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Codex Discord Connector.
+description: Report a reproducible problem in AI Agent Discord Connector.
 title: "bug: "
 labels:
   - bug

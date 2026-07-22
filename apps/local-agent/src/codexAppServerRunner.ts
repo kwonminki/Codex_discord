@@ -101,7 +101,7 @@ interface ItemNotificationParams {
 
 const APP_SERVER_ERROR_CODE = "CODEX_APP_SERVER_FAILED";
 const APP_SERVER_UNSUPPORTED_REVIEW_CODE = "CODEX_APP_SERVER_REVIEW_UNSUPPORTED";
-const APP_SERVER_CLIENT_NAME = "codex-discord-connector";
+const APP_SERVER_CLIENT_NAME = "ai-agent-discord-connector";
 const APP_SERVER_APPROVAL_POLICY = "never";
 const APP_SERVER_APPROVALS_REVIEWER = "user";
 type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
@@ -1369,7 +1369,7 @@ async function runPromptAgainstAppServer(input: {
           await request("initialize", {
             clientInfo: {
               name: APP_SERVER_CLIENT_NAME,
-              title: "Codex Discord Connector",
+              title: "AI Agent Discord Connector",
               version: "0.1.0",
             },
             capabilities: { experimentalApi: true, requestAttestation: false },

@@ -82,7 +82,7 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
   const claudeChannelId = input.claudeChannelId?.trim();
 
   if (claudeChannelId && claudeChannelId === channelId) {
-    throw new Error("Codex/admin channel ID and Claude Code channel ID must be different.");
+    throw new Error("AI agent/admin channel ID and Claude Code channel ID must be different.");
   }
 
   return {

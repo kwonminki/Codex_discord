@@ -55,7 +55,7 @@ export function buildDiscordReleasePayload(release) {
     username: "Codex Releases",
     allowed_mentions: { parse: [] },
     embeds: [{
-      title: `Codex Discord Connector v${release.version}`,
+      title: `AI Agent Discord Connector v${release.version}`,
       color: 3066993,
       description,
       fields: [{

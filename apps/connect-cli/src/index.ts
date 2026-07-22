@@ -164,7 +164,7 @@ export function discordSetupGuide(mode: ConnectMode, locale: ConnectorLocale = "
 
   if (mode === "direct") {
     lines.push(
-      "  4. Codex/admin channel ID: 전용 Codex 채널 우클릭 > 채널 ID 복사",
+      "  4. AI agent/admin channel ID: 전용 AI agent 관리 채널 우클릭 > 채널 ID 복사",
       "  5. Claude Code channel ID: 전용 Claude Code 채널 우클릭 > 채널 ID 복사",
       "     두 채널은 서로 달라야 합니다. Claude Code를 쓰지 않으면 마지막 입력에서 Enter를 누르세요.",
     );
@@ -195,8 +195,8 @@ async function setup(flags: Map<string, string | boolean>) {
 
   const channelId = mode === "direct"
     ? await askMissing(
-        flag(flags, "channel-id") ?? process.env.CODEX_CHANNEL_ID,
-        cliText("Codex/admin channel ID (Codex channel > Copy Channel ID): ", locale),
+        flag(flags, "channel-id") ?? process.env.AGENT_ADMIN_CHANNEL_ID ?? process.env.CODEX_CHANNEL_ID,
+        cliText("AI agent/admin channel ID (agent admin channel > Copy Channel ID): ", locale),
       )
     : undefined;
   const claudeChannelId = mode === "direct"

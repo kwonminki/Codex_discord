@@ -12,7 +12,7 @@ function commit(id, message) {
   return {
     id,
     message,
-    url: `https://github.com/kwonminki/Codex_discord/commit/${id}`,
+    url: `https://github.com/kwonminki/ai-agent-discord-connector/commit/${id}`,
   };
 }
 
@@ -22,7 +22,7 @@ describe("release announcement", () => {
       parseVersionCommit(commit("abcdef123", "v1.2.3: 미디어 설문 추가\n\n- 이미지 선택\n- 영상 선택")),
       {
         sha: "abcdef123",
-        url: "https://github.com/kwonminki/Codex_discord/commit/abcdef123",
+        url: "https://github.com/kwonminki/ai-agent-discord-connector/commit/abcdef123",
         version: "1.2.3",
         title: "미디어 설문 추가",
         details: "- 이미지 선택\n- 영상 선택",
@@ -57,7 +57,7 @@ describe("release announcement", () => {
 
     assert.equal(payload.username, "Codex Releases");
     assert.deepEqual(payload.allowed_mentions, { parse: [] });
-    assert.equal(payload.embeds[0].title, "Codex Discord Connector v1.0");
+    assert.equal(payload.embeds[0].title, "AI Agent Discord Connector v1.0");
     assert.equal(payload.embeds[0].description, "**첫 공개 버전**\n\n- 자동 공지");
     assert.match(payload.embeds[0].fields[0].value, /abcdef1/);
   });
@@ -94,8 +94,8 @@ describe("release announcement", () => {
 
     assert.deepEqual(result, { announcedVersions: ["1.0", "1.1"] });
     assert.deepEqual(payloads.map((payload) => payload.embeds[0].title), [
-      "Codex Discord Connector v1.0",
-      "Codex Discord Connector v1.1",
+      "AI Agent Discord Connector v1.0",
+      "AI Agent Discord Connector v1.1",
     ]);
   });
 

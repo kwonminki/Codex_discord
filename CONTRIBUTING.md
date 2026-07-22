@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for considering a contribution to Codex Discord Connector.
+Thanks for considering a contribution to AI Agent Discord Connector.
 
 This project can execute local shell commands and expose local workspace output through Discord. Contributions should treat security, operator clarity, and safe defaults as product requirements.
 

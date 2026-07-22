@@ -1,8 +1,8 @@
-# Codex Discord Connector
+# AI Agent Discord Connector
 
 [한국어](README.md) | English
 
-A personal bridge for using **Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads**.
+A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads**.
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
@@ -13,7 +13,7 @@ Send an ordinary Discord message and the agent works on the connected computer, 
 You do not need to follow an installation procedure yourself. Send this repository and request to an AI coding agent such as Codex or Claude Code:
 
 ```text
-https://github.com/kwonminki/Codex_discord
+https://github.com/kwonminki/ai-agent-discord-connector
 
 Read this repository's AI Agent Guide first, then install and configure it on my computer.
 Ask me only for required account actions, one step at a time, and configure and verify everything else yourself.

@@ -1,6 +1,6 @@
 # Security Policy
 
-Codex Discord Connector can execute shell commands and expose local workspace output through Discord. Treat it as a powerful local administration tool, not as a public bot.
+AI Agent Discord Connector can execute shell commands and expose local workspace output through Discord. Treat it as a powerful local administration tool, not as a public bot.
 
 ## Supported Versions
 

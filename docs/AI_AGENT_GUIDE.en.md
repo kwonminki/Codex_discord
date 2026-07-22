@@ -1,10 +1,10 @@
-# AI Agent Guide: Codex Discord Connector
+# AI Agent Discord Connector: AI Agent Guide
 
 [한국어](AI_AGENT_GUIDE.md) | English
 
 This document is the installation, modification, deployment, and troubleshooting contract for AI coding agents. Human users should start with the repository [README](../README.en.md).
 
-Codex Discord Connector links Codex and Claude Code sessions running on macOS, native Windows, or Ubuntu to trusted Discord channels and threads. It can execute commands and modify files on the connected machine.
+AI Agent Discord Connector links AI agent sessions such as Codex and Claude Code running on macOS, native Windows, or Ubuntu to trusted Discord channels and threads. It can execute commands and modify files on the connected machine.
 
 > Security notice: install this only on machines controlled by the user, connect it only to a trusted private Discord server, and restrict execution with an Operator role allowlist.
 
@@ -90,9 +90,9 @@ After the bot has joined, use the Discord API and the existing token to configur
 
 1. Query bot identity and joined guilds. Auto-select only when there is one; otherwise ask the user to choose by server name.
 2. Identify the Discord user who should receive the Operator role.
-3. Reuse or create a `Codex Operator` role and assign it. Verify that the bot role is above it.
+3. Reuse or create an `AI Agent Operator` role and assign it. A legacy `Codex Operator` role from an existing installation may be reused instead of creating a duplicate. Verify that the bot role is above it.
 4. Ask only for the computer display name, workspace root, and whether Claude Code is needed.
-5. Create a computer category, Codex/admin parent channel, and optional Claude Code parent channel.
+5. Create a computer category, AI agent/admin parent channel, and optional Claude Code parent channel.
 6. Apply permission overwrites for the bot and Operator role. Do not expose execution channels to unrelated members.
 7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
 8. Register guild slash commands.
@@ -114,7 +114,7 @@ For an existing manually managed Discord layout:
 - Discord Bot Token
 - Guild/Server ID
 - One or more Operator Role IDs
-- Per-machine Codex/admin Channel ID
+- Per-machine AI agent/admin Channel ID
 - Workspace root and initial working directory
 
 Optional:
@@ -157,7 +157,7 @@ When the user wants another installation, collect details one machine at a time 
 6. Ask for the default workspace root and whether the machine needs Codex only or both Codex and Claude Code.
 7. Connect and inspect the OS, CPU/GPU, Node.js, pnpm, Codex and Claude CLI versions, login state, existing connector installation, services, and active jobs before changing anything.
 8. Install the same repository commit and verified CLI combination, then create machine-local config, secrets, and separate bot and worker services.
-9. Use the Discord API to create that machine's category, Codex parent channel, optional Claude Code parent channel, and permission overwrites. Never reuse a parent channel ID owned by another connector instance.
+9. Use the Discord API to create that machine's category, AI agent/admin parent channel, optional Claude Code parent channel, and permission overwrites. Never reuse a parent channel ID owned by another connector instance.
 10. Apply the same verification criteria as the first machine: separate service PIDs, ready logs, `/status`, `/chat-new`, a short agent round trip, and preservation of the worker during a bot-only restart.
 11. Report the result for that machine, then ask whether there is another machine to connect.
 
@@ -251,8 +251,8 @@ Requirements:
 - Optional logged-in Claude Code CLI
 
 ```bash
-git clone https://github.com/kwonminki/Codex_discord.git
-cd Codex_discord
+git clone https://github.com/kwonminki/ai-agent-discord-connector.git
+cd ai-agent-discord-connector
 corepack enable
 corepack prepare pnpm@9.15.0 --activate
 pnpm install --frozen-lockfile
@@ -270,7 +270,7 @@ pnpm connect install --direct \
   --token "DISCORD_BOT_TOKEN" \
   --guild-id "DISCORD_GUILD_ID" \
   --role-ids "ROLE_ID_1,ROLE_ID_2" \
-  --channel-id "CODEX_ADMIN_CHANNEL_ID" \
+  --channel-id "AGENT_ADMIN_CHANNEL_ID" \
   --claude-channel-id "CLAUDE_CODE_CHANNEL_ID" \
   --workspace-root "$PWD" \
   --workspace-name "Workspace"
@@ -406,7 +406,7 @@ Native `.exe` builds of Codex and Claude are preferred for Scheduled Tasks. If d
 Run a foreground smoke test, then register separate bot and worker tasks:
 
 ```powershell
-Set-Location C:\path\to\Codex_discord
+Set-Location C:\path\to\ai-agent-discord-connector
 pnpm connect start --direct
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `

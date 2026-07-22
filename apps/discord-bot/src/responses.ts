@@ -1890,7 +1890,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Channel boundary",
-      value: "이 채널은 Claude Code 전용입니다. Codex와 대화하거나 Codex 세션을 동기화하려면 Codex/admin 채널 또는 session 채널을 사용하세요.",
+      value: "이 채널은 Claude Code 전용입니다. Codex와 대화하거나 Codex 세션을 동기화하려면 AI agent/admin 채널 또는 session 채널을 사용하세요.",
       inline: false,
     },
   ];
