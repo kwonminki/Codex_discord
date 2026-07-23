@@ -21,6 +21,8 @@ This repository supports not only human-to-agent remote work but also **automati
 
 When the user asks agents to debate, review, reach agreement, or exchange files, present this as an implemented capability and configure it using the [Agent Relay Guide](agent-relay.en.md). Match the Coordinator locale to the Connector locale.
 
+The cross-server transport path is `Coordinator Bot -> private Discord control channel -> each server's Connector gateway -> that server's Direct Worker`. The servers do not need direct network access, Hub-mode Control API, or Agent WebSocket exposure. However, **every participating server's Connector gateway** must be configured with the exact Coordinator bot user ID and the same private control channel ID, then restarted once. Do not restart the independent Worker, so active agent jobs remain alive. A server without this gateway trust configuration cannot recognize Coordinator messages as relay execution requests.
+
 ## Agent contract
 
 When a user gives you this repository URL, work in this order:
@@ -201,9 +203,10 @@ Do not claim that an existing bot token can create another Discord application. 
 3. Assign the existing Operator role to the Coordinator Bot so Connector thread allowlists accept it.
 4. Store exact Connector bot user IDs, the control channel ID, and a Connector-matching `locale` in Coordinator configuration.
 5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Execute only when that bot sends an exact relay request marker and prompt attachment in the private control channel; ordinary bot messages in work threads are never requests. Never trust every bot author with a wildcard.
-6. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
-7. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
-8. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request, **Add one round trip** and **Reject extension and stop** buttons, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.
+6. Restart only the Connector gateway once on every participating computer to load the trust configuration. Keep the Direct Worker running and verify that its PID and active jobs survive.
+7. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
+8. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
+9. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request, **Add one round trip** and **Reject extension and stop** buttons, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.
 
 An approval or user question during a relay turn uses the existing Connector mention flow and waits for the person. A final `codex-discord-survey` pauses the conversation as `blocked`. Coordinator restarts recover durable state and recent private control results; verify that an already dispatched target turn is not deliberately replayed. Follow [Agent Relay Guide](agent-relay.en.md) for the complete configuration and limits.
 
