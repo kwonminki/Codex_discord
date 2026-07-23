@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -181,11 +181,26 @@ export function renderEnvFile(config: ConnectConfig): string {
 
 export async function writeSetupFiles(input: { cwd: string; config: ConnectConfig }): Promise<void> {
   const connectDirectory = path.join(input.cwd, ".connect");
-  await mkdir(connectDirectory, { recursive: true });
+  const configPath = path.join(connectDirectory, "config.json");
+  const environmentPath = path.join(input.cwd, ".env");
+  await mkdir(connectDirectory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    await chmod(connectDirectory, 0o700);
+  }
   await writeFile(
-    path.join(connectDirectory, "config.json"),
+    configPath,
     `${JSON.stringify(input.config, null, 2)}\n`,
-    "utf8",
+    { encoding: "utf8", mode: 0o600 },
   );
-  await writeFile(path.join(input.cwd, ".env"), renderEnvFile(input.config), "utf8");
+  if (process.platform !== "win32") {
+    await chmod(configPath, 0o600);
+  }
+  await writeFile(
+    environmentPath,
+    renderEnvFile(input.config),
+    { encoding: "utf8", mode: 0o600 },
+  );
+  if (process.platform !== "win32") {
+    await chmod(environmentPath, 0o600);
+  }
 }

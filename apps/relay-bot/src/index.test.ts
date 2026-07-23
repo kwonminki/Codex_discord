@@ -13,6 +13,7 @@ import {
   relayExtensionActionRows,
   relayThreadAutocompleteChoices,
   releaseUpdateActionRows,
+  releaseUpdateNotice,
 } from "./index.js";
 import { relayLocaleText } from "./i18n.js";
 
@@ -85,6 +86,19 @@ describe("relay bot thread selection", () => {
         disabled: false,
       }));
     }
+  });
+
+  it("mentions configured operators without replacing the release update explanation", () => {
+    expect(releaseUpdateNotice("Update registered servers", [
+      "1527202348584145018",
+      "1527202348584145018",
+    ])).toEqual({
+      content: "<@&1527202348584145018>\nUpdate registered servers",
+      allowedMentions: {
+        parse: [],
+        roles: ["1527202348584145018"],
+      },
+    });
   });
 
   it("accepts autocomplete IDs, thread mentions, and Discord links", () => {

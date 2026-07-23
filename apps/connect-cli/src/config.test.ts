@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -157,6 +157,15 @@ describe("connect setup config", () => {
         '"mode": "hub"',
       );
       await expect(readFile(path.join(tempRoot, ".env"), "utf8")).resolves.toBe(renderEnvFile(config));
+      await expect(
+        stat(path.join(tempRoot, ".connect")).then((value) => value.mode & 0o777),
+      ).resolves.toBe(0o700);
+      await expect(
+        stat(path.join(tempRoot, ".connect", "config.json")).then((value) => value.mode & 0o777),
+      ).resolves.toBe(0o600);
+      await expect(
+        stat(path.join(tempRoot, ".env")).then((value) => value.mode & 0o777),
+      ).resolves.toBe(0o600);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

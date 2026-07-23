@@ -55,6 +55,19 @@ export interface WorkspaceCommandInvocation {
   args: string[];
 }
 
+export function resolveCommandShell(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configuredShell =
+    env.CONNECT_WORKSPACE_SHELL?.trim() ||
+    env.CODEX_DISCORD_SHELL?.trim();
+  if (configuredShell) {
+    return configuredShell;
+  }
+  return platform === "darwin" ? "/bin/zsh" : "/bin/bash";
+}
+
 export function buildWorkspaceCommandInvocation(
   command: string,
   platform: NodeJS.Platform = process.platform,
@@ -420,7 +433,7 @@ export async function runWorkspaceCommand(input: RunWorkspaceCommandInput): Prom
         })
       : await exec(input.command, {
           cwd,
-          shell: process.env.CONNECT_WORKSPACE_SHELL?.trim() || "/bin/zsh",
+          shell: resolveCommandShell(),
           timeout: input.timeoutMs,
           maxBuffer: MAX_BUFFER_BYTES,
         });

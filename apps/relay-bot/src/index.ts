@@ -184,6 +184,23 @@ export function releaseUpdateActionRows(
   )];
 }
 
+export function releaseUpdateNotice(
+  content: string,
+  operatorRoleIds: string[],
+): {
+  content: string;
+  allowedMentions: { parse: []; roles: string[] };
+} {
+  const roleIds = [...new Set(operatorRoleIds.map((roleId) => roleId.trim()).filter(Boolean))];
+  return {
+    content: [
+      ...roleIds.map((roleId) => `<@&${roleId}>`),
+      content,
+    ].join("\n"),
+    allowedMentions: { parse: [], roles: roleIds },
+  };
+}
+
 export function parseRelayThreadId(value: string): string | null {
   const trimmed = value.trim();
   const mention = trimmed.match(/^<#(\d+)>$/);
@@ -478,8 +495,7 @@ export async function startRelayBot(): Promise<void> {
       }
 
       await message.reply({
-        content: text.releaseUpdateAvailable,
-        allowedMentions: { parse: [] },
+        ...releaseUpdateNotice(text.releaseUpdateAvailable, operatorRoleIds),
         components: releaseUpdateActionRows(release, false, locale),
       });
     } catch (error) {

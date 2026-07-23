@@ -19,6 +19,8 @@ Mac, Windows, Ubuntu 서버에서 실행되는 **Codex와 Claude Code 같은 AI 
 >
 > 사용자 작업 스레드는 건드리지 않고 실행 중인 Worker 작업은 graceful drain으로 보존합니다. 오프라인 컴퓨터는 안전하게 건너뛰며 정적 서버 목록이나 주기 polling도 필요 없습니다. v1.2의 실시간 steering, durable queue, 독립 Worker와 [Agent Relay](docs/agent-relay.ko.md) 기능도 그대로 포함됩니다.
 
+> **v1.3.1 패치:** release 버튼 안내가 Operator 역할을 멘션하며, Ubuntu/macOS/Windows shell 선택, Mac Node 22 탐색, token 설정 파일 권한을 보강했습니다. 로컬 변경이 있는 dirty 저장소는 자동 병합하지 않고 안전하게 업데이트를 중단합니다.
+
 Discord에서 평소처럼 메시지를 보내면 agent가 연결된 컴퓨터에서 작업하고, 중요한 진행 상황과 최종 답변을 Discord로 돌려줍니다. 이미지, 영상, 오디오, 일반 파일도 양방향으로 주고받을 수 있습니다.
 
 Codex만, Claude Code만, 또는 둘 다 연결할 수 있습니다. Connector가 어느 하나를 고정된 메인 agent로 가정하지 않으며, 둘 다 사용할 때는 메시지를 보낸 부모 채널에 따라 해당 agent로 연결됩니다.

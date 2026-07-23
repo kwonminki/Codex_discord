@@ -19,6 +19,8 @@ A personal bridge for using **AI agents such as Codex and Claude Code running on
 >
 > Active user threads stay untouched and running Worker jobs are preserved through graceful drain. Offline computers are safely skipped, with no static server list or periodic polling. v1.2 live steering, durable queues, independent Workers, and [Agent Relay](docs/agent-relay.en.md) remain included.
 
+> **v1.3.1 patch:** Release actions now mention the Operator role and improve Ubuntu/macOS/Windows shell selection, Mac Node 22 discovery, and token-bearing setup file permissions. A dirty checkout is never auto-merged; the update stops safely for manual review.
+
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
 Connect Codex only, Claude Code only, or both. The connector does not assume either one is the fixed primary agent; when both are enabled, the parent channel receiving the message determines which agent handles it.

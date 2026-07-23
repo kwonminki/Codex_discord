@@ -133,7 +133,7 @@ describe("bot entrypoint", () => {
     await startBot();
 
     expect(createDiscordClient).toHaveBeenCalledTimes(1);
-    expect(once).toHaveBeenCalledWith("ready", expect.any(Function));
+    expect(once).toHaveBeenCalledWith("clientReady", expect.any(Function));
     expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
       { login, once, on },
       expect.any(Function),
@@ -239,7 +239,7 @@ describe("bot entrypoint", () => {
       ).resolves.toMatchObject({
         computerId: "local-dev",
         computerDisplayName: "Local Dev",
-        connectorVersion: "1.3.0",
+        connectorVersion: "1.3.1",
         preferredAgent: "codex",
         channels: {
           codex: "channel-1",
@@ -262,7 +262,7 @@ describe("bot entrypoint", () => {
       );
       expect(login).toHaveBeenCalledWith("discord-token");
 
-      const readyHandler = once.mock.calls.find(([eventName]) => eventName === "ready")?.[1] as
+      const readyHandler = once.mock.calls.find(([eventName]) => eventName === "clientReady")?.[1] as
         | (() => void)
         | undefined;
       readyHandler?.();

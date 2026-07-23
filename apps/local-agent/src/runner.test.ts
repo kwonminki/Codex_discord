@@ -3,7 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { assertInsideWorkspace } from "./workspace.js";
-import { buildWorkspaceCommandInvocation, runWorkspaceCommand } from "./runner.js";
+import {
+  buildWorkspaceCommandInvocation,
+  resolveCommandShell,
+  runWorkspaceCommand,
+} from "./runner.js";
 
 async function makeWorkspace() {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "local-agent-"));
@@ -67,6 +71,18 @@ describe("runWorkspaceCommand", () => {
 
   it("keeps Unix commands on the existing shell path", () => {
     expect(buildWorkspaceCommandInvocation("ls", "linux", {})).toBeNull();
+  });
+
+  it("selects native Unix shells and keeps both override names compatible", () => {
+    expect(resolveCommandShell("darwin", {})).toBe("/bin/zsh");
+    expect(resolveCommandShell("linux", {})).toBe("/bin/bash");
+    expect(resolveCommandShell("linux", {
+      CODEX_DISCORD_SHELL: "/usr/bin/fish",
+    })).toBe("/usr/bin/fish");
+    expect(resolveCommandShell("linux", {
+      CONNECT_WORKSPACE_SHELL: "/usr/local/bin/bash",
+      CODEX_DISCORD_SHELL: "/usr/bin/fish",
+    })).toBe("/usr/local/bin/bash");
   });
 
   it("runs a safe read command inside the workspace", async () => {

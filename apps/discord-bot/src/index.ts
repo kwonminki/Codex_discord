@@ -778,7 +778,7 @@ export async function startBot(): Promise<void> {
     await processMessage(message);
   };
 
-  client.once("ready", () => {
+  client.once("clientReady", () => {
     console.info(`Discord bot ready as ${client.user?.tag ?? "unknown"}`);
     void registerDiscordApplicationCommands(client, connectConfig?.discord.guildId, locale).catch((error) => {
       console.error("discord-bot failed to register slash commands", error);

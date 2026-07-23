@@ -13,10 +13,14 @@ case "$COMPONENT" in
     ;;
 esac
 
-export PATH="$HOME/.local/bin:/Applications/ChatGPT.app/Contents/Resources:/Applications/Codex.app/Contents/Resources:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$HOME/.local/bin:/Applications/ChatGPT.app/Contents/Resources:/Applications/Codex.app/Contents/Resources:/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export CODEX_DISCORD_CODEX_RUNNER="app-server"
 
-NODE_COMMAND="${CODEX_DISCORD_NODE_COMMAND:-$(command -v node)}"
+NODE_COMMAND="${CODEX_DISCORD_NODE_COMMAND:-$(command -v node || true)}"
+if [[ -z "$NODE_COMMAND" ]]; then
+  echo "Node.js was not found. Install a supported Node.js version or set CODEX_DISCORD_NODE_COMMAND." >&2
+  exit 1
+fi
 
 if [[ -z "${CODEX_DISCORD_CODEX_COMMAND:-}" ]]; then
   if [[ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]]; then
