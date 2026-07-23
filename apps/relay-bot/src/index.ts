@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import {
   ChannelType,
   Client,
+  Events,
   GatewayIntentBits,
   type ChatInputCommandInteraction,
   type Message,
@@ -376,7 +377,7 @@ export async function startRelayBot(): Promise<void> {
     });
   });
 
-  client.once("ready", () => {
+  client.once(Events.ClientReady, () => {
     void (async () => {
       const guild = await client.guilds.fetch(guildId);
       await guild.commands.set(RELAY_COMMANDS);
