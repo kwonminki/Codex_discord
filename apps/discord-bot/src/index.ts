@@ -7,6 +7,7 @@ import {
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import { createAnswerCopyStore, type AnswerCopyStore } from "./answerCopyStore.js";
+import { createAgentRelayPresenceStore } from "./agentRelayPresence.js";
 import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
 import {
   createForkedDiscordSessionThread,
@@ -269,6 +270,7 @@ export async function startBot(): Promise<void> {
   const directWorkerClient = connectConfig?.mode === "direct" ? createDirectWorkerClient() : null;
   const durableRequestStore = connectConfig?.mode === "direct" ? createDurableDiscordRequestStore() : null;
   const incomingAttachmentStore = connectConfig?.mode === "direct" ? createIncomingAttachmentStore() : null;
+  const relayPresenceStore = connectConfig?.mode === "direct" ? createAgentRelayPresenceStore() : null;
   const answerCopyStore = createAnswerCopyStore();
   const activelyStreamedSessionIds = new Set<string>();
 
@@ -712,6 +714,9 @@ export async function startBot(): Promise<void> {
     scheduleCommand,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
+    resolveRelayPresence: relayPresenceStore
+      ? (threadId) => relayPresenceStore.findByThread(threadId)
+      : undefined,
     relayControlChannelId:
       process.env.CONNECT_RELAY_CONTROL_CHANNEL_ID?.trim() ||
       (connectConfig?.mode === "direct" ? connectConfig.direct.relay?.controlChannelId : undefined),
@@ -1042,6 +1047,9 @@ export async function startBot(): Promise<void> {
           ? connectConfig.direct.relay?.trustedBotUserIds
           : undefined;
     })(),
+    onRelayState: relayPresenceStore
+      ? (state) => relayPresenceStore.apply(state)
+      : undefined,
   });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),

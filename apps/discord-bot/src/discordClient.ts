@@ -7,8 +7,11 @@ import {
 } from "discord.js";
 import {
   AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
+  type AgentRelayStateMarker,
   localizeConnectorText,
+  parseAgentRelayCancelMarker,
   parseAgentRelayRequestMarker,
+  parseAgentRelayStateMarker,
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import type { AnswerCopyStore } from "./answerCopyStore.js";
@@ -49,6 +52,7 @@ interface DiscordMessageHandlerOptions {
   locale?: ConnectorLocale;
   trustedRelayBotUserIds?: string[];
   relayControlChannelId?: string;
+  onRelayState?(state: AgentRelayStateMarker): Promise<void> | void;
 }
 
 const MAX_RELAY_PROMPT_ATTACHMENT_BYTES = 1024 * 1024;
@@ -312,9 +316,20 @@ export function attachDiscordMessageHandler(
 
     void (async () => {
       const trustedRelayBot = discordMessage.author.bot && trustedRelayBotUserIds.has(discordMessage.author.id);
-      const relayTargetThreadId = trustedRelayBot && discordMessage.channelId === options.relayControlChannelId
+      const relayControlMessage = trustedRelayBot && discordMessage.channelId === options.relayControlChannelId;
+      const relayTargetThreadId = relayControlMessage
         ? parseAgentRelayRequestMarker(discordMessage.content)
         : null;
+      const relayCancellation = relayControlMessage
+        ? parseAgentRelayCancelMarker(discordMessage.content)
+        : null;
+      const relayState = relayControlMessage
+        ? parseAgentRelayStateMarker(discordMessage.content)
+        : null;
+      if (relayState) {
+        await options.onRelayState?.(relayState);
+        return;
+      }
       let content = discordMessage.content;
       let attachments = rawAttachments;
 
@@ -335,13 +350,22 @@ export function attachDiscordMessageHandler(
         }
         content = promptBytes.toString("utf8");
         attachments = rawAttachments.filter((attachment) => attachment.id !== promptAttachment.id);
+      } else if (relayCancellation) {
+        content = "interrupt";
+        attachments = [];
       }
 
       await handleMessage({
         authorBot: discordMessage.author.bot,
-        ...(relayTargetThreadId ? { relayRequest: true } : {}),
+        ...(relayTargetThreadId || relayCancellation ? { relayRequest: true } : {}),
+        ...(relayCancellation
+          ? { relayCancelRequestId: relayCancellation.requestMessageId }
+          : {}),
         userId: discordMessage.author.id,
-        channelId: relayTargetThreadId ?? discordMessage.channelId,
+        channelId:
+          relayTargetThreadId ??
+          relayCancellation?.targetThreadId ??
+          discordMessage.channelId,
         content,
         roleIds: getRoleIds(discordMessage),
         ...(discordMessage.id ? { messageId: discordMessage.id } : {}),
@@ -350,7 +374,10 @@ export function attachDiscordMessageHandler(
         clearMessages: (clearInput) =>
           clearChannelMessages({
             guild: discordMessage.guild,
-            channelId: relayTargetThreadId ?? discordMessage.channelId,
+            channelId:
+              relayTargetThreadId ??
+              relayCancellation?.targetThreadId ??
+              discordMessage.channelId,
             ...clearInput,
           }),
         reply: async (replyMessage) => {

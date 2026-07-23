@@ -14,7 +14,9 @@ Select the peer agent's parent channel first. The `peer` autocomplete then searc
 
 The Coordinator sends A's first execution request through the private relay-control channel, forwards A's final answer into B, then sends B's answer back into A. Execution rules and the full input prompt are not exposed in the work thread. Only the agent's final public answer and attachments are copied into the peer thread; progress and tool events are not used as the next agent's input. Files emitted through `codex-discord-send` are uploaded by the source Connector to the relay-control channel and reattached to both the target thread and the next private request. Cross-machine relay therefore transfers Discord attachment bytes, not unusable source-local paths.
 
-Two consecutive `done` decisions from different agents complete the conversation. One round trip means one answer from A and one from B, and every agent prompt shows the current round trip and individual agent turn. An `extend` decision pauses the conversation and asks the Operator for another round trip. Clicking **왕복 1회 추가** (`Add one round trip`) on the final notice adds two agent turns and resumes with the other agent. Clicking **연장 거절 · 대화 종료** (`Reject extension and stop`) marks it `stopped` and releases both threads immediately. `max_rounds`, the overall timeout, `blocked`, a failed turn, or `/agent-chat-stop` also terminate it. The Coordinator mentions the Operator role once in the original A thread. Existing approval and user-question flows still mention the Operator immediately and wait for a response.
+Two consecutive `done` decisions from different agents complete the conversation. One round trip means one answer from A and one from B, and every agent prompt shows the current round trip and individual agent turn. An `extend` decision pauses the conversation and asks the Operator for another round trip. Clicking **왕복 1회 추가** (`Add one round trip`) on the final notice adds two agent turns and resumes with the other agent. Clicking **연장 거절 · 대화 종료** (`Reject extension and stop`) marks it `stopped` and releases both threads immediately. `max_rounds`, the overall timeout, `blocked`, a failed turn, or `/agent-chat-stop` also terminate it. `/agent-chat-stop` cancels a queued relay request and sends an interrupt to an already running Codex or Claude Code turn. The Coordinator mentions the Operator role once in the original A thread. Existing approval and user-question flows still mention the Operator immediately and wait for a response.
+
+To intervene during a conversation, send an ordinary message in the currently active agent thread. An active Codex turn receives it immediately as normal steering. A message sent to the waiting peer thread is not executed; the Connector replies with a link to the active thread. Headless Claude Code does not support live steering, so wait for that turn to finish or use `/agent-chat-stop` before sending a new instruction.
 
 ## Discord setup
 
@@ -77,13 +79,14 @@ Restart each Connector gateway once after applying relay configuration. Do not r
 
 - `/agent-chat`: choose a peer parent and searchable thread, then start the conversation; use `max_rounds` for the initial round-trip limit
 - `/agent-chat-status`: inspect the current or latest conversation
-- `/agent-chat-stop`: stop future relay turns; it does not force-kill an agent turn already running
+- `/agent-chat-stop`: stop future relay delivery and interrupt the current queued or running Codex/Claude Code turn
 
 ## Limits and cautions
 
 - Defaults are 20 round trips and 20 hours (1,200 minutes). The command accepts 5 to 1,440 minutes. One round trip is one A answer plus one B answer, or two individual agent turns. Approving an extension resets the deadline to the full originally configured duration from the approval time.
 - Only an Operator can click **왕복 1회 추가** (`Add one round trip`) or **연장 거절 · 대화 종료** (`Reject extension and stop`) on an `extend` notice. Approval grants two agent turns; rejection marks the conversation `stopped` and releases both threads. If the buttons are clicked concurrently or reused, only the first valid action succeeds.
 - Up to 9 source result files, 10MiB each, cross to the peer in one turn. A long peer response may use the tenth attachment as text.
-- Avoid using either session from Desktop, an IDE, or an ordinary Discord request during relay. Human messages do not steer a relay turn and wait in a separate queue, but the underlying session context is shared.
+- Human intervention belongs in the active thread. An ordinary message steers an active Codex turn; a waiting-thread message is not executed and points to the active thread instead. Headless Claude Code cannot live-steer, so wait or stop the relay.
+- Do not start work on the same session from Desktop or an IDE while a relay turn is still answering. Once that turn has fully finished, continuing from another UI is fine; use `/fork` when concurrent work needs a separate session.
 - Never implement relay by accepting every bot message. Preserve every boundary check: exact Coordinator bot ID, private control channel ID, exact request marker, target agent-thread mode, and machine-readable result callbacks. Public notices and peer-answer copies posted by the Coordinator in work threads are not execution requests.
 - Run only one Coordinator instance per Guild. Multiple Connector computers sharing that Coordinator and control channel is expected.

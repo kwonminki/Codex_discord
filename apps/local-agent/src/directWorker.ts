@@ -82,6 +82,7 @@ async function runWorkerJob(
   store: DirectWorkerStore,
   request: DirectWorkerJobRequest,
   waitForWake: () => Promise<void>,
+  signal: AbortSignal,
 ): Promise<unknown> {
   if (request.type === "run-command") {
     return runWorkspaceCommand(request.payload);
@@ -91,6 +92,7 @@ async function runWorkerJob(
     return runClaudePrompt({
       ...request.payload,
       onProgress: (event) => store.appendProgress(request.jobId, event),
+      signal,
     });
   }
 
@@ -163,6 +165,10 @@ export async function startDirectWorker(options: {
   );
   const activeJobs = new Map<string, Promise<void>>();
   const activeQueueKeys = new Set<string>();
+  const activeExecutions = new Map<string, {
+    request: DirectWorkerJobRequest;
+    controller: AbortController;
+  }>();
   let stopping = false;
   let ticking = false;
   let rerunRequested = false;
@@ -211,15 +217,23 @@ export async function startDirectWorker(options: {
   }
 
   async function execute(request: DirectWorkerJobRequest): Promise<void> {
+    const controller = new AbortController();
     activeQueueKeys.add(request.queueKey);
+    activeExecutions.set(request.queueKey, { request, controller });
     await store.markRunning(request.jobId);
 
     try {
-      await store.complete(request.jobId, await runWorkerJob(store, request, waitForWorkerWake));
+      await store.complete(
+        request.jobId,
+        await runWorkerJob(store, request, waitForWorkerWake, controller.signal),
+      );
     } catch (error) {
       await store.fail(request.jobId, error);
     } finally {
       activeQueueKeys.delete(request.queueKey);
+      if (activeExecutions.get(request.queueKey)?.request.jobId === request.jobId) {
+        activeExecutions.delete(request.queueKey);
+      }
       activeJobs.delete(request.jobId);
       if (!stopping) {
         requestTick();
@@ -229,6 +243,38 @@ export async function startDirectWorker(options: {
 
   async function processControls(): Promise<void> {
     for (const control of await store.listPendingControls()) {
+      const activeExecution = activeExecutions.get(control.controlKey);
+      if (
+        control.action === "interrupt" &&
+        activeExecution?.request.type === "run-claude-prompt"
+      ) {
+        activeExecution.controller.abort();
+        await store.completeControl(control.controlId, {
+          status: "accepted",
+          message: "Claude Code interrupt requested.",
+        });
+        continue;
+      }
+      if (control.action === "interrupt" && !activeExecution) {
+        let queued: DirectWorkerJobRequest | null = null;
+        for (const request of await store.listRequests()) {
+          if (
+            request.queueKey === control.controlKey &&
+            (await store.readState(request.jobId))?.status === "queued"
+          ) {
+            queued = request;
+            break;
+          }
+        }
+        if (queued) {
+          await store.fail(queued.jobId, new Error("Agent turn was interrupted before execution."));
+          await store.completeControl(control.controlId, {
+            status: "accepted",
+            message: "Queued agent turn was cancelled.",
+          });
+          continue;
+        }
+      }
       const result = await controlCodexTurn(control);
       await store.completeControl(control.controlId, result);
     }

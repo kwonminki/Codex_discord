@@ -1024,6 +1024,136 @@ describe("createDiscordMessageHandler", () => {
     ]);
   });
 
+  it("steers an active relay turn from a user message and interrupts only its exact request", async () => {
+    let finishRelay!: (value: unknown) => void;
+    const submitCodexPrompt = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        finishRelay = resolve;
+      }),
+    );
+    const controlCodexTurn = vi.fn()
+      .mockResolvedValueOnce({
+        status: "accepted",
+        message: "relay steering accepted",
+      })
+      .mockResolvedValueOnce({
+        status: "accepted",
+        message: "relay interrupt accepted",
+      });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      resolveRelayPresence: async () => ({
+        conversationId: "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0",
+        originThreadId: "discord-channel-1",
+        peerThreadId: "discord-channel-2",
+        activeThreadId: "discord-channel-1",
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      controlCodexTurn,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+      autoSteerRetryDelayMs: 1,
+    });
+    const relayTurn = handleMessage({
+      authorBot: true,
+      relayRequest: true,
+      userId: "relay-bot",
+      channelId: "discord-channel-1",
+      content: "두 agent의 설계를 비교해줘",
+      roleIds: ["role-operator"],
+      messageId: "relay-request-1",
+      reply: async () => ({ edit: async () => undefined }),
+    });
+    await vi.waitFor(() => expect(submitCodexPrompt).toHaveBeenCalledTimes(1));
+
+    const steerReplies: unknown[] = [];
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "성능보다 안정성을 우선해서 검토해줘",
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        steerReplies.push(payload);
+      },
+    });
+    await handleMessage({
+      authorBot: true,
+      relayRequest: true,
+      relayCancelRequestId: "relay-request-1",
+      userId: "relay-bot",
+      channelId: "discord-channel-1",
+      content: "interrupt",
+      roleIds: ["role-operator"],
+      messageId: "relay-cancel-1",
+      reply: async () => undefined,
+    });
+
+    expect(controlCodexTurn).toHaveBeenNthCalledWith(1, {
+      computerId: "computer-1",
+      controlKey: "discord-channel-1",
+      action: "steer",
+      content: "성능보다 안정성을 우선해서 검토해줘",
+    });
+    expect(controlCodexTurn).toHaveBeenNthCalledWith(2, {
+      computerId: "computer-1",
+      controlKey: "discord-channel-1",
+      action: "interrupt",
+    });
+    expect(steerReplies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Codex steering" })],
+      }),
+    ]);
+
+    finishRelay({
+      jobId: "relay-job-1",
+      result: {
+        status: "failed",
+        finalMessage: "",
+        sessionId: "session-1",
+      },
+    });
+    await relayTurn;
+  });
+
+  it("redirects a user away from the waiting side of an active relay", async () => {
+    const replies: unknown[] = [];
+    const submitCodexPrompt = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => sessionChannelContext,
+      resolveRelayPresence: async () => ({
+        conversationId: "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0",
+        originThreadId: "discord-channel-1",
+        peerThreadId: "discord-channel-2",
+        activeThreadId: "discord-channel-2",
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "discord-channel-1",
+      content: "이 조건도 같이 검토해줘",
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        replies.push(payload);
+      },
+    });
+
+    expect(submitCodexPrompt).not.toHaveBeenCalled();
+    expect(replies).toEqual([
+      expect.stringContaining("<#discord-channel-2>"),
+    ]);
+  });
+
   it("explains that live turn controls are unavailable for Claude Code", async () => {
     const replies: unknown[] = [];
     const controlCodexTurn = vi.fn();
@@ -1055,6 +1185,45 @@ describe("createDiscordMessageHandler", () => {
         description: expect.stringContaining("Claude Code"),
       })],
     }));
+  });
+
+  it("allows interrupt while Claude Code is running", async () => {
+    const replies: unknown[] = [];
+    const controlCodexTurn = vi.fn().mockResolvedValue({
+      status: "accepted",
+      message: "Claude Code interrupt requested.",
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => claudeChannelContext,
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt: vi.fn(),
+      controlCodexTurn,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+
+    await handleMessage({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-channel-1",
+      content: "interrupt",
+      roleIds: ["role-operator"],
+      reply: async (payload) => {
+        replies.push(payload);
+      },
+    });
+
+    expect(controlCodexTurn).toHaveBeenCalledWith({
+      computerId: "computer-1",
+      controlKey: "claude-channel-1",
+      action: "interrupt",
+    });
+    expect(replies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Claude Code interrupt" })],
+      }),
+    ]);
   });
 
   it("ignores bot and unmanaged channel messages", async () => {

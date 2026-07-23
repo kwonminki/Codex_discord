@@ -1649,6 +1649,7 @@ export function formatCodexTurnControlResult(input: {
   action: "steer" | "interrupt";
   status: "accepted" | "no-active-turn" | "unsupported" | "failed";
   message: string;
+  agentLabel?: "Codex" | "Claude Code";
   threadId?: string;
   turnId?: string;
 }): DiscordMessagePayload {
@@ -1671,7 +1672,9 @@ export function formatCodexTurnControlResult(input: {
   return messagePayload({
     title: input.status === "unsupported"
       ? input.action === "steer" ? "Steering not supported" : "Interrupt not supported"
-      : input.action === "steer" ? "Codex steering" : "Codex interrupt",
+      : input.action === "steer"
+        ? `${input.agentLabel ?? "Codex"} steering`
+        : `${input.agentLabel ?? "Codex"} interrupt`,
     color: input.status === "accepted"
       ? COLORS.success
       : input.status === "failed"

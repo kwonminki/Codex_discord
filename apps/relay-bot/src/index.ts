@@ -18,7 +18,9 @@ import {
 import {
   AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
   agentRelayTurnResultSchema,
+  formatAgentRelayCancelMarker,
   formatAgentRelayRequestMarker,
+  formatAgentRelayStateMarker,
   parseAgentRelayFilesMarker,
   parseAgentRelayResultMarker,
   type AgentRelayTurnResult,
@@ -419,6 +421,35 @@ export async function startRelayBot(): Promise<void> {
         });
         return { messageId: message.id };
       },
+      async cancelPrompt(input) {
+        const controlChannel = await client.channels.fetch(controlChannelId);
+        if (!controlChannel?.isTextBased() || !("send" in controlChannel)) {
+          throw new Error(`Discord control channel cannot receive relay cancellation: ${controlChannelId}`);
+        }
+        await controlChannel.send({
+          content: formatAgentRelayCancelMarker(input.threadId, input.requestMessageId),
+          allowedMentions: { parse: [] },
+        });
+      },
+      async publishState(input) {
+        const controlChannel = await client.channels.fetch(controlChannelId);
+        if (!controlChannel?.isTextBased() || !("send" in controlChannel)) {
+          throw new Error(`Discord control channel cannot receive relay state: ${controlChannelId}`);
+        }
+        await controlChannel.send({
+          content: formatAgentRelayStateMarker({
+            conversationId: input.conversation.id,
+            status: input.activeThreadId ? "active" : "ended",
+            originThreadId: input.conversation.originThreadId,
+            peerThreadId: input.conversation.peerThreadId,
+            activeThreadId: input.activeThreadId,
+            expiresAtMs: input.activeThreadId
+              ? Date.parse(input.conversation.timeoutAt)
+              : 0,
+          }),
+          allowedMentions: { parse: [] },
+        });
+      },
       async sendFinalNotice({ threadId, conversation }) {
         const channel = await client.channels.fetch(threadId);
         if (!channel?.isTextBased() || !("send" in channel)) {
@@ -671,6 +702,7 @@ export async function startRelayBot(): Promise<void> {
       const guild = await client.guilds.fetch(guildId);
       await guild.commands.set(relayCommands(locale));
       console.info(`Agent relay bot ready as ${client.user?.tag ?? "unknown"}`);
+      await coordinator.republishActiveStates();
 
       const controlChannel = await client.channels.fetch(controlChannelId);
       if (controlChannel?.isTextBased() && "messages" in controlChannel) {

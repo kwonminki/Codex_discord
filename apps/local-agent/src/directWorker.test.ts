@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -277,6 +277,58 @@ describe("direct worker", () => {
       });
       await Promise.all([job, stopping]);
       expect(handledControls).toEqual(["steer:새 지시"]);
+    } finally {
+      await worker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("interrupts an active Claude Code process by queue key", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-claude-interrupt-"));
+    const fakeClaude = path.join(root, "claude");
+    const store = createDirectWorkerStore(path.join(root, "worker"));
+    await writeFile(fakeClaude, [
+      "#!/usr/bin/env node",
+      "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-interrupt-1' }));",
+      "setInterval(() => {}, 1000);",
+    ].join("\n"), "utf8");
+    await chmod(fakeClaude, 0o755);
+    const worker = await startDirectWorker({ store, pollIntervalMs: 10, maxConcurrency: 1 });
+    const client = createDirectWorkerClient({ store, pollIntervalMs: 10 });
+
+    try {
+      const job = client.submit({
+        jobId: "claude-interrupt-job",
+        type: "run-claude-prompt",
+        queueKey: "thread-claude",
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          prompt: "keep working",
+          timeoutMs: 60_000,
+          claudeCommand: fakeClaude,
+        },
+      });
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((await store.readState("claude-interrupt-job"))?.status === "running") {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      await expect(client.control({
+        controlKey: "thread-claude",
+        action: "interrupt",
+      })).resolves.toEqual({
+        status: "accepted",
+        message: "Claude Code interrupt requested.",
+      });
+      await expect(job).resolves.toMatchObject({
+        result: {
+          status: "failed",
+          errorCode: "CLAUDE_PROMPT_INTERRUPTED",
+        },
+      });
     } finally {
       await worker.stop();
       await rm(root, { recursive: true, force: true });

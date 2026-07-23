@@ -25,6 +25,7 @@ describe("attachDiscordMessageHandler", () => {
       }),
     };
     const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const onRelayState = vi.fn().mockResolvedValue(undefined);
     const messageBase = {
       member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
       reply: vi.fn(),
@@ -35,6 +36,7 @@ describe("attachDiscordMessageHandler", () => {
     attachDiscordMessageHandler(client, handleMessage, {
       trustedRelayBotUserIds: ["relay-bot-1"],
       relayControlChannelId: "relay-control",
+      onRelayState,
     });
     handlers.get("messageCreate")?.({
       ...messageBase,
@@ -60,8 +62,32 @@ describe("attachDiscordMessageHandler", () => {
       attachments: new Map(),
       author: { bot: true, id: "relay-bot-1" },
     });
+    handlers.get("messageCreate")?.({
+      ...messageBase,
+      id: "relay-cancel-message",
+      channelId: "relay-control",
+      content: "agent-relay-cancel:123456789012345678:relay-message-1",
+      attachments: new Map(),
+      author: { bot: true, id: "relay-bot-1" },
+    });
+    handlers.get("messageCreate")?.({
+      ...messageBase,
+      id: "relay-state-message",
+      channelId: "relay-control",
+      content: "agent-relay-state:d90bcf0b-e471-4f9f-a2cf-c279d14d53d0:active:123456789012345678:123456789012345679:123456789012345678:1784772000000",
+      attachments: new Map(),
+      author: { bot: true, id: "relay-bot-1" },
+    });
 
-    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalledTimes(3));
+    expect(onRelayState).toHaveBeenCalledWith({
+      conversationId: "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0",
+      status: "active",
+      originThreadId: "123456789012345678",
+      peerThreadId: "123456789012345679",
+      activeThreadId: "123456789012345678",
+      expiresAtMs: 1784772000000,
+    });
     const adaptedMessages = handleMessage.mock.calls.map(([adapted]) => adapted);
     expect(adaptedMessages).toContainEqual(expect.objectContaining({
       authorBot: true,
@@ -76,6 +102,14 @@ describe("attachDiscordMessageHandler", () => {
     }));
     expect(adaptedMessages.find((adapted) => adapted.messageId === "relay-public-message"))
       .not.toHaveProperty("relayRequest");
+    expect(adaptedMessages).toContainEqual(expect.objectContaining({
+      authorBot: true,
+      relayRequest: true,
+      relayCancelRequestId: "relay-message-1",
+      userId: "relay-bot-1",
+      channelId: "123456789012345678",
+      content: "interrupt",
+    }));
     vi.unstubAllGlobals();
   });
 

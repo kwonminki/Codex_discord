@@ -29,6 +29,7 @@ import { extractAgentSurveyRequests } from "./agentSurvey.js";
 import type { AgentDefaultSettings, AgentEffort, AgentKind } from "./agentSettings.js";
 import { createAgentSettingsController } from "./agentSettingsController.js";
 import { buildAgentRelayCallbackMessages, collectAgentResultFiles } from "./agentRelayBridge.js";
+import type { ActiveRelayPresence } from "./agentRelayPresence.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
@@ -127,6 +128,7 @@ export type { ManagedDiscordChannelContext } from "./channelContext.js";
 export interface DiscordMessageLike {
   authorBot: boolean;
   relayRequest?: boolean;
+  relayCancelRequestId?: string;
   userId: string;
   channelId: string;
   content: string;
@@ -250,6 +252,7 @@ export interface CreateDiscordMessageHandlerInput {
   }) => Promise<ScheduleCommandResult>;
   updateChannelCwd: ControlApiClient["updateChannelCwd"];
   recordCommandAudit: ControlApiClient["recordCommandAudit"];
+  resolveRelayPresence?: (threadId: string) => Promise<ActiveRelayPresence | null>;
   persistDurableRequest?: (input: {
     requestId?: string;
     channelId: string;
@@ -726,6 +729,32 @@ function codexPermissionSettings(): CodexPermissionSettings {
   };
 }
 
+function relayWaitingMessage(locale: ConnectorLocale | undefined, activeThreadId: string): string {
+  switch (locale) {
+    case "en":
+      return `This agent is waiting for the other agent's answer. To intervene, send your message in the active thread <#${activeThreadId}>.`;
+    case "zh":
+      return `此 agent 正在等待另一方的回答。如需介入，请在当前活动线程 <#${activeThreadId}> 中发送消息。`;
+    case "ja":
+      return `この agent は相手の回答を待っています。介入する場合は、現在実行中のスレッド <#${activeThreadId}> でメッセージを送ってください。`;
+    default:
+      return `이 agent는 현재 상대 agent의 답변을 기다리고 있습니다. 대화에 개입하려면 실행 중인 스레드 <#${activeThreadId}>에서 메시지를 보내세요.`;
+  }
+}
+
+function activeClaudeRelayMessage(locale: ConnectorLocale | undefined): string {
+  switch (locale) {
+    case "en":
+      return "Claude Code headless cannot accept live steering. Wait for this turn to finish, or stop the relay with `/agent-chat-stop` before sending a new instruction.";
+    case "zh":
+      return "Claude Code headless 当前不支持实时 steering。请等待本轮结束，或先用 `/agent-chat-stop` 停止 relay，再发送新指令。";
+    case "ja":
+      return "Claude Code headless は実行中の steering に対応していません。この turn の完了を待つか、`/agent-chat-stop` で relay を停止してから新しい指示を送ってください。";
+    default:
+      return "Claude Code headless는 실행 중 steering을 지원하지 않습니다. 현재 turn이 끝날 때까지 기다리거나 `/agent-chat-stop`으로 relay를 중지한 뒤 새 지시를 보내세요.";
+  }
+}
+
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput): DiscordMessageHandler {
   interface QueuedMessage {
     message: DiscordMessageLike;
@@ -855,6 +884,58 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       await input.completeDurableRequest(message.requestId);
     } catch (error) {
       console.error(`discord-bot failed to complete durable request ${message.requestId}`, error);
+    }
+  }
+
+  async function cancelRelayRequest(message: DiscordMessageLike): Promise<void> {
+    const requestMessageId = message.relayCancelRequestId;
+    if (!requestMessageId) {
+      return;
+    }
+    const queue = channelQueues.get(message.channelId);
+    if (!queue) {
+      return;
+    }
+
+    const removed = queue.pending.filter(
+      (entry) => entry.message.relayRequest && entry.message.messageId === requestMessageId,
+    );
+    queue.pending = queue.pending.filter((entry) => !removed.includes(entry));
+    for (const entry of removed) {
+      await completeDurableMessage(entry.message);
+      entry.resolve();
+    }
+
+    const active = queue.activeMessage;
+    if (
+      !active?.relayRequest ||
+      active.messageId !== requestMessageId ||
+      !input.controlCodexTurn
+    ) {
+      return;
+    }
+
+    const channelContext = await input.resolveChannelContext(message.channelId);
+    if (!channelContext) {
+      return;
+    }
+    const result = await input.controlCodexTurn({
+      computerId: channelContext.computerId,
+      controlKey: message.channelId,
+      action: "interrupt",
+    });
+    if (result.status === "failed" || result.status === "unsupported") {
+      console.warn(
+        `discord-bot failed to interrupt relay request ${requestMessageId}: ${result.message}`,
+      );
+    }
+    const pending = pendingCodexUserInputs.get(message.channelId);
+    if (pending) {
+      pendingCodexUserInputs.delete(message.channelId);
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+      pending.resolve([]);
     }
   }
 
@@ -1320,11 +1401,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     if (routed.type === "codex-steer" || routed.type === "codex-interrupt") {
       const action = routed.type === "codex-steer" ? "steer" : "interrupt";
 
-      if (channelContext.channelMode === "claude-code") {
+      if (channelContext.channelMode === "claude-code" && action === "steer") {
         await reply(formatCodexTurnControlResult({
           action,
           status: "unsupported",
-          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering/interrupt를 지원하지 않습니다. /queue prompt:<요청>으로 다음 요청을 예약할 수 있습니다.",
+          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering을 지원하지 않습니다. /queue prompt:<요청>으로 다음 요청을 예약할 수 있습니다.",
+          agentLabel: "Claude Code",
         }));
         return;
       }
@@ -1354,7 +1436,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           pending.resolve([]);
         }
       }
-      await reply(formatCodexTurnControlResult({ action, ...result }));
+      await reply(formatCodexTurnControlResult({
+        action,
+        ...result,
+        agentLabel: channelContext.channelMode === "claude-code" ? "Claude Code" : "Codex",
+      }));
       return;
     }
 
@@ -2691,6 +2777,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return;
     }
 
+    if (incomingMessage.relayCancelRequestId) {
+      await cancelRelayRequest(incomingMessage);
+      return;
+    }
+
     if (incomingMessage.relayRequest) {
       const relayChannelContext = await input.resolveChannelContext(incomingMessage.channelId);
       if (!relayChannelContext || relayChannelContext.channelMode === "shell-admin") {
@@ -2701,6 +2792,38 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     const message = await prepareIncomingAttachments(incomingMessage);
     if (!message) {
       return;
+    }
+
+    if (!message.authorBot && input.resolveRelayPresence) {
+      const presence = await input.resolveRelayPresence(message.channelId);
+      if (presence) {
+        const relayChannelContext = await input.resolveChannelContext(message.channelId);
+        if (relayChannelContext) {
+          const routed = routeMessage(message, relayChannelContext);
+          const agentRequest =
+            routed.type === "codex-chat" ||
+            routed.type === "codex-continue-session" ||
+            routed.type === "codex-review" ||
+            routed.type === "claude-chat";
+          if (
+            agentRequest &&
+            hasAllowedRole(message.roleIds, relayChannelContext.allowedRoleIds) &&
+            presence.activeThreadId !== message.channelId
+          ) {
+            await message.reply(relayWaitingMessage(input.locale, presence.activeThreadId));
+            return;
+          }
+          if (
+            agentRequest &&
+            relayChannelContext.channelMode === "claude-code" &&
+            presence.activeThreadId === message.channelId &&
+            channelQueues.get(message.channelId)?.activeMessage?.relayRequest
+          ) {
+            await message.reply(activeClaudeRelayMessage(input.locale));
+            return;
+          }
+        }
+      }
     }
 
     const immediateControl = Boolean(
@@ -2734,12 +2857,18 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       if (routed.type === "queue-prompt") {
         queuedMessage = { ...message, content: routed.content };
-      } else if (
-        queue?.activeMessage &&
-        queue.activeMessage.relayRequest === message.relayRequest &&
-        await tryAutoSteerCodexTurn(message, channelContext, queue)
-      ) {
-        return;
+      } else if (queue?.activeMessage) {
+        const sameRequestKind = queue.activeMessage.relayRequest === message.relayRequest;
+        const userInterveningInRelay =
+          queue.activeMessage.relayRequest === true &&
+          !message.relayRequest &&
+          !message.authorBot;
+        if (
+          (sameRequestKind || userInterveningInRelay) &&
+          await tryAutoSteerCodexTurn(message, channelContext, queue)
+        ) {
+          return;
+        }
       }
     }
 

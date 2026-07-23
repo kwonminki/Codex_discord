@@ -18,6 +18,7 @@ export interface RunClaudePromptInput {
   model?: string | null;
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
   onProgress?: (event: ClaudeRunnerProgressEvent) => Promise<void> | void;
+  signal?: AbortSignal;
 }
 
 export interface RunClaudePromptResult {
@@ -298,6 +299,19 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
   let finalMessage = "";
   let resultWasError = false;
 
+  const interruptedResult = (): RunClaudePromptResult => ({
+    status: "failed",
+    finalMessage: lastAssistantMessage,
+    sessionId,
+    stderr: "Claude Code prompt was interrupted.",
+    exitCode: null,
+    errorCode: "CLAUDE_PROMPT_INTERRUPTED",
+  });
+
+  if (input.signal?.aborted) {
+    return interruptedResult();
+  }
+
   function handleLine(line: string): void {
     const event = parseClaudeStreamLine(line);
 
@@ -335,7 +349,25 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       stdio: ["ignore", "pipe", "pipe"],
     });
     let settled = false;
+    let interrupted = false;
     let timeout: NodeJS.Timeout | null = null;
+    let forceKillTimeout: NodeJS.Timeout | null = null;
+
+    const onAbort = () => {
+      if (settled || interrupted) {
+        return;
+      }
+      interrupted = true;
+      child.kill("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        child.kill("SIGKILL");
+      }, 5_000);
+      forceKillTimeout.unref();
+    };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) {
+      onAbort();
+    }
 
     function settle(result: RunClaudePromptResult): void {
       if (settled) {
@@ -346,12 +378,18 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       if (timeout) {
         clearTimeout(timeout);
       }
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
+      input.signal?.removeEventListener("abort", onAbort);
 
       void Promise.allSettled(progressTasks).then(() => resolve(result));
     }
 
     child.once("error", (error) => {
-      settle(spawnFailure(claudeCommand, error as NodeJS.ErrnoException));
+      settle(interrupted
+        ? interruptedResult()
+        : spawnFailure(claudeCommand, error as NodeJS.ErrnoException));
     });
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -390,6 +428,10 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
 
       const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
       const rawStdout = Buffer.concat(stdoutChunks).toString("utf8").trim();
+      if (interrupted) {
+        settle(interruptedResult());
+        return;
+      }
       const completed = code === 0 && !resultWasError;
       const outputFinalMessage = finalMessage || lastAssistantMessage;
 

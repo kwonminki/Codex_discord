@@ -46,6 +46,8 @@ describe("relay coordinator", () => {
           sent.push(input);
           return { messageId: `message-${sent.length}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice(input) {
           notices.push(input.conversation.status);
         },
@@ -126,6 +128,8 @@ describe("relay coordinator", () => {
           sent.push(input);
           return { messageId: `message-${sent.length}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice(input) {
           notices.push(input.conversation.status);
         },
@@ -232,6 +236,8 @@ describe("relay coordinator", () => {
           messageCount += 1;
           return { messageId: `message-${messageCount}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice(input) {
           notices.push(input.conversation.status);
         },
@@ -266,6 +272,62 @@ describe("relay coordinator", () => {
     }
   });
 
+  it("cancels the currently running agent turn when a user stops the relay", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-stop-"));
+    const cancellations: Array<{ threadId: string; requestMessageId: string }> = [];
+    const activeThreadStates: Array<string | null> = [];
+    const store = createRelayConversationStore(root);
+    const coordinator = createRelayCoordinator({
+      store,
+      now: () => Date.parse("2026-07-23T00:00:00.000Z"),
+      transport: {
+        async sendPrompt() {
+          return { messageId: "message-active" };
+        },
+        async cancelPrompt(input) {
+          cancellations.push(input);
+        },
+        async publishState(input) {
+          activeThreadStates.push(input.activeThreadId);
+        },
+        async sendFinalNotice() {},
+      },
+    });
+
+    try {
+      await coordinator.start({
+        guildId: "guild-1",
+        originThreadId: "thread-a",
+        peerThreadId: "thread-b",
+        operatorUserId: "user-1",
+        operatorRoleIds: ["role-1"],
+        goal: "중단 테스트",
+        maxRounds: 2,
+        timeoutMs: 60_000,
+      });
+
+      const stopped = await coordinator.stop("thread-b");
+      expect(stopped).toMatchObject({
+        status: "stopped",
+        pendingRequestMessageId: null,
+        statusDetail: "사용자가 대화를 중지했고 실행 중인 agent turn에 종료 요청을 보냈습니다.",
+      });
+      expect(cancellations).toEqual([{
+        threadId: "thread-a",
+        requestMessageId: "message-active",
+      }]);
+      expect(activeThreadStates).toEqual(["thread-a", null]);
+      await expect(coordinator.handleTurnResult(result({
+        requestMessageId: "message-active",
+        sourceThreadId: "thread-a",
+        text: "늦게 도착한 답변",
+      }), [])).resolves.toBeNull();
+      await expect(store.findActiveByThread("thread-a")).resolves.toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("atomically rejects an extension request and releases both threads", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-extension-reject-"));
     let messageCount = 0;
@@ -278,6 +340,8 @@ describe("relay coordinator", () => {
           messageCount += 1;
           return { messageId: `message-${messageCount}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice() {},
       },
     });
@@ -341,6 +405,8 @@ describe("relay coordinator", () => {
           messageCount += 1;
           return { messageId: `message-${messageCount}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice() {},
       },
     });
@@ -379,6 +445,8 @@ describe("relay coordinator", () => {
           messageCount += 1;
           return { messageId: `message-${messageCount}` };
         },
+        async cancelPrompt() {},
+        async publishState() {},
         async sendFinalNotice() {
           noticeCount += 1;
           if (failNotice) {

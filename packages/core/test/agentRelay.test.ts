@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractAgentRelayDecision,
+  formatAgentRelayCancelMarker,
   formatAgentRelayFilesMarker,
   formatAgentRelayRequestMarker,
   formatAgentRelayResultMarker,
+  formatAgentRelayStateMarker,
+  parseAgentRelayCancelMarker,
   parseAgentRelayFilesMarker,
   parseAgentRelayRequestMarker,
   parseAgentRelayResultMarker,
+  parseAgentRelayStateMarker,
 } from "../src/agentRelay.js";
 
 describe("agent relay protocol", () => {
@@ -51,5 +55,42 @@ describe("agent relay protocol", () => {
     )).toBe("1529012344129191946");
     expect(parseAgentRelayRequestMarker("Agent relay 대화를 시작했습니다.")).toBeNull();
     expect(parseAgentRelayRequestMarker("agent-relay-request:not-a-thread")).toBeNull();
+  });
+
+  it("round-trips an exact relay cancellation marker", () => {
+    expect(parseAgentRelayCancelMarker(
+      formatAgentRelayCancelMarker("1529012344129191946", "request-message-1"),
+    )).toEqual({
+      targetThreadId: "1529012344129191946",
+      requestMessageId: "request-message-1",
+    });
+    expect(parseAgentRelayCancelMarker("agent-relay-cancel:not-a-thread:request-1")).toBeNull();
+    expect(parseAgentRelayCancelMarker("agent-relay-cancel:1529012344129191946")).toBeNull();
+  });
+
+  it("round-trips active and ended relay state markers", () => {
+    const active = {
+      conversationId: "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0",
+      status: "active" as const,
+      originThreadId: "1529012344129191946",
+      peerThreadId: "1529012344129191947",
+      activeThreadId: "1529012344129191946",
+      expiresAtMs: 1784772000000,
+    };
+    expect(parseAgentRelayStateMarker(formatAgentRelayStateMarker(active))).toEqual(active);
+    expect(parseAgentRelayStateMarker(formatAgentRelayStateMarker({
+      ...active,
+      status: "ended",
+      activeThreadId: null,
+      expiresAtMs: 0,
+    }))).toEqual({
+      ...active,
+      status: "ended",
+      activeThreadId: null,
+      expiresAtMs: 0,
+    });
+    expect(parseAgentRelayStateMarker(
+      "agent-relay-state:d90bcf0b-e471-4f9f-a2cf-c279d14d53d0:active:1:2:-:100",
+    )).toBeNull();
   });
 });

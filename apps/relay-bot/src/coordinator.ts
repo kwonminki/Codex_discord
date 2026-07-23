@@ -18,6 +18,14 @@ export interface RelayCoordinatorTransport {
     publicContent: string | null;
     files: RelayTransferFile[];
   }): Promise<{ messageId: string }>;
+  cancelPrompt(input: {
+    threadId: string;
+    requestMessageId: string;
+  }): Promise<void>;
+  publishState(input: {
+    conversation: RelayConversation;
+    activeThreadId: string | null;
+  }): Promise<void>;
   sendFinalNotice(input: {
     threadId: string;
     conversation: RelayConversation;
@@ -151,7 +159,7 @@ function finalStatusDetail(status: RelayConversationStatus, fallback: string): s
     case "timed-out":
       return "설정된 전체 대화 시간이 만료됐습니다.";
     case "stopped":
-      return "사용자가 대화를 중지했습니다.";
+      return safeFallback || "사용자가 대화를 중지했습니다.";
     case "blocked":
       return safeFallback || "에이전트가 사람의 개입을 요청했습니다.";
     default:
@@ -165,20 +173,38 @@ export function createRelayCoordinator(input: {
   now?: () => number;
 }) {
   const now = input.now ?? Date.now;
+  let operationQueue: Promise<void> = Promise.resolve();
+
+  function serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = operationQueue.then(operation, operation);
+    operationQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   async function finish(
     conversation: RelayConversation,
     status: Exclude<RelayConversationStatus, "running">,
     detail: string,
     lastResponse = conversation.lastResponse,
+    beforeNotice?: (finished: RelayConversation) => Promise<string | void>,
   ): Promise<RelayConversation> {
-    const finished = await input.store.update(conversation.id, {
+    let finished = await input.store.update(conversation.id, {
       status,
       statusDetail: finalStatusDetail(status, detail),
       lastResponse,
       pendingRequestMessageId: null,
       completedAt: new Date(now()).toISOString(),
       finalNoticeSentAt: null,
+    });
+    const detailOverride = await beforeNotice?.(finished);
+    if (detailOverride) {
+      finished = await input.store.update(finished.id, {
+        statusDetail: finalStatusDetail(status, detailOverride),
+      });
+    }
+    await input.transport.publishState({
+      conversation: finished,
+      activeThreadId: null,
     });
     await input.transport.sendFinalNotice({ threadId: finished.originThreadId, conversation: finished });
     return input.store.update(finished.id, {
@@ -193,6 +219,14 @@ export function createRelayCoordinator(input: {
     files: RelayTransferFile[],
     publicContent: string | null = null,
   ): Promise<RelayConversation> {
+    await input.transport.publishState({
+      conversation: {
+        ...conversation,
+        currentThreadId: threadId,
+        turnCount: conversation.turnCount + 1,
+      },
+      activeThreadId: threadId,
+    });
     const sent = await input.transport.sendPrompt({ threadId, prompt, publicContent, files });
     return input.store.update(conversation.id, {
       currentThreadId: threadId,
@@ -201,7 +235,7 @@ export function createRelayCoordinator(input: {
     });
   }
 
-  return {
+  const operations = {
     async start(startInput: {
       guildId: string;
       originThreadId: string;
@@ -331,7 +365,32 @@ export function createRelayCoordinator(input: {
 
     async stop(threadId: string): Promise<RelayConversation | null> {
       const conversation = await input.store.findActiveByThread(threadId);
-      return conversation ? finish(conversation, "stopped", "") : null;
+      if (!conversation) {
+        return null;
+      }
+      const requestMessageId = conversation.pendingRequestMessageId;
+      return finish(
+        conversation,
+        "stopped",
+        requestMessageId
+          ? "사용자가 대화를 중지했고 실행 중인 agent turn에 종료 요청을 보냈습니다."
+          : "사용자가 대화를 중지했습니다.",
+        conversation.lastResponse,
+        requestMessageId
+          ? async () => {
+              try {
+                await input.transport.cancelPrompt({
+                  threadId: conversation.currentThreadId,
+                  requestMessageId,
+                });
+                return;
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                return `대화는 중지했지만 실행 중인 agent turn 종료 요청 전달에 실패했습니다: ${detail}`;
+              }
+            }
+          : undefined,
+      );
     },
 
     async grantExtension(conversationId: string, additionalRounds = 1): Promise<RelayConversation> {
@@ -376,7 +435,15 @@ export function createRelayCoordinator(input: {
     },
 
     async rejectExtension(conversationId: string): Promise<RelayConversation> {
-      return input.store.rejectExtension(conversationId, new Date(now()).toISOString());
+      const stopped = await input.store.rejectExtension(
+        conversationId,
+        new Date(now()).toISOString(),
+      );
+      await input.transport.publishState({
+        conversation: stopped,
+        activeThreadId: null,
+      });
+      return stopped;
     },
 
     async status(threadId: string): Promise<RelayConversation | null> {
@@ -405,6 +472,39 @@ export function createRelayCoordinator(input: {
       }
       return pending.length;
     },
+
+    async republishActiveStates(): Promise<number> {
+      const active = (await input.store.list()).filter(
+        (conversation) => conversation.status === "running",
+      );
+      for (const conversation of active) {
+        await input.transport.publishState({
+          conversation,
+          activeThreadId: conversation.currentThreadId,
+        });
+      }
+      return active.length;
+    },
+  };
+
+  return {
+    start: (...args: Parameters<typeof operations.start>) =>
+      serialize(() => operations.start(...args)),
+    handleTurnResult: (...args: Parameters<typeof operations.handleTurnResult>) =>
+      serialize(() => operations.handleTurnResult(...args)),
+    stop: (...args: Parameters<typeof operations.stop>) =>
+      serialize(() => operations.stop(...args)),
+    grantExtension: (...args: Parameters<typeof operations.grantExtension>) =>
+      serialize(() => operations.grantExtension(...args)),
+    rejectExtension: (...args: Parameters<typeof operations.rejectExtension>) =>
+      serialize(() => operations.rejectExtension(...args)),
+    status: (...args: Parameters<typeof operations.status>) => operations.status(...args),
+    expireTimedOut: (...args: Parameters<typeof operations.expireTimedOut>) =>
+      serialize(() => operations.expireTimedOut(...args)),
+    redeliverPendingFinalNotices: (...args: Parameters<typeof operations.redeliverPendingFinalNotices>) =>
+      serialize(() => operations.redeliverPendingFinalNotices(...args)),
+    republishActiveStates: (...args: Parameters<typeof operations.republishActiveStates>) =>
+      serialize(() => operations.republishActiveStates(...args)),
   };
 }
 

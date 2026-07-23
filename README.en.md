@@ -101,7 +101,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/steer` | Explicitly steer an active Codex task |
 | `/queue` | Reserve the next turn or inspect the queue |
 | `/queue-clear` | Remove requests that have not started |
-| `/interrupt` | Interrupt the active Codex turn |
+| `/interrupt` | Interrupt the active Codex or Claude Code turn |
 | `/fork` | Copy the current context into a new thread |
 | `/howtouse` | Teach the current agent Discord file and survey output |
 | `/where` | Show the computer, working directory, and session ID |
@@ -109,7 +109,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/agent-chat-status` | Show Agent Relay round-trip, turn, and state |
 | `/agent-chat-stop` | Stop the current Agent Relay conversation |
 
-When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. Use `/agent-chat-status` to inspect it and `/agent-chat-stop` to stop future relay turns.
+When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. During a relay, an ordinary message in the active Codex thread steers the current turn, while the waiting thread points you to the active one. `/agent-chat-stop` ends the relay and interrupts the current Codex or Claude Code turn.
 
 ## Files and media
 

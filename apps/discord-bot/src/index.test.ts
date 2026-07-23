@@ -173,6 +173,10 @@ describe("bot entrypoint", () => {
             channelMode: "shell-admin",
             timeoutMs: 30_000,
             codexHome: "/Users/me/.codex",
+            relay: {
+              trustedBotUserIds: ["relay-bot-1"],
+              controlChannelId: "relay-control-1",
+            },
           },
         }),
         "utf8",
@@ -204,7 +208,13 @@ describe("bot entrypoint", () => {
       expect(attachDiscordMessageHandler).toHaveBeenCalledWith(
         { login, once, on },
         expect.any(Function),
-        { answerCopyStore: expect.any(Object), locale: "en" },
+        {
+          answerCopyStore: expect.any(Object),
+          locale: "en",
+          onRelayState: expect.any(Function),
+          relayControlChannelId: "relay-control-1",
+          trustedRelayBotUserIds: ["relay-bot-1"],
+        },
       );
       expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
         { login, once, on },
