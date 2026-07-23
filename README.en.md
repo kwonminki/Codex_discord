@@ -8,11 +8,16 @@
 
 [한국어](README.md) | English
 
-**Current stable version: v1.1.0**
-
 A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads and letting those agents converse with one another**.
 
-> **Agent Relay:** Enable the optional second Coordinator Bot to connect two sessions on one computer, sessions on different servers, or any Codex and Claude Code pairing. Both threads visibly receive the agents' public answers and attachments. They discuss for up to 20 round trips and 20 hours by default, then notify the Operator with the result. An agent can request more time, and the user can grant another round trip or stop the conversation from Discord buttons.
+## v1.1 Release
+
+> ### NEW · Agent Relay
+> **AI agents can now talk directly through Discord and work toward a conclusion together.**
+>
+> Connect two sessions on one computer, agents on different servers, or any Codex and Claude Code pairing. Public answers and attachments remain visible in both threads while the agents discuss for up to 20 round trips and 20 hours by default. When more work is needed, an agent can request an extension and the user can add one round trip or stop the conversation from Discord buttons.
+>
+> [Explore Agent Relay](docs/agent-relay.en.md)
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
