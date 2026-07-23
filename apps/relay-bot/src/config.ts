@@ -2,6 +2,7 @@ import { chmod, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
+import { resolveConnectorLocale } from "../../../packages/core/src/index.js";
 
 export const relayBotConfigSchema = z.object({
   version: z.literal(1),
@@ -10,6 +11,7 @@ export const relayBotConfigSchema = z.object({
   operatorRoleIds: z.array(z.string().min(1)).min(1),
   controlChannelId: z.string().min(1),
   connectorBotUserIds: z.array(z.string().min(1)).min(1),
+  locale: z.enum(["ko", "en", "zh", "ja"]).default("ko"),
   stateRoot: z.string().min(1).optional(),
 });
 
@@ -45,6 +47,7 @@ export async function loadRelayBotConfig(configPath = defaultRelayBotConfigPath(
     connectorBotUserIds: connectorBotUserIds.length > 0
       ? connectorBotUserIds
       : fileConfig.connectorBotUserIds,
+    locale: resolveConnectorLocale(process.env.RELAY_LOCALE?.trim() || fileConfig.locale),
     stateRoot: process.env.RELAY_STATE_ROOT?.trim() || fileConfig.stateRoot,
   });
 }

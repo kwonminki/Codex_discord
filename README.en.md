@@ -8,9 +8,11 @@
 
 [한국어](README.md) | English
 
-**Current stable version: v1.0.0**
+**Current stable version: v1.1.0**
 
-A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads**.
+A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads and letting those agents converse with one another**.
+
+> **Agent Relay:** Enable the optional second Coordinator Bot to connect two sessions on one computer, sessions on different servers, or any Codex and Claude Code pairing. Both threads visibly receive the agents' public answers and attachments. They discuss for up to 20 round trips and 20 hours by default, then notify the Operator with the result. An agent can request more time, and the user can grant another round trip or stop the conversation from Discord buttons.
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
@@ -29,18 +31,24 @@ Read this repository's AI Agent Guide first, then install and configure it on my
 Ask me only for required account actions, one step at a time, and configure and verify everything else yourself.
 ```
 
-The agent detects the conversation language and operating system, asks whether to connect Codex, Claude Code, or both, then configures only the required Discord channels and local services. After the first computer is ready, it will ask whether you want to connect any additional macOS, Windows, or Ubuntu machines.
+The agent detects the conversation language and operating system, asks whether to connect Codex, Claude Code, or both, then configures only the required Discord channels and local services. After the first computer is ready, it will ask whether you want to connect any additional macOS, Windows, or Ubuntu machines and whether to enable Agent Relay conversations.
+
+### Current deployment model
+
+Version 1 is self-hosted in a trusted personal environment. The host running each Discord Gateway and the optional Coordinator needs the corresponding bot token. After the user creates a private Discord server and invites the bot applications, the installation agent can configure the roles, channels, permissions, slash commands, local worker, and services.
+
+End users would not need bot tokens if the project operator centrally hosted both bots and users only invited them. That model still requires production multi-guild tenant isolation and one-time Local Agent pairing, which are not a completed v1 deployment path. Do not expose the current Control API or Agent WebSocket to the public internet without authentication.
 
 ## Supported languages
 
-The connector UI supports:
+The Connector and Agent Relay Coordinator UI support:
 
 - Korean
 - English
 - Simplified Chinese
 - Japanese
 
-The installation agent selects the language automatically from the conversation. Buttons, modals, status text, slash command descriptions, and `/howtouse` use that language. User messages and agent-authored answers remain unchanged.
+The installation agent selects the language automatically from the conversation and applies it to both Connector and Coordinator. Buttons, modals, status text, slash command descriptions, and `/howtouse` use that language. User messages and agent-authored answers remain unchanged.
 
 ## Using Discord
 
@@ -92,6 +100,9 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/fork` | Copy the current context into a new thread |
 | `/howtouse` | Teach the current agent Discord file and survey output |
 | `/where` | Show the computer, working directory, and session ID |
+| `/agent-chat` | Start an automatic conversation with another agent thread |
+| `/agent-chat-status` | Show Agent Relay round-trip, turn, and state |
+| `/agent-chat-stop` | Stop the current Agent Relay conversation |
 
 When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. Use `/agent-chat-status` to inspect it and `/agent-chat-stop` to stop future relay turns.
 

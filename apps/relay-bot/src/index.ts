@@ -22,6 +22,7 @@ import {
   parseAgentRelayFilesMarker,
   parseAgentRelayResultMarker,
   type AgentRelayTurnResult,
+  type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import {
   createRelayCoordinator,
@@ -29,6 +30,7 @@ import {
   type RelayTransferFile,
 } from "./coordinator.js";
 import { loadRelayBotConfig } from "./config.js";
+import { relayLocaleText } from "./i18n.js";
 import {
   DEFAULT_RELAY_TIMEOUT_MS,
   MAX_RELAY_TIMEOUT_MS,
@@ -48,56 +50,61 @@ const THREAD_CACHE_TTL_MS = 2_000;
 const EXTENSION_BUTTON_PREFIX = "agent-relay:extend:";
 const EXTENSION_REJECT_BUTTON_PREFIX = "agent-relay:reject-extension:";
 
-export const RELAY_COMMANDS = [
-  {
-    name: "agent-chat",
-    description: "현재 agent thread와 다른 agent thread 사이의 relay 대화를 시작합니다.",
-    options: [
-      {
-        type: 7,
-        name: "parent",
-        description: "상대 agent thread가 들어 있는 부모 채널",
-        required: true,
-        channel_types: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
-      },
-      {
-        type: 3,
-        name: "peer",
-        description: "상대 thread 검색 또는 thread ID/링크",
-        required: true,
-        autocomplete: true,
-      },
-      {
-        type: 3,
-        name: "goal",
-        description: "두 agent가 논의하고 합의할 목표",
-        required: true,
-      },
-      {
-        type: 4,
-        name: "max_rounds",
-        description: "최대 왕복 횟수 (A와 B가 각각 답하면 1회, 기본 20)",
-        min_value: 1,
-        max_value: 20,
-      },
-      {
-        type: 4,
-        name: "timeout_minutes",
-        description: "전체 대화 제한 시간(분, 기본 1200)",
-        min_value: 5,
-        max_value: MAX_TIMEOUT_MINUTES,
-      },
-    ],
-  },
-  {
-    name: "agent-chat-status",
-    description: "현재 thread의 agent relay 대화 상태를 확인합니다.",
-  },
-  {
-    name: "agent-chat-stop",
-    description: "현재 thread가 참여 중인 agent relay 대화를 중지합니다.",
-  },
-] as const;
+export function relayCommands(locale: ConnectorLocale = "ko") {
+  const text = relayLocaleText(locale);
+  return [
+    {
+      name: "agent-chat",
+      description: text.commandStart,
+      options: [
+        {
+          type: 7,
+          name: "parent",
+          description: text.commandParent,
+          required: true,
+          channel_types: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
+        },
+        {
+          type: 3,
+          name: "peer",
+          description: text.commandPeer,
+          required: true,
+          autocomplete: true,
+        },
+        {
+          type: 3,
+          name: "goal",
+          description: text.commandGoal,
+          required: true,
+        },
+        {
+          type: 4,
+          name: "max_rounds",
+          description: text.commandMaxRounds,
+          min_value: 1,
+          max_value: 20,
+        },
+        {
+          type: 4,
+          name: "timeout_minutes",
+          description: text.commandTimeout,
+          min_value: 5,
+          max_value: MAX_TIMEOUT_MINUTES,
+        },
+      ],
+    },
+    {
+      name: "agent-chat-status",
+      description: text.commandStatus,
+    },
+    {
+      name: "agent-chat-stop",
+      description: text.commandStop,
+    },
+  ] as const;
+}
+
+export const RELAY_COMMANDS = relayCommands();
 
 export interface RelayThreadChoiceCandidate {
   id: string;
@@ -126,16 +133,21 @@ export function parseRelayExtensionRejectButtonId(customId: string): string | nu
     : null;
 }
 
-export function relayExtensionActionRows(conversationId: string, disabled = false) {
+export function relayExtensionActionRows(
+  conversationId: string,
+  disabled = false,
+  locale: ConnectorLocale = "ko",
+) {
+  const text = relayLocaleText(locale);
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${EXTENSION_BUTTON_PREFIX}${conversationId}`)
-      .setLabel("왕복 1회 추가")
+      .setLabel(text.buttonExtend)
       .setStyle(ButtonStyle.Primary)
       .setDisabled(disabled),
     new ButtonBuilder()
       .setCustomId(`${EXTENSION_REJECT_BUTTON_PREFIX}${conversationId}`)
-      .setLabel("연장 거절 · 대화 종료")
+      .setLabel(text.buttonReject)
       .setStyle(ButtonStyle.Danger)
       .setDisabled(disabled),
   )];
@@ -157,7 +169,9 @@ export function parseRelayThreadId(value: string): string | null {
 export function relayThreadAutocompleteChoices(
   candidates: RelayThreadChoiceCandidate[],
   query: string,
+  locale: ConnectorLocale = "ko",
 ): Array<{ name: string; value: string }> {
+  const text = relayLocaleText(locale);
   const terms = query.normalize("NFKC").toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()]
     .filter((candidate) => {
@@ -174,7 +188,7 @@ export function relayThreadAutocompleteChoices(
     })
     .slice(0, THREAD_AUTOCOMPLETE_LIMIT)
     .map((candidate) => ({
-      name: `${candidate.parentName} / ${candidate.name}${candidate.archived ? " (archived)" : ""}`.slice(0, 100),
+      name: `${candidate.parentName} / ${candidate.name}${candidate.archived ? ` (${text.archived})` : ""}`.slice(0, 100),
       value: candidate.id,
     }));
 }
@@ -228,7 +242,7 @@ function hasOperatorRole(
   return operatorRoleIds.some((roleId) => roles.has(roleId));
 }
 
-function fitPrompt(content: string, files: RelayTransferFile[]): {
+function fitPrompt(content: string, files: RelayTransferFile[], locale: ConnectorLocale = "ko"): {
   content: string;
   files: RelayTransferFile[];
 } {
@@ -245,35 +259,26 @@ function fitPrompt(content: string, files: RelayTransferFile[]): {
     content: [
       content.slice(0, 1_250),
       "",
-      "전체 relay 메시지는 첨부된 agent-relay-message.txt에서 확인하세요.",
+      relayLocaleText(locale).fullMessageAttached,
     ].join("\n"),
     files: [transcript, ...files].slice(0, MAX_RELAY_FILES),
   };
 }
 
-function statusLabel(status: RelayConversation["status"]): string {
-  const labels: Record<RelayConversation["status"], string> = {
-    running: "진행 중",
-    "extension-requested": "추가 왕복 요청",
-    completed: "합의 완료",
-    "max-rounds": "최대 라운드 도달",
-    blocked: "사용자 확인 필요",
-    failed: "실패",
-    stopped: "사용자 중지",
-    "timed-out": "시간 초과",
-  };
-  return labels[status];
+function statusLabel(status: RelayConversation["status"], locale: ConnectorLocale = "ko"): string {
+  return relayLocaleText(locale).status[status];
 }
 
-function conversationSummary(conversation: RelayConversation): string {
+function conversationSummary(conversation: RelayConversation, locale: ConnectorLocale = "ko"): string {
+  const text = relayLocaleText(locale);
   return [
-    `대화 ID: \`${conversation.id}\``,
+    `${text.conversationId}: \`${conversation.id}\``,
     `A: <#${conversation.originThreadId}>`,
     `B: <#${conversation.peerThreadId}>`,
-    `상태: **${statusLabel(conversation.status)}**`,
-    `진행: 왕복 ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
-    `마지막 agent: ${conversation.lastAgentLabel ?? "아직 없음"}`,
-    conversation.statusDetail ? `상세: ${conversation.statusDetail}` : null,
+    `${text.state}: **${statusLabel(conversation.status, locale)}**`,
+    `${text.progress}: ${text.roundTrip} ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
+    `${text.lastAgent}: ${conversation.lastAgentLabel ?? text.noneYet}`,
+    conversation.statusDetail ? `${text.details}: ${conversation.statusDetail}` : null,
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
@@ -361,6 +366,8 @@ async function processControlResult(input: {
 
 export async function startRelayBot(): Promise<void> {
   const config = await loadRelayBotConfig();
+  const locale = config.locale;
+  const text = relayLocaleText(locale);
   const token = config.token;
   const guildId = config.guildId;
   const controlChannelId = config.controlChannelId;
@@ -384,7 +391,7 @@ export async function startRelayBot(): Promise<void> {
         }
 
         if (input.publicContent) {
-          const visible = fitPrompt(input.publicContent, input.files);
+          const visible = fitPrompt(input.publicContent, input.files, locale);
           await channel.send({
             content: visible.content,
             allowedMentions: { parse: [] },
@@ -420,7 +427,7 @@ export async function startRelayBot(): Promise<void> {
         if (channel.isThread() && channel.archived) {
           await channel.setArchived(false, "Agent relay completion delivery");
         }
-        const summary = conversation.lastResponse.trim() || "최종 텍스트 답변이 없습니다.";
+        const summary = conversation.lastResponse.trim() || text.noFinalText;
         const truncatedSummary = summary.slice(0, 3_900);
         const files = summary.length > truncatedSummary.length
           ? [{ attachment: Buffer.from(summary, "utf8"), name: "agent-relay-final.txt" }]
@@ -428,24 +435,24 @@ export async function startRelayBot(): Promise<void> {
         await channel.send({
           content: [
             ...conversation.operatorRoleIds.map((roleId) => `<@&${roleId}>`),
-            `**에이전트 대화 ${statusLabel(conversation.status)}**`,
+            `**${text.conversation} ${statusLabel(conversation.status, locale)}**`,
           ].join("\n"),
           allowedMentions: { parse: [], roles: conversation.operatorRoleIds },
           embeds: [{
-            title: "Agent relay 결과",
+            title: text.finalNoticeTitle,
             color: conversation.status === "completed" ? 0x2ecc71 : 0xf1c40f,
             description: truncatedSummary,
             fields: [
-              { name: "대화", value: `A <#${conversation.originThreadId}> ↔ B <#${conversation.peerThreadId}>` },
+              { name: text.conversation, value: `A <#${conversation.originThreadId}> ↔ B <#${conversation.peerThreadId}>` },
               {
-                name: "진행",
-                value: `왕복 ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
+                name: text.progress,
+                value: `${text.roundTrip} ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
               },
-              { name: "종료 사유", value: conversation.statusDetail ?? statusLabel(conversation.status) },
+              { name: text.endReason, value: conversation.statusDetail ?? statusLabel(conversation.status, locale) },
             ],
           }],
           components: conversation.status === "extension-requested"
-            ? relayExtensionActionRows(conversation.id)
+            ? relayExtensionActionRows(conversation.id, false, locale)
             : [],
           files,
         });
@@ -489,7 +496,7 @@ export async function startRelayBot(): Promise<void> {
     interaction: ChatInputCommandInteraction | ButtonInteraction,
   ): Promise<boolean> {
     if (interaction.guildId !== guildId || !hasOperatorRole(interaction, operatorRoleIds)) {
-      await interaction.reply({ content: "이 명령을 사용할 수 있는 operator role이 없습니다.", ephemeral: true });
+      await interaction.reply({ content: text.unauthorized, ephemeral: true });
       return true;
     }
     return false;
@@ -524,6 +531,7 @@ export async function startRelayBot(): Promise<void> {
         await interaction.respond(relayThreadAutocompleteChoices(
           cached.candidates,
           interaction.options.getFocused(),
+          locale,
         ));
       })().catch(async (error) => {
         console.error("relay-bot thread autocomplete failed", error);
@@ -548,25 +556,25 @@ export async function startRelayBot(): Promise<void> {
           ? await coordinator.grantExtension(conversationId, 1)
           : await coordinator.rejectExtension(targetConversationId);
         await interaction.message.edit({
-          components: relayExtensionActionRows(targetConversationId, true),
+          components: relayExtensionActionRows(targetConversationId, true, locale),
         }).catch(() => undefined);
         await interaction.editReply(conversationId
           ? [
-              "왕복 1회를 추가하고 대화를 재개했습니다.",
-              conversationSummary(conversation),
+              text.extensionGranted,
+              conversationSummary(conversation, locale),
             ].join("\n")
           : [
-              "추가 왕복을 거절하고 대화를 종료했습니다.",
-              conversationSummary(conversation),
+              text.extensionRejected,
+              conversationSummary(conversation, locale),
             ].join("\n"));
       })().catch(async (error) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error("relay-bot extension interaction failed", error);
         if (interaction.deferred || interaction.replied) {
-          await interaction.editReply(`추가 왕복 요청을 처리하지 못했습니다: ${message}`).catch(() => undefined);
+          await interaction.editReply(`${text.extensionFailed}: ${message}`).catch(() => undefined);
         } else {
           await interaction.reply({
-            content: `추가 왕복 요청을 처리하지 못했습니다: ${message}`,
+            content: `${text.extensionFailed}: ${message}`,
             ephemeral: true,
           }).catch(() => undefined);
         }
@@ -590,10 +598,10 @@ export async function startRelayBot(): Promise<void> {
         const maxRounds = interaction.options.getInteger("max_rounds") ?? DEFAULT_MAX_ROUNDS;
         const timeoutMinutes = interaction.options.getInteger("timeout_minutes") ?? DEFAULT_TIMEOUT_MINUTES;
         if (!goal) {
-          throw new Error("대화 목표가 비어 있습니다.");
+          throw new Error(text.goalRequired);
         }
         if (!peerId) {
-          throw new Error("상대 thread를 검색 선택하거나 thread ID/링크를 입력하세요.");
+          throw new Error(text.peerRequired);
         }
         const peer = await client.channels.fetch(peerId);
         if (
@@ -602,7 +610,7 @@ export async function startRelayBot(): Promise<void> {
           !peer.isThread() ||
           peer.parentId !== parent.id
         ) {
-          throw new Error("/agent-chat은 서로 다른 두 agent thread 사이에서만 시작할 수 있습니다.");
+          throw new Error(text.distinctThreadsRequired);
         }
         const conversation = await coordinator.start({
           guildId,
@@ -615,7 +623,7 @@ export async function startRelayBot(): Promise<void> {
           timeoutMs: timeoutMinutes * 60_000,
         });
         await interaction.editReply({
-          content: `Agent relay 대화를 시작했습니다.\n${conversationSummary(conversation)}`,
+          content: `${text.conversationStarted}\n${conversationSummary(conversation, locale)}`,
           allowedMentions: { parse: [] },
         });
         return;
@@ -624,22 +632,22 @@ export async function startRelayBot(): Promise<void> {
       if (interaction.commandName === "agent-chat-stop") {
         const conversation = await coordinator.stop(interaction.channelId);
         await interaction.editReply(conversation
-          ? `Agent relay 대화를 중지했습니다.\n${conversationSummary(conversation)}`
-          : "현재 thread에는 실행 중인 agent relay 대화가 없습니다.");
+          ? `${text.conversationStopped}\n${conversationSummary(conversation, locale)}`
+          : text.noActiveConversation);
         return;
       }
 
       const conversation = await coordinator.status(interaction.channelId);
       await interaction.editReply(conversation
-        ? conversationSummary(conversation)
-        : "현재 thread에는 실행 중인 agent relay 대화가 없습니다.");
+        ? conversationSummary(conversation, locale)
+        : text.noActiveConversation);
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error("relay-bot interaction failed", error);
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(`Agent relay 명령이 실패했습니다: ${message}`).catch(() => undefined);
+        await interaction.editReply(`${text.commandFailed}: ${message}`).catch(() => undefined);
       } else {
-        await interaction.reply({ content: `Agent relay 명령이 실패했습니다: ${message}`, ephemeral: true }).catch(() => undefined);
+        await interaction.reply({ content: `${text.commandFailed}: ${message}`, ephemeral: true }).catch(() => undefined);
       }
     });
   });
@@ -656,7 +664,7 @@ export async function startRelayBot(): Promise<void> {
   client.once(Events.ClientReady, () => {
     void (async () => {
       const guild = await client.guilds.fetch(guildId);
-      await guild.commands.set(RELAY_COMMANDS);
+      await guild.commands.set(relayCommands(locale));
       console.info(`Agent relay bot ready as ${client.user?.tag ?? "unknown"}`);
 
       const controlChannel = await client.channels.fetch(controlChannelId);

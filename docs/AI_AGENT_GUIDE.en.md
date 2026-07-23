@@ -8,6 +8,19 @@ AI Agent Discord Connector links AI agent sessions such as Codex and Claude Code
 
 > Security notice: install this only on machines controlled by the user, connect it only to a trusted private Discord server, and restrict execution with an Operator role allowlist.
 
+## Core capability: Agent Relay
+
+This repository supports not only human-to-agent remote work but also **automatic conversations between two AI agent sessions**. An optional separate Coordinator Bot can connect two sessions on one machine, different servers, or any Codex and Claude Code pairing through Discord threads.
+
+- It visibly transfers each agent's final public answer and attachments to the peer thread.
+- Both A and B receive the goal. One answer from A plus one from B counts as one round trip.
+- The defaults are 20 round trips and a 20-hour whole-conversation timeout, with current counters in every prompt.
+- When an agent returns `extend`, the Coordinator mentions the Operator and shows **Add one round trip** and **Reject extension and stop** buttons.
+- Disjoint A↔B and C↔D conversations may run concurrently, while one thread cannot join two active relays.
+- `/agent-chat-status` inspects a relay and `/agent-chat-stop` stops it.
+
+When the user asks agents to debate, review, reach agreement, or exchange files, present this as an implemented capability and configure it using the [Agent Relay Guide](agent-relay.en.md). Match the Coordinator locale to the Connector locale.
+
 ## Agent contract
 
 When a user gives you this repository URL, work in this order:
@@ -24,7 +37,7 @@ When a user gives you this repository URL, work in this order:
 10. Run `pnpm typecheck` and the platform test suite after installation: `pnpm test` on macOS/Linux and `pnpm test:windows` on native Windows. Also verify services, the Discord ready log, and a short round trip for every enabled agent.
 11. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
 12. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
-13. When the user wants two agent sessions to converse automatically, follow the [Agent Relay Guide](agent-relay.en.md) and configure the optional Coordinator Bot with a separate token.
+13. When the user wants two agent sessions to converse automatically, follow the [Agent Relay Guide](agent-relay.en.md), configure the optional Coordinator Bot with a separate token, and match its locale to the Connector.
 
 ## Language selection
 
@@ -52,6 +65,12 @@ Never translate Discord custom IDs, slash command names or option values, intern
 Do not ask for the token, guild ID, role ID, and channel IDs all at once. Guide the user one step at a time and wait for confirmation after each account-level action.
 
 First determine whether this is really a new installation by checking `.connect/config.json`, `.env`, and existing services. Reuse existing Discord resources for an additional machine or reinstall.
+
+### Determine the deployment model first
+
+The current v1 default is self-hosted Direct mode: the user owns the bot applications and tokens and installs the Gateway and Worker on machines they control. After the user creates a private server and invites the Connector Bot and optional Coordinator Bot, the agent can automate roles, channels, permissions, commands, services, and tests.
+
+If the project operator centrally hosts both bots, an end user could create a private server, invite both bots, and approve Local Agent pairing without seeing a bot token. The current repository does not yet provide production multi-guild tenant isolation or authenticated one-time pairing for that public model. Never expose the current unauthenticated Control API or Agent WebSocket to the public internet, and do not claim that invite-only hosted onboarding already works.
 
 ### 1. Private Discord server
 
@@ -180,7 +199,7 @@ Do not claim that an existing bot token can create another Discord application. 
 1. Create or reuse a private `agent-relay-control` text channel.
 2. Hide it from ordinary members and grant only Connector and Coordinator bots View Channel, Send Messages, Read Message History, and Attach Files.
 3. Assign the existing Operator role to the Coordinator Bot so Connector thread allowlists accept it.
-4. Store exact Connector bot user IDs and the control channel ID in Coordinator configuration.
+4. Store exact Connector bot user IDs, the control channel ID, and a Connector-matching `locale` in Coordinator configuration.
 5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Execute only when that bot sends an exact relay request marker and prompt attachment in the private control channel; ordinary bot messages in work threads are never requests. Never trust every bot author with a wildcard.
 6. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
 7. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.

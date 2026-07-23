@@ -8,9 +8,11 @@
 
 한국어 | [English](README.en.md)
 
-**현재 안정 버전: v1.0.0**
+**현재 안정 버전: v1.1.0**
 
-Mac, Windows, Ubuntu 서버에서 실행되는 **Codex와 Claude Code 같은 AI agent를 Discord 스레드로 사용하는 개인용 브리지**입니다.
+Mac, Windows, Ubuntu 서버에서 실행되는 **Codex와 Claude Code 같은 AI agent를 Discord 스레드로 사용하고, 서로 대화시킬 수 있는 개인용 브리지**입니다.
+
+> **Agent Relay:** 선택 기능인 두 번째 Coordinator Bot을 활성화하면 같은 컴퓨터의 두 세션, 서로 다른 서버의 세션, Codex와 Claude Code의 어떤 조합이든 Discord에서 자동으로 대화할 수 있습니다. 양쪽의 공개 답변과 첨부파일이 각 스레드에 그대로 보이며, 기본 20왕복·전체 20시간 동안 논의한 뒤 합의 결과를 Operator에게 알립니다. 더 필요하면 agent가 연장을 요청하고 사용자가 버튼으로 한 왕복을 추가하거나 대화를 종료할 수 있습니다.
 
 Discord에서 평소처럼 메시지를 보내면 agent가 연결된 컴퓨터에서 작업하고, 중요한 진행 상황과 최종 답변을 Discord로 돌려줍니다. 이미지, 영상, 오디오, 일반 파일도 양방향으로 주고받을 수 있습니다.
 
@@ -29,18 +31,24 @@ https://github.com/kwonminki/ai-agent-discord-connector
 필요한 계정 작업만 한 단계씩 나에게 요청하고, 나머지는 직접 구성하고 검증해줘.
 ```
 
-에이전트는 대화 언어와 운영체제를 알아서 확인하고, Codex와 Claude Code 중 무엇을 연결할지 물은 뒤 선택한 agent에 필요한 Discord 채널과 로컬 서비스를 구성합니다. 첫 컴퓨터가 준비되면 추가로 연결할 Mac, Windows 또는 Ubuntu 서버가 있는지도 물어봅니다.
+에이전트는 대화 언어와 운영체제를 알아서 확인하고, Codex와 Claude Code 중 무엇을 연결할지 물은 뒤 선택한 agent에 필요한 Discord 채널과 로컬 서비스를 구성합니다. 첫 컴퓨터가 준비되면 추가로 연결할 Mac, Windows 또는 Ubuntu 서버와 Agent Relay 대화 기능이 필요한지도 물어봅니다.
+
+### 현재 배포 방식
+
+v1은 신뢰하는 개인 환경에 직접 설치하는 self-hosted 방식입니다. Discord Gateway와 선택적인 Coordinator를 실행하는 쪽에는 각 bot token이 필요합니다. 사용자가 private Discord 서버를 만들고 bot application을 서버에 초대하면, 설치 에이전트가 역할, 채널, 권한, slash command, 로컬 worker와 서비스를 나머지 순서대로 구성할 수 있습니다.
+
+프로젝트 운영자가 두 bot을 중앙에서 호스팅하고 다른 사용자가 초대만 해서 쓰는 방식에서는 최종 사용자가 bot token을 알 필요가 없습니다. 다만 그 방식에 필요한 multi-guild tenant 격리와 일회용 Local Agent pairing은 현재 v1의 완성된 배포 경로가 아닙니다. 현재 Control API와 Agent WebSocket을 인증 없이 공용 인터넷에 노출하지 마세요.
 
 ## 지원 언어
 
-Connector UI는 다음 언어를 지원합니다.
+Connector와 Agent Relay Coordinator UI는 다음 언어를 지원합니다.
 
 - 한국어
 - 영어
 - 중국어(간체)
 - 일본어
 
-설치 에이전트가 현재 대화 언어를 보고 자동으로 설정합니다. 버튼, 모달, 상태 문구, slash command 설명과 `/howtouse`가 선택된 언어로 표시되며, 사용자 메시지와 agent 답변 원문은 임의로 번역하지 않습니다.
+설치 에이전트가 현재 대화 언어를 보고 Connector와 Coordinator를 같은 언어로 자동 설정합니다. 버튼, 모달, 상태 문구, slash command 설명과 `/howtouse`가 선택된 언어로 표시되며, 사용자 메시지와 agent 답변 원문은 임의로 번역하지 않습니다.
 
 ## Discord에서 사용하기
 
@@ -92,6 +100,9 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므
 | `/fork` | 현재 세션 맥락을 복제해 새 스레드 만들기 |
 | `/howtouse` | 현재 agent에게 Discord 파일·설문 전송법 알려주기 |
 | `/where` | 현재 컴퓨터, 작업 폴더와 session ID 확인 |
+| `/agent-chat` | 현재 스레드와 다른 agent 스레드 사이의 자동 대화 시작 |
+| `/agent-chat-status` | Agent Relay 왕복, turn, 상태 확인 |
+| `/agent-chat-stop` | 현재 Agent Relay 대화 중지 |
 
 별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림에서 왕복 1회를 추가하거나 연장을 거절하고 대화를 종료할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. `/agent-chat-status`로 상태를 확인하고 `/agent-chat-stop`으로 다음 relay를 중단할 수 있습니다.
 
