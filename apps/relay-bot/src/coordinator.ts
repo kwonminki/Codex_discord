@@ -4,7 +4,6 @@ import type {
   RelayConversationStatus,
   RelayConversationStore,
 } from "./store.js";
-const EXTENSION_GRACE_MS = 30 * 60_000;
 
 export interface RelayTransferFile {
   name: string;
@@ -231,6 +230,7 @@ export function createRelayCoordinator(input: {
         operatorRoleIds: [...startInput.operatorRoleIds],
         goal: startInput.goal.trim(),
         maxRounds: startInput.maxRounds,
+        timeoutDurationMs: startInput.timeoutMs,
         timeoutAt: new Date(now() + startInput.timeoutMs).toISOString(),
         status: "running",
         currentThreadId: startInput.originThreadId,
@@ -341,7 +341,7 @@ export function createRelayCoordinator(input: {
       const resumed = await input.store.claimExtension(
         conversationId,
         additionalRounds,
-        new Date(now() + EXTENSION_GRACE_MS).toISOString(),
+        new Date(now()).toISOString(),
       );
       const nextThreadId = otherThread(resumed, resumed.currentThreadId);
       const nextPrompt = peerPrompt({

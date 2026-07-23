@@ -29,14 +29,20 @@ import {
   type RelayTransferFile,
 } from "./coordinator.js";
 import { loadRelayBotConfig } from "./config.js";
-import { createRelayConversationStore, type RelayConversation } from "./store.js";
+import {
+  DEFAULT_RELAY_TIMEOUT_MS,
+  MAX_RELAY_TIMEOUT_MS,
+  createRelayConversationStore,
+  type RelayConversation,
+} from "./store.js";
 
 const MAX_RELAY_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_RELAY_FILES = 10;
 const MAX_RELAY_TRANSFER_FILES = MAX_RELAY_FILES - 1;
 const MAX_PROMPT_CONTENT = 1_850;
 export const DEFAULT_MAX_ROUNDS = 20;
-const DEFAULT_TIMEOUT_MINUTES = 120;
+export const DEFAULT_TIMEOUT_MINUTES = DEFAULT_RELAY_TIMEOUT_MS / 60_000;
+export const MAX_TIMEOUT_MINUTES = MAX_RELAY_TIMEOUT_MS / 60_000;
 const THREAD_AUTOCOMPLETE_LIMIT = 25;
 const THREAD_CACHE_TTL_MS = 2_000;
 const EXTENSION_BUTTON_PREFIX = "agent-relay:extend:";
@@ -77,9 +83,9 @@ export const RELAY_COMMANDS = [
       {
         type: 4,
         name: "timeout_minutes",
-        description: "전체 대화 제한 시간(분)",
+        description: "전체 대화 제한 시간(분, 기본 1200)",
         min_value: 5,
-        max_value: 720,
+        max_value: MAX_TIMEOUT_MINUTES,
       },
     ],
   },

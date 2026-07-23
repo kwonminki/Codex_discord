@@ -117,9 +117,10 @@ describe("relay coordinator", () => {
       files: RelayTransferFile[];
     }> = [];
     const notices: string[] = [];
+    let clock = Date.parse("2026-07-23T00:00:00.000Z");
     const coordinator = createRelayCoordinator({
       store: createRelayConversationStore(root),
-      now: () => Date.parse("2026-07-23T00:00:00.000Z"),
+      now: () => clock,
       transport: {
         async sendPrompt(input) {
           sent.push(input);
@@ -159,6 +160,8 @@ describe("relay coordinator", () => {
       expect(waiting).toMatchObject({
         status: "extension-requested",
         maxRounds: 1,
+        timeoutDurationMs: 60_000,
+        timeoutAt: "2026-07-23T00:01:00.000Z",
         turnCount: 2,
         pendingRequestMessageId: null,
       });
@@ -174,6 +177,7 @@ describe("relay coordinator", () => {
         timeoutMs: 60_000,
       })).rejects.toThrow("이미 실행 중");
 
+      clock += 45_000;
       const extensionOutcomes = await Promise.allSettled([
         coordinator.grantExtension(started.id, 1),
         coordinator.grantExtension(started.id, 1),
@@ -187,6 +191,8 @@ describe("relay coordinator", () => {
       expect(resumed).toMatchObject({
         status: "running",
         maxRounds: 2,
+        timeoutDurationMs: 60_000,
+        timeoutAt: "2026-07-23T00:01:45.000Z",
         turnCount: 3,
         pendingRequestMessageId: "message-3",
         currentThreadId: "thread-a",

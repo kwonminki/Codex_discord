@@ -5,6 +5,8 @@ import path from "node:path";
 import { z } from "zod";
 
 export const MAX_RELAY_ROUNDS = 100;
+export const DEFAULT_RELAY_TIMEOUT_MS = 20 * 60 * 60_000;
+export const MAX_RELAY_TIMEOUT_MS = 24 * 60 * 60_000;
 
 export const relayConversationStatusSchema = z.enum([
   "running",
@@ -29,6 +31,7 @@ export const relayConversationSchema = z.object({
   operatorRoleIds: z.array(z.string()),
   goal: z.string().min(1),
   maxRounds: z.number().int().min(1).max(MAX_RELAY_ROUNDS),
+  timeoutDurationMs: z.number().int().positive().max(MAX_RELAY_TIMEOUT_MS).default(DEFAULT_RELAY_TIMEOUT_MS),
   timeoutAt: z.string().datetime({ offset: true }),
   status: relayConversationStatusSchema,
   currentThreadId: z.string().min(1),
@@ -173,7 +176,7 @@ export function createRelayConversationStore(rootPath = defaultRelayConversation
     async claimExtension(
       conversationId: string,
       additionalRounds: number,
-      minimumTimeoutAt: string,
+      resumedAt: string,
     ): Promise<RelayConversation> {
       return mutate((conversations) => {
         const index = conversations.findIndex((conversation) => conversation.id === conversationId);
@@ -193,10 +196,7 @@ export function createRelayConversationStore(rootPath = defaultRelayConversation
           pendingRequestMessageId: null,
           lastDoneThreadId: null,
           completedAt: null,
-          timeoutAt: new Date(Math.max(
-            Date.parse(conversation.timeoutAt),
-            Date.parse(minimumTimeoutAt),
-          )).toISOString(),
+          timeoutAt: new Date(Date.parse(resumedAt) + conversation.timeoutDurationMs).toISOString(),
           updatedAt: new Date().toISOString(),
         });
         const next = [...conversations];

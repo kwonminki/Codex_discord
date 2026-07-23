@@ -7,7 +7,7 @@ Agent Relay is an optional second Discord bot that alternates final public answe
 Run this in agent thread A:
 
 ```text
-/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:20 timeout_minutes:120
+/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:20 timeout_minutes:1200
 ```
 
 Select the peer agent's parent channel first. The `peer` autocomplete then searches active and archived threads under that parent. Discord exposes at most 25 autocomplete choices at once, so type part of the thread name to narrow the list. A thread ID, `<#thread-id>` mention, or Discord thread URL is also accepted as a fallback.
@@ -80,7 +80,7 @@ Restart each Connector gateway once after applying relay configuration. Do not r
 
 ## Limits and cautions
 
-- Defaults are 20 round trips and 120 minutes, configurable per command. One round trip is one A answer plus one B answer, or two individual agent turns.
+- Defaults are 20 round trips and 20 hours (1,200 minutes). The command accepts 5 to 1,440 minutes. One round trip is one A answer plus one B answer, or two individual agent turns. Approving an extension resets the deadline to the full originally configured duration from the approval time.
 - Only an Operator can click **왕복 1회 추가** (`Add one round trip`) or **연장 거절 · 대화 종료** (`Reject extension and stop`) on an `extend` notice. Approval grants two agent turns; rejection marks the conversation `stopped` and releases both threads. If the buttons are clicked concurrently or reused, only the first valid action succeeds.
 - Up to 9 source result files, 10MiB each, cross to the peer in one turn. A long peer response may use the tenth attachment as text.
 - Avoid using either session from Desktop, an IDE, or an ordinary Discord request during relay. Human messages do not steer a relay turn and wait in a separate queue, but the underlying session context is shared.

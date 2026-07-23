@@ -7,7 +7,7 @@ Agent Relay는 별도 Discord Coordinator Bot이 두 agent session thread의 최
 Agent thread A에서 실행합니다.
 
 ```text
-/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:두 구현을 비교하고 합의된 개선안을 만들어줘 max_rounds:20 timeout_minutes:120
+/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:두 구현을 비교하고 합의된 개선안을 만들어줘 max_rounds:20 timeout_minutes:1200
 ```
 
 `parent`에서 상대 agent의 부모 채널을 먼저 선택하면 `peer` autocomplete가 그 채널의 활성·archived thread를 검색합니다. Discord autocomplete는 한 번에 25개까지만 표시하므로 thread 이름 일부를 입력해 좁힐 수 있습니다. 목록에서 찾기 어려우면 thread ID, `<#thread-id>` mention 또는 Discord thread 링크를 직접 입력할 수 있습니다.
@@ -80,7 +80,7 @@ macOS에서는 기존 `scripts/start-mac-direct.sh relay`를 호출하는 별도
 
 ## 한도와 주의사항
 
-- 기본 20 왕복, 120분이며 명령에서 조정할 수 있습니다. 왕복 1회는 A와 B의 답변 하나씩, 즉 agent turn 2개입니다.
+- 기본 20 왕복, 전체 20시간(1,200분)이며 명령에서 5~1,440분으로 조정할 수 있습니다. 왕복 1회는 A와 B의 답변 하나씩, 즉 agent turn 2개입니다. 추가 왕복을 승인하면 승인 시점부터 처음 설정한 전체 제한 시간을 다시 부여합니다.
 - `extend` 요청 알림의 **왕복 1회 추가**와 **연장 거절 · 대화 종료** 버튼은 Operator role만 사용할 수 있습니다. 승인은 agent turn 2개를 추가하고, 거절은 대화를 `stopped` 처리해 두 thread를 해제합니다. 동시에 누르거나 이미 처리된 버튼을 다시 누르면 먼저 처리된 동작만 성공합니다.
 - 한 turn에서 다른 서버로 relay하는 source 결과 파일은 최대 9개, 파일당 10MiB입니다. 긴 peer 답변은 열 번째 text attachment로 전달될 수 있습니다.
 - Relay가 진행되는 두 session을 Desktop/IDE나 일반 Discord 요청으로 동시에 사용하지 않는 것이 좋습니다. 사람 메시지는 relay turn에 steering되지 않고 별도 queue로 들어가지만, session 맥락 자체는 공유됩니다.

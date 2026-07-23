@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_MAX_ROUNDS,
+  DEFAULT_TIMEOUT_MINUTES,
+  MAX_TIMEOUT_MINUTES,
   RELAY_COMMANDS,
   parseRelayExtensionButtonId,
   parseRelayExtensionRejectButtonId,
@@ -20,7 +22,11 @@ describe("relay bot thread selection", () => {
     ]);
     expect(command?.options?.find((option) => option.name === "max_rounds"))
       .toEqual(expect.objectContaining({ min_value: 1, max_value: 20 }));
+    expect(command?.options?.find((option) => option.name === "timeout_minutes"))
+      .toEqual(expect.objectContaining({ min_value: 5, max_value: 1_440 }));
     expect(DEFAULT_MAX_ROUNDS).toBe(20);
+    expect(DEFAULT_TIMEOUT_MINUTES).toBe(1_200);
+    expect(MAX_TIMEOUT_MINUTES).toBe(1_440);
   });
 
   it("builds a one-round extension button with an exact conversation ID", () => {
