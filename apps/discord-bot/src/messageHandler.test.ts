@@ -1154,9 +1154,12 @@ describe("createDiscordMessageHandler", () => {
     ]);
   });
 
-  it("explains that live turn controls are unavailable for Claude Code", async () => {
+  it("sends explicit Claude Code steering through the shared turn control", async () => {
     const replies: unknown[] = [];
-    const controlCodexTurn = vi.fn();
+    const controlCodexTurn = vi.fn().mockResolvedValue({
+      status: "accepted",
+      message: "Claude Code steering was accepted.",
+    });
     const handleMessage = createDiscordMessageHandler({
       resolveChannelContext: async () => claudeChannelContext,
       submitCommandJob: vi.fn(),
@@ -1178,13 +1181,160 @@ describe("createDiscordMessageHandler", () => {
       },
     });
 
-    expect(controlCodexTurn).not.toHaveBeenCalled();
+    expect(controlCodexTurn).toHaveBeenCalledWith({
+      computerId: "computer-1",
+      controlKey: "claude-channel-1",
+      action: "steer",
+      content: "다른 방식으로 해줘",
+    });
     expect(replies[0]).toEqual(expect.objectContaining({
       embeds: [expect.objectContaining({
-        title: "Steering not supported",
-        description: expect.stringContaining("Claude Code"),
+        title: "Claude Code steering",
+        description: expect.stringContaining("accepted"),
       })],
     }));
+  });
+
+  it("steers an active Claude Code turn with an ordinary follow-up instead of queueing another job", async () => {
+    let firstPromptWaiting = false;
+    let finishFirstPrompt: (value: unknown) => void = () => {
+      throw new Error("first Claude prompt completion was not initialized");
+    };
+    const submitClaudePrompt = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        finishFirstPrompt = resolve;
+        firstPromptWaiting = true;
+      }),
+    );
+    const controlCodexTurn = vi.fn().mockResolvedValue({
+      status: "accepted",
+      message: "Claude Code steering was accepted.",
+      threadId: "claude-session-1",
+    });
+    const steerReplies: unknown[] = [];
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        claudeSessionId: "claude-session-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt,
+      controlCodexTurn,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const userMessage = (content: string, replies: unknown[] = []) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async (payload: unknown) => {
+        replies.push(payload);
+        return { edit: async () => undefined };
+      },
+    });
+
+    const first = handleMessage(userMessage("첫 번째 긴 Claude 작업"));
+    await vi.waitFor(() => expect(firstPromptWaiting).toBe(true));
+    await handleMessage(userMessage("테스트보다 구현을 먼저 진행해줘", steerReplies));
+
+    expect(controlCodexTurn).toHaveBeenCalledWith({
+      computerId: "computer-1",
+      controlKey: "claude-channel-1",
+      action: "steer",
+      content: "테스트보다 구현을 먼저 진행해줘",
+    });
+    expect(submitClaudePrompt).toHaveBeenCalledTimes(1);
+    expect(steerReplies).toEqual([
+      expect.objectContaining({
+        embeds: [expect.objectContaining({ title: "Claude Code steering" })],
+      }),
+    ]);
+
+    finishFirstPrompt({
+      jobId: "claude-job-1",
+      result: {
+        status: "completed",
+        finalMessage: "수정 지시까지 반영했습니다.",
+        sessionId: "claude-session-1",
+      },
+    });
+    await first;
+  });
+
+  it("keeps a Claude follow-up as the next queued turn when the active stdin is already closing", async () => {
+    const completions: Array<(value: unknown) => void> = [];
+    const submitClaudePrompt = vi.fn().mockImplementation(
+      () => new Promise((resolve) => {
+        completions.push(resolve);
+      }),
+    );
+    const controlCodexTurn = vi.fn().mockResolvedValue({
+      status: "failed",
+      message: "Claude Code input stream is no longer writable.",
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...claudeChannelContext,
+        claudeSessionId: "claude-session-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt: vi.fn(),
+      submitClaudePrompt,
+      controlCodexTurn,
+      autoSteerRetryDelayMs: 0,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+    });
+    const userMessage = (content: string) => ({
+      authorBot: false,
+      userId: "discord-user-1",
+      channelId: "claude-channel-1",
+      content,
+      roleIds: ["role-operator"],
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    const first = handleMessage(userMessage("첫 번째 Claude 작업"));
+    await vi.waitFor(() => expect(completions).toHaveLength(1));
+    const second = handleMessage(userMessage("이 지시는 다음 turn에서도 반드시 실행해줘"));
+
+    await vi.waitFor(() => expect(controlCodexTurn).toHaveBeenCalledTimes(1));
+    expect(submitClaudePrompt).toHaveBeenCalledTimes(1);
+
+    completions[0]?.({
+      jobId: "claude-job-1",
+      result: {
+        status: "completed",
+        finalMessage: "첫 작업 완료",
+        sessionId: "claude-session-1",
+      },
+    });
+    await first;
+    await vi.waitFor(() => expect(completions).toHaveLength(2));
+
+    expect(submitClaudePrompt).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          prompt: "이 지시는 다음 turn에서도 반드시 실행해줘",
+          controlKey: "claude-channel-1",
+        }),
+      }),
+    );
+    completions[1]?.({
+      jobId: "claude-job-2",
+      result: {
+        status: "completed",
+        finalMessage: "후속 작업 완료",
+        sessionId: "claude-session-1",
+      },
+    });
+    await second;
   });
 
   it("allows interrupt while Claude Code is running", async () => {

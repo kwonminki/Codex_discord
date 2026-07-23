@@ -1833,7 +1833,7 @@ export function formatHelp(channelMode: ChannelMode): DiscordMessagePayload {
     },
     {
       name: "Claude Code",
-      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. `/model`, `/effort`, `/settings`로 main 기본값 또는 현재 thread override를 관리합니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. 실행 중 일반 메시지와 `/queue prompt:<요청>`은 다음 turn으로 대기합니다. prompt 없는 `/queue`는 상태를 보여주며, `/steer`와 `/interrupt`는 현재 Claude Code 실행 방식에서 지원되지 않습니다.",
+      value: "이 채널의 자연어 메시지는 Claude Code headless 실행으로 전달됩니다. `/model`, `/effort`, `/settings`로 main 기본값 또는 현재 thread override를 관리합니다. 같은 Discord 채널에서는 Claude session ID를 기억해서 다음 요청에 resume합니다. 연결된 Claude Code thread에서 `/fork`를 실행하면 새 이름을 입력하고 분기 thread를 만들 수 있습니다. 실행 중 일반 메시지는 현재 Claude Code turn에 즉시 steering됩니다. 다음 turn으로 남기려면 `/queue prompt:<요청>`을 사용하세요. prompt 없는 `/queue`는 상태를 보여주며, `/steer`는 명시적 steering 별칭이고 `/interrupt`는 현재 turn을 중단합니다.",
       inline: false,
     },
     {

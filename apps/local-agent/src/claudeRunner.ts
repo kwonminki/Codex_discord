@@ -10,6 +10,7 @@ export interface RunClaudePromptInput {
   cwd: string;
   prompt: string;
   timeoutMs: number;
+  controlKey?: string | null;
   sessionId?: string | null;
   forkSession?: boolean;
   sessionName?: string | null;
@@ -30,6 +31,48 @@ export interface RunClaudePromptResult {
   errorCode?: string;
 }
 
+export interface ClaudeTurnControlResult {
+  status: "accepted" | "no-active-turn" | "unsupported" | "failed";
+  message: string;
+  threadId?: string;
+}
+
+interface ActiveClaudeTurn {
+  send(content: string): Promise<ClaudeTurnControlResult>;
+  interrupt(): ClaudeTurnControlResult;
+}
+
+const activeClaudeTurns = new Map<string, ActiveClaudeTurn>();
+
+export async function steerActiveClaudeTurn(
+  controlKey: string,
+  content: string,
+): Promise<ClaudeTurnControlResult> {
+  const activeTurn = activeClaudeTurns.get(controlKey);
+  if (!activeTurn) {
+    return {
+      status: "no-active-turn",
+      message: "No active Claude Code turn is available for steering.",
+    };
+  }
+
+  return activeTurn.send(content);
+}
+
+export function interruptActiveClaudeTurn(
+  controlKey: string,
+): ClaudeTurnControlResult {
+  const activeTurn = activeClaudeTurns.get(controlKey);
+  if (!activeTurn) {
+    return {
+      status: "no-active-turn",
+      message: "No active Claude Code turn is available to interrupt.",
+    };
+  }
+
+  return activeTurn.interrupt();
+}
+
 function resolveClaudeCommand(input: { claudeCommand?: string | null }): string {
   return input.claudeCommand?.trim() || process.env.CODEX_DISCORD_CLAUDE_COMMAND?.trim() || "claude";
 }
@@ -41,7 +84,8 @@ function resolvePermissionMode(input: { permissionMode?: string | null }): strin
 function claudeArgs(input: RunClaudePromptInput): string[] {
   const args = [
     "-p",
-    input.prompt,
+    "--input-format",
+    "stream-json",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -75,6 +119,17 @@ function claudeArgs(input: RunClaudePromptInput): string[] {
   }
 
   return args;
+}
+
+function claudeUserMessage(content: string): string {
+  return `${JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: content }],
+    },
+    parent_tool_use_id: null,
+  })}\n`;
 }
 
 function spawnFailure(claudeCommand: string, error: NodeJS.ErrnoException): RunClaudePromptResult {
@@ -221,6 +276,8 @@ function parseClaudeStreamLine(line: string): {
   sessionId?: string;
   finalMessage?: string;
   progressEvents?: ClaudeRunnerProgressEvent[];
+  turnEnded?: boolean;
+  isResult?: boolean;
   isError?: boolean;
 } | null {
   let parsed: Record<string, unknown>;
@@ -245,13 +302,20 @@ function parseClaudeStreamLine(line: string): {
     const content = message?.content;
     const text = textFromClaudeContent(content);
     const toolProgress = toolProgressFromClaudeContent(content);
+    const stopReason = typeof message?.stop_reason === "string" ? message.stop_reason : null;
 
     const progressEvents: ClaudeRunnerProgressEvent[] = [
       ...(toolProgress ? [toolProgress] : []),
       ...(text ? [{ type: "agent-message" as const, text }] : []),
     ];
 
-    return progressEvents.length > 0 ? { sessionId, progressEvents } : { sessionId };
+    return {
+      sessionId,
+      ...(progressEvents.length > 0 ? { progressEvents } : {}),
+      ...(stopReason && stopReason !== "tool_use" && stopReason !== "pause_turn"
+        ? { turnEnded: true }
+        : {}),
+    };
   }
 
   if (parsed.type === "user") {
@@ -268,6 +332,7 @@ function parseClaudeStreamLine(line: string): {
     return {
       sessionId,
       finalMessage,
+      isResult: true,
       isError: parsed.is_error === true || parsed.subtype === "error",
     };
   }
@@ -298,6 +363,8 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
   let lastAssistantMessage = "";
   let finalMessage = "";
   let resultWasError = false;
+  let resultSeen = false;
+  let turnEnded = false;
 
   const interruptedResult = (): RunClaudePromptResult => ({
     status: "failed",
@@ -327,8 +394,12 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       finalMessage = event.finalMessage;
     }
 
-    if (event.isError) {
-      resultWasError = true;
+    if (event.isResult) {
+      resultSeen = true;
+      resultWasError = event.isError === true;
+    }
+    if (event.turnEnded) {
+      turnEnded = true;
     }
 
     for (const progress of event.progressEvents ?? []) {
@@ -346,10 +417,12 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
     const child = spawn(claudeCommand, args, {
       cwd: input.cwd,
       env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
     let settled = false;
     let interrupted = false;
+    let stdinEnded = false;
+    let stdinFailure = "";
     let timeout: NodeJS.Timeout | null = null;
     let forceKillTimeout: NodeJS.Timeout | null = null;
 
@@ -364,6 +437,65 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       }, 5_000);
       forceKillTimeout.unref();
     };
+
+    function writeInput(content: string): Promise<void> {
+      const normalizedContent = content.trim();
+      if (!normalizedContent) {
+        return Promise.reject(new Error("Claude Code steering content is empty."));
+      }
+      if (settled || interrupted || stdinEnded || child.stdin.destroyed || !child.stdin.writable) {
+        return Promise.reject(new Error("Claude Code input stream is no longer writable."));
+      }
+
+      return new Promise<void>((writeResolve, writeReject) => {
+        child.stdin.write(claudeUserMessage(normalizedContent), (error) => {
+          if (error) {
+            writeReject(error);
+            return;
+          }
+          writeResolve();
+        });
+      });
+    }
+
+    function endInputAfterTurn(): void {
+      if ((!turnEnded && !resultSeen) || stdinEnded || child.stdin.destroyed) {
+        return;
+      }
+      stdinEnded = true;
+      child.stdin.end();
+    }
+
+    const controlKey = input.controlKey?.trim() || null;
+    const activeTurn: ActiveClaudeTurn = {
+      async send(content) {
+        try {
+          await writeInput(content);
+          return {
+            status: "accepted",
+            message: "Claude Code steering was accepted.",
+            ...(sessionId ? { threadId: sessionId } : {}),
+          };
+        } catch (error) {
+          return {
+            status: "failed",
+            message: error instanceof Error ? error.message : "Claude Code steering failed.",
+          };
+        }
+      },
+      interrupt() {
+        onAbort();
+        return {
+          status: "accepted",
+          message: "Claude Code interrupt requested.",
+          ...(sessionId ? { threadId: sessionId } : {}),
+        };
+      },
+    };
+    if (controlKey) {
+      activeClaudeTurns.set(controlKey, activeTurn);
+    }
+
     input.signal?.addEventListener("abort", onAbort, { once: true });
     if (input.signal?.aborted) {
       onAbort();
@@ -382,6 +514,9 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
         clearTimeout(forceKillTimeout);
       }
       input.signal?.removeEventListener("abort", onAbort);
+      if (controlKey && activeClaudeTurns.get(controlKey) === activeTurn) {
+        activeClaudeTurns.delete(controlKey);
+      }
 
       void Promise.allSettled(progressTasks).then(() => resolve(result));
     }
@@ -390,6 +525,12 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       settle(interrupted
         ? interruptedResult()
         : spawnFailure(claudeCommand, error as NodeJS.ErrnoException));
+    });
+
+    child.stdin.on("error", (error) => {
+      if (!settled && !resultSeen && !interrupted) {
+        stdinFailure = error.message;
+      }
     });
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -401,11 +542,17 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
       for (const line of lines) {
         if (line.trim()) {
           handleLine(line);
+          endInputAfterTurn();
         }
       }
     });
 
     child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+    void writeInput(input.prompt).catch((error) => {
+      stdinFailure = error instanceof Error ? error.message : "Claude Code input failed.";
+      child.kill("SIGTERM");
+    });
 
     if (input.timeoutMs > 0) {
       timeout = setTimeout(() => {
@@ -439,7 +586,7 @@ export async function runClaudePrompt(input: RunClaudePromptInput): Promise<RunC
         status: completed ? "completed" : "failed",
         finalMessage: outputFinalMessage,
         sessionId,
-        stderr: stderr || (completed ? "" : rawStdout),
+        stderr: stderr || stdinFailure || (completed ? "" : rawStdout),
         exitCode: code,
         ...(completed ? {} : { errorCode: "CLAUDE_CLI_FAILED" }),
       });

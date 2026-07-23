@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { discoverCodexSessions } from "../../../packages/codex-adapter/src/index.js";
-import { runClaudePrompt } from "../../local-agent/src/claudeRunner.js";
+import {
+  interruptActiveClaudeTurn,
+  runClaudePrompt,
+  steerActiveClaudeTurn,
+} from "../../local-agent/src/claudeRunner.js";
 import {
   interruptActiveCodexAppServerTurn,
   runCodexAppServerPrompt,
@@ -295,19 +299,29 @@ export function createDirectControlClient(
         };
       }
 
+      if (options.workerClient) {
+        const workerResult = await options.workerClient.control({
+          controlKey: input.controlKey,
+          action: input.action,
+          content: input.content,
+        });
+        if (workerResult.status !== "no-active-turn") {
+          return workerResult;
+        }
+      } else {
+        const claudeResult = input.action === "steer"
+          ? await steerActiveClaudeTurn(input.controlKey, input.content ?? "")
+          : interruptActiveClaudeTurn(input.controlKey);
+        if (claudeResult.status !== "no-active-turn") {
+          return claudeResult;
+        }
+      }
+
       if (codexRunner !== "app-server") {
         return {
           status: "unsupported",
           message: "Codex steering requires CODEX_DISCORD_CODEX_RUNNER=app-server.",
         };
-      }
-
-      if (options.workerClient) {
-        return options.workerClient.control({
-          controlKey: input.controlKey,
-          action: input.action,
-          content: input.content,
-        });
       }
 
       return input.action === "steer"

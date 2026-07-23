@@ -742,19 +742,6 @@ function relayWaitingMessage(locale: ConnectorLocale | undefined, activeThreadId
   }
 }
 
-function activeClaudeRelayMessage(locale: ConnectorLocale | undefined): string {
-  switch (locale) {
-    case "en":
-      return "Claude Code headless cannot accept live steering. Wait for this turn to finish, or stop the relay with `/agent-chat-stop` before sending a new instruction.";
-    case "zh":
-      return "Claude Code headless 当前不支持实时 steering。请等待本轮结束，或先用 `/agent-chat-stop` 停止 relay，再发送新指令。";
-    case "ja":
-      return "Claude Code headless は実行中の steering に対応していません。この turn の完了を待つか、`/agent-chat-stop` で relay を停止してから新しい指示を送ってください。";
-    default:
-      return "Claude Code headless는 실행 중 steering을 지원하지 않습니다. 현재 turn이 끝날 때까지 기다리거나 `/agent-chat-stop`으로 relay를 중지한 뒤 새 지시를 보내세요.";
-  }
-}
-
 export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerInput): DiscordMessageHandler {
   interface QueuedMessage {
     message: DiscordMessageLike;
@@ -983,13 +970,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     });
   }
 
-  async function tryAutoSteerCodexTurn(
+  async function tryAutoSteerAgentTurn(
     message: DiscordMessageLike,
     channelContext: ManagedDiscordChannelContext,
     queue: ChannelQueue,
   ): Promise<boolean> {
     if (
-      channelContext.channelMode !== "session-linked" ||
       !queue.activeMessage ||
       !input.controlCodexTurn
     ) {
@@ -998,11 +984,19 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
     const routed = routeMessage(message, channelContext);
     const activeRouted = routeMessage(queue.activeMessage, channelContext);
-    const activeCodexTurn = activeRouted.type === "codex-chat" ||
-      activeRouted.type === "codex-continue-session" ||
-      activeRouted.type === "codex-review";
+    const isClaudeChannel = channelContext.channelMode === "claude-code";
+    const steeringContent = isClaudeChannel && routed.type === "claude-chat"
+      ? routed.content
+      : channelContext.channelMode === "session-linked" && routed.type === "codex-chat"
+        ? routed.content
+        : null;
+    const activeAgentTurn = isClaudeChannel
+      ? activeRouted.type === "claude-chat"
+      : activeRouted.type === "codex-chat" ||
+        activeRouted.type === "codex-continue-session" ||
+        activeRouted.type === "codex-review";
 
-    if (routed.type !== "codex-chat" || !activeCodexTurn) {
+    if (steeringContent === null || !activeAgentTurn) {
       return false;
     }
 
@@ -1015,7 +1009,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         computerId: channelContext.computerId,
         controlKey: message.channelId,
         action: "steer",
-        content: routed.content,
+        content: steeringContent,
       });
 
       for (
@@ -1030,17 +1024,17 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           computerId: channelContext.computerId,
           controlKey: message.channelId,
           action: "steer",
-          content: routed.content,
+          content: steeringContent,
         });
       }
     } catch (error) {
-      console.warn("discord-bot failed to auto-steer the active Codex turn", error);
+      console.warn("discord-bot failed to auto-steer the active agent turn", error);
       if (queue.activeMessage !== activeMessage) {
         return false;
       }
       result = {
         status: "failed",
-        message: error instanceof Error ? error.message : "Codex steering 요청에 실패했습니다.",
+        message: error instanceof Error ? error.message : "Agent steering 요청에 실패했습니다.",
       };
     }
 
@@ -1048,10 +1042,18 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       return false;
     }
 
+    if (isClaudeChannel && result.status !== "accepted") {
+      return false;
+    }
+
     touchChannelActivity(message.channelId);
 
     try {
-      await message.reply(formatCodexTurnControlResult({ action: "steer", ...result }));
+      await message.reply(formatCodexTurnControlResult({
+        action: "steer",
+        ...result,
+        agentLabel: isClaudeChannel ? "Claude Code" : "Codex",
+      }));
     } catch (error) {
       console.warn("discord-bot failed to acknowledge an automatic steering message", error);
     }
@@ -1401,21 +1403,12 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
     if (routed.type === "codex-steer" || routed.type === "codex-interrupt") {
       const action = routed.type === "codex-steer" ? "steer" : "interrupt";
 
-      if (channelContext.channelMode === "claude-code" && action === "steer") {
-        await reply(formatCodexTurnControlResult({
-          action,
-          status: "unsupported",
-          message: "Claude Code의 현재 headless 실행 방식은 실행 중 steering을 지원하지 않습니다. /queue prompt:<요청>으로 다음 요청을 예약할 수 있습니다.",
-          agentLabel: "Claude Code",
-        }));
-        return;
-      }
-
       if (!input.controlCodexTurn) {
         await reply(formatCodexTurnControlResult({
           action,
           status: "unsupported",
-          message: "이 봇 실행 모드에는 Codex app-server turn 제어가 연결되어 있지 않습니다.",
+          message: "이 봇 실행 모드에는 agent turn 제어가 연결되어 있지 않습니다.",
+          agentLabel: channelContext.channelMode === "claude-code" ? "Claude Code" : "Codex",
         }));
         return;
       }
@@ -2256,12 +2249,14 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       try {
         const response = await input.submitClaudePrompt({
           computerId: channelContext.computerId,
-          ...(message.requestId ? { requestId: message.requestId, queueKey: message.channelId } : {}),
+          ...(message.requestId ? { requestId: message.requestId } : {}),
+          queueKey: message.channelId,
           payload: {
             workspaceRoot: channelContext.workspaceRoot,
             cwd: channelContext.cwd,
             prompt,
             timeoutMs: resolveAgentPromptTimeoutMs(channelContext.timeoutMs),
+            controlKey: message.channelId,
             sessionId: streamedSessionId,
             model: agentSettings.model,
             effort: agentSettings.effort,
@@ -2813,15 +2808,6 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
             await message.reply(relayWaitingMessage(input.locale, presence.activeThreadId));
             return;
           }
-          if (
-            agentRequest &&
-            relayChannelContext.channelMode === "claude-code" &&
-            presence.activeThreadId === message.channelId &&
-            channelQueues.get(message.channelId)?.activeMessage?.relayRequest
-          ) {
-            await message.reply(activeClaudeRelayMessage(input.locale));
-            return;
-          }
         }
       }
     }
@@ -2865,7 +2851,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           !message.authorBot;
         if (
           (sameRequestKind || userInterveningInRelay) &&
-          await tryAutoSteerCodexTurn(message, channelContext, queue)
+          await tryAutoSteerAgentTurn(message, channelContext, queue)
         ) {
           return;
         }

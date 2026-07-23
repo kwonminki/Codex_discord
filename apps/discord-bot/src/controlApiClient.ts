@@ -48,6 +48,7 @@ export interface RunClaudePromptJobPayload {
   cwd: string;
   prompt: string;
   timeoutMs: number;
+  controlKey?: string;
   sessionId: string | null;
   forkSession?: boolean;
   sessionName?: string | null;

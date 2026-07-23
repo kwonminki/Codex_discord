@@ -290,6 +290,87 @@ describe("direct worker", () => {
     }
   });
 
+  it("steers an active Claude Code process through the durable control mailbox", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-claude-steer-"));
+    const fakeClaude = path.join(root, "claude");
+    const inputsPath = path.join(root, "inputs.json");
+    const store = createDirectWorkerStore(path.join(root, "worker"));
+    await writeFile(fakeClaude, [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      "const readline = require('node:readline');",
+      "const messages = [];",
+      "let readyToFinish = false;",
+      "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-steer-1' }));",
+      "const input = readline.createInterface({ input: process.stdin });",
+      "input.on('line', (line) => {",
+      "  messages.push(JSON.parse(line));",
+      `  fs.writeFileSync(${JSON.stringify(inputsPath)}, JSON.stringify(messages));`,
+      "  if (messages.length === 2) {",
+      "    readyToFinish = true;",
+      "    console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-steer-1', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'steering applied' }] } }));",
+      "  }",
+      "});",
+      "input.on('close', () => {",
+      "  if (readyToFinish) {",
+      "    console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'claude-steer-1', result: 'steering applied' }));",
+      "  }",
+      "});",
+    ].join("\n"), "utf8");
+    await chmod(fakeClaude, 0o755);
+    const worker = await startDirectWorker({ store, pollIntervalMs: 10, maxConcurrency: 1 });
+    const client = createDirectWorkerClient({ store, pollIntervalMs: 10 });
+
+    try {
+      const job = client.submit({
+        jobId: "claude-steer-job",
+        type: "run-claude-prompt",
+        queueKey: "thread-claude",
+        payload: {
+          workspaceRoot: root,
+          cwd: root,
+          prompt: "first request",
+          timeoutMs: 60_000,
+          controlKey: "thread-claude",
+          claudeCommand: fakeClaude,
+        },
+      });
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const inputs = await readFile(inputsPath, "utf8").catch(() => "");
+        if (inputs.includes("first request")) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      await expect(client.control({
+        controlKey: "thread-claude",
+        action: "steer",
+        content: "updated direction",
+      })).resolves.toMatchObject({
+        status: "accepted",
+      });
+      await expect(job).resolves.toMatchObject({
+        result: {
+          status: "completed",
+          finalMessage: "steering applied",
+          sessionId: "claude-steer-1",
+        },
+      });
+
+      const inputs = JSON.parse(await readFile(inputsPath, "utf8")) as Array<{
+        message: { content: Array<{ text: string }> };
+      }>;
+      expect(inputs.map((message) => message.message.content[0]?.text)).toEqual([
+        "first request",
+        "updated direction",
+      ]);
+    } finally {
+      await worker.stop();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("interrupts an active Claude Code process by queue key", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "direct-worker-claude-interrupt-"));
     const fakeClaude = path.join(root, "claude");

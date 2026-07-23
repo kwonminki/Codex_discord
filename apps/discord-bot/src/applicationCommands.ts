@@ -471,7 +471,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "steer",
-    description: "현재 실행 중인 Codex 작업에 즉시 추가 지시를 보냅니다.",
+    description: "현재 실행 중인 Codex 또는 Claude Code 작업에 즉시 추가 지시를 보냅니다.",
     options: [
       stringOption({
         name: "prompt",
@@ -482,7 +482,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
   },
   {
     name: "interrupt",
-    description: "현재 실행 중인 Codex 작업을 중단합니다.",
+    description: "현재 실행 중인 Codex 또는 Claude Code 작업을 중단합니다.",
   },
   {
     name: "queue",

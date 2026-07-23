@@ -8,7 +8,11 @@ import {
   runCodexAppServerPrompt,
   steerActiveCodexAppServerTurn,
 } from "./codexAppServerRunner.js";
-import { runClaudePrompt } from "./claudeRunner.js";
+import {
+  interruptActiveClaudeTurn,
+  runClaudePrompt,
+  steerActiveClaudeTurn,
+} from "./claudeRunner.js";
 import {
   runCodexPrompt,
   type CodexApprovalDecision,
@@ -91,6 +95,7 @@ async function runWorkerJob(
   if (request.type === "run-claude-prompt") {
     return runClaudePrompt({
       ...request.payload,
+      controlKey: request.payload.controlKey ?? request.queueKey,
       onProgress: (event) => store.appendProgress(request.jobId, event),
       signal,
     });
@@ -244,6 +249,20 @@ export async function startDirectWorker(options: {
   async function processControls(): Promise<void> {
     for (const control of await store.listPendingControls()) {
       const activeExecution = activeExecutions.get(control.controlKey);
+      if (control.action === "steer") {
+        const claudeResult = await steerActiveClaudeTurn(control.controlKey, control.content ?? "");
+        if (claudeResult.status !== "no-active-turn") {
+          await store.completeControl(control.controlId, claudeResult);
+          continue;
+        }
+      }
+      if (control.action === "interrupt") {
+        const claudeResult = interruptActiveClaudeTurn(control.controlKey);
+        if (claudeResult.status !== "no-active-turn") {
+          await store.completeControl(control.controlId, claudeResult);
+          continue;
+        }
+      }
       if (
         control.action === "interrupt" &&
         activeExecution?.request.type === "run-claude-prompt"

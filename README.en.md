@@ -83,7 +83,7 @@ An ordinary message sent while Codex is working steers the current task immediat
 /queue prompt:Run the full test suite after the current change
 ```
 
-The current headless Claude Code integration does not support live steering, so messages sent while it is working wait for the next turn.
+While Codex or Claude Code is working, an ordinary message in the same thread steers the active turn immediately. Use `/queue prompt:<request>` when the instruction must wait for a separate next turn.
 
 ### Fork a session
 
@@ -98,7 +98,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/settings` | Show the effective model and effort |
 | `/model` | Choose a parent default or thread model from channel-aware suggestions; custom input remains supported |
 | `/effort` | Change a parent default or current thread effort |
-| `/steer` | Explicitly steer an active Codex task |
+| `/steer` | Explicitly steer an active Codex or Claude Code task |
 | `/queue` | Reserve the next turn or inspect the queue |
 | `/queue-clear` | Remove requests that have not started |
 | `/interrupt` | Interrupt the active Codex or Claude Code turn |
@@ -109,7 +109,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/agent-chat-status` | Show Agent Relay round-trip, turn, and state |
 | `/agent-chat-stop` | Stop the current Agent Relay conversation |
 
-When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. During a relay, an ordinary message in the active Codex thread steers the current turn, while the waiting thread points you to the active one. `/agent-chat-stop` ends the relay and interrupts the current Codex or Claude Code turn.
+When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. During a relay, an ordinary message in the active Codex or Claude Code thread steers the current turn, while the waiting thread points you to the active one. `/agent-chat-stop` ends the relay and interrupts the current Codex or Claude Code turn.
 
 ## Files and media
 

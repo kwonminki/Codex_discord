@@ -2,7 +2,10 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runClaudePrompt } from "./claudeRunner.js";
+import {
+  runClaudePrompt,
+  steerActiveClaudeTurn,
+} from "./claudeRunner.js";
 
 describe("runClaudePrompt", () => {
   it("returns a coded failure when Claude Code is missing", async () => {
@@ -84,6 +87,94 @@ describe("runClaudePrompt", () => {
         },
         { type: "agent-message", text: "중간 설명입니다." },
       ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("streams an additional user message into an active Claude Code turn", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "claude-runner-steer-"));
+    const fakeClaude = path.join(tempRoot, "claude");
+    const inputsPath = path.join(tempRoot, "inputs.json");
+    const argsPath = path.join(tempRoot, "args.json");
+
+    try {
+      await writeFile(
+        fakeClaude,
+        [
+          "#!/usr/bin/env node",
+          "const fs = require('node:fs');",
+          "const readline = require('node:readline');",
+          `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+          "const messages = [];",
+          "let readyToFinish = false;",
+          "console.log(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'claude-steer-session-1' }));",
+          "const input = readline.createInterface({ input: process.stdin });",
+          "input.on('line', (line) => {",
+          "  const message = JSON.parse(line);",
+          "  messages.push(message);",
+          `  fs.writeFileSync(${JSON.stringify(inputsPath)}, JSON.stringify(messages));`,
+          "  if (messages.length === 1) {",
+          "    console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-steer-session-1', message: { content: [{ type: 'text', text: '첫 요청을 처리 중입니다.' }] } }));",
+          "  }",
+          "  if (messages.length === 2) {",
+          "    readyToFinish = true;",
+          "    console.log(JSON.stringify({ type: 'assistant', session_id: 'claude-steer-session-1', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: '추가 지시를 반영했습니다.' }] } }));",
+          "  }",
+          "});",
+          "input.on('close', () => {",
+          "  if (readyToFinish) {",
+          "    console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'claude-steer-session-1', result: 'steered result' }));",
+          "  }",
+          "});",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeClaude, 0o755);
+
+      const run = runClaudePrompt({
+        workspaceRoot: tempRoot,
+        cwd: tempRoot,
+        prompt: "첫 요청",
+        timeoutMs: 5_000,
+        controlKey: "claude-thread-1",
+        claudeCommand: fakeClaude,
+      });
+
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const inputs = await readFile(inputsPath, "utf8").catch(() => "");
+        if (inputs.includes("첫 요청")) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      await expect(steerActiveClaudeTurn(
+        "claude-thread-1",
+        "테스트보다 구현을 먼저 진행해줘",
+      )).resolves.toMatchObject({
+        status: "accepted",
+      });
+      await expect(run).resolves.toMatchObject({
+        status: "completed",
+        finalMessage: "steered result",
+        sessionId: "claude-steer-session-1",
+      });
+
+      const inputs = JSON.parse(await readFile(inputsPath, "utf8")) as Array<{
+        type: string;
+        message: { role: string; content: Array<{ type: string; text: string }> };
+      }>;
+      expect(inputs.map((message) => message.message.content[0]?.text)).toEqual([
+        "첫 요청",
+        "테스트보다 구현을 먼저 진행해줘",
+      ]);
+      expect(JSON.parse(await readFile(argsPath, "utf8"))).toEqual(expect.arrayContaining([
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ]));
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

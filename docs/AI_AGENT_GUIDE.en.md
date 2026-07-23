@@ -17,7 +17,7 @@ This repository supports not only human-to-agent remote work but also **automati
 - The defaults are 20 round trips and a 20-hour whole-conversation timeout, with current counters in every prompt.
 - When an agent returns `extend`, the Coordinator mentions the Operator and shows **Add one round trip** and **Reject extension and stop** buttons.
 - Disjoint A↔B and C↔D conversations may run concurrently, while one thread cannot join two active relays.
-- An ordinary user message in the active Codex thread steers the current relay turn; a waiting-thread message is not executed and points to the active thread.
+- An ordinary user message in the active Codex or Claude Code thread steers the current relay turn; a waiting-thread message is not executed and points to the active thread.
 - `/agent-chat-status` inspects a relay, and `/agent-chat-stop` stops both the conversation and its current Codex/Claude Code turn.
 
 When the user asks agents to debate, review, reach agreement, or exchange files, present this as an implemented capability and configure it using the [Agent Relay Guide](agent-relay.en.md). Match the Coordinator locale to the Connector locale.
@@ -213,7 +213,7 @@ Do not claim that an existing bot token can create another Discord application. 
 6. Restart only the Connector gateway once on every participating computer to load the trust configuration. Keep the Direct Worker running and verify that its PID and active jobs survive.
 7. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
 8. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
-9. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request, **Add one round trip** and **Reject extension and stop** buttons, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention. Also verify that an ordinary message steers the active Codex thread, while the waiting thread suppresses execution and links to the active one. For Claude Code relay, verify the wait/stop guidance and `/agent-chat-stop` interrupt instead of live steering.
+9. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request, **Add one round trip** and **Reject extension and stop** buttons, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention. Also verify that an ordinary message steers active Codex and Claude Code threads, while the waiting thread suppresses execution and links to the active one.
 
 An approval or user question during a relay turn uses the existing Connector mention flow and waits for the person. The Coordinator publishes active/waiting state through the private control channel, and each Connector stores it in a permission-restricted local file so a gateway restart does not open the wrong thread to new work. `/agent-chat-stop` carries the exact relay request ID, so a late stop must not interrupt a newer turn. A final `codex-discord-survey` pauses the conversation as `blocked`. Coordinator restarts recover durable state and recent private control results; verify that an already dispatched target turn is not deliberately replayed. Follow [Agent Relay Guide](agent-relay.en.md) for the complete configuration and limits.
 
@@ -283,7 +283,7 @@ Discord message
   -> Discord thread
 ```
 
-An ordinary follow-up message steers an active Codex app-server turn. `/queue prompt:` guarantees a separate next turn. Claude Code headless has no live steering, so messages wait in FIFO order.
+An ordinary follow-up message steers an active Codex app-server or Claude Code stream-json turn. `/queue prompt:` guarantees a separate next turn.
 
 ## Persistent state and restart behavior
 
@@ -569,9 +569,9 @@ Do not repeatedly restart a failing service. Stop the loop, inspect logs, compar
 
 - Use `/chat-new` in a Codex or Claude parent channel to create a new thread and agent session.
 - Use `/fork` inside a session thread to clone conversation context into a new session.
-- Ordinary messages steer an active Codex turn.
+- Ordinary messages steer an active Codex or Claude Code turn.
 - `/queue prompt:<request>` schedules a separate next turn.
-- `/interrupt` stops an active Codex turn.
+- `/interrupt` stops an active Codex or Claude Code turn.
 - `/status` shows connection, session, active task, activity time, model, effort, and queue.
 - `/model`, `/effort`, and `/settings` manage parent defaults and thread overrides. The `model` option autocompletes channel-aware Codex or Claude Code suggestions while still accepting custom model names.
 - `/howtouse` teaches the active agent the attachment and media-survey protocol.

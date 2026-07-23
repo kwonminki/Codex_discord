@@ -33,6 +33,7 @@ export const runClaudePromptInputSchema = z.object({
   cwd: z.string(),
   prompt: z.string(),
   timeoutMs: timeoutSchema,
+  controlKey: z.string().optional(),
   sessionId: nullableStringSchema,
   forkSession: z.boolean().optional(),
   sessionName: nullableStringSchema,

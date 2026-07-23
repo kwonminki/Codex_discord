@@ -83,7 +83,7 @@ Codex가 작업 중일 때 같은 스레드에 보내는 일반 메시지는 현
 /queue prompt:현재 수정이 끝나면 전체 테스트도 실행해줘
 ```
 
-Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므로 작업 중 보낸 일반 메시지도 다음 작업으로 대기합니다.
+Codex 또는 Claude Code가 작업 중일 때 같은 스레드에 보낸 일반 메시지는 현재 turn에 즉시 steering됩니다. 현재 작업을 건드리지 않고 다음 turn으로 남기려면 `/queue prompt:<요청>`을 사용하세요.
 
 ### 세션 분기
 
@@ -98,7 +98,7 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므
 | `/settings` | 현재 적용되는 모델과 effort 확인 |
 | `/model` | 채널별 추천 목록에서 부모 기본값 또는 현재 스레드 모델 변경. 직접 입력도 지원 |
 | `/effort` | 부모 채널 기본값 또는 현재 스레드 effort 변경 |
-| `/steer` | 실행 중인 Codex 작업에 명시적으로 지시 추가 |
+| `/steer` | 실행 중인 Codex 또는 Claude Code 작업에 명시적으로 지시 추가 |
 | `/queue` | 다음 turn 예약 또는 대기열 상태 확인 |
 | `/queue-clear` | 아직 시작하지 않은 요청 삭제 |
 | `/interrupt` | 현재 Codex 또는 Claude Code turn 중단 |
@@ -109,7 +109,7 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므
 | `/agent-chat-status` | Agent Relay 왕복, turn, 상태 확인 |
 | `/agent-chat-stop` | 현재 Agent Relay 대화 중지 |
 
-별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림에서 왕복 1회를 추가하거나 연장을 거절하고 대화를 종료할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. 대화 중 활성 Codex thread에 일반 메시지를 보내면 현재 turn에 steering되고, 대기 thread에서는 활성 thread를 안내합니다. `/agent-chat-stop`은 relay를 끝내고 현재 실행 중인 Codex 또는 Claude Code turn도 중단합니다.
+별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림에서 왕복 1회를 추가하거나 연장을 거절하고 대화를 종료할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. 대화 중 현재 실행 중인 Codex 또는 Claude Code thread에 일반 메시지를 보내면 현재 turn에 steering되고, 대기 thread에서는 활성 thread를 안내합니다. `/agent-chat-stop`은 relay를 끝내고 현재 실행 중인 Codex 또는 Claude Code turn도 중단합니다.
 
 ## 파일과 미디어
 
