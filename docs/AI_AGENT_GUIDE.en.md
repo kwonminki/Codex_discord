@@ -167,7 +167,7 @@ Roll out one machine at a time so a failure cannot disturb active work elsewhere
 
 ## Optional Agent Relay Coordinator
 
-When the user asks for automatic conversation between sessions on the same computer or agents on different computers, configure a separate **Coordinator Bot**. It alternates one side's final public answer and Discord attachments into the other thread, then mentions the Operator role once after both sides agree to finish or a hard limit is reached.
+When the user asks for automatic conversation between sessions on the same computer or agents on different computers, configure a separate **Coordinator Bot**. It sends execution rules and full prompts through the private control channel, while showing and forwarding only each side's final public answer and Discord attachments in the peer thread. It mentions the Operator role once after both sides agree to finish or a hard limit is reached.
 
 Discord application ownership and OAuth approval belong to the user's Discord account. Ask the user for only these one-time account actions, one step at a time:
 
@@ -181,7 +181,7 @@ Do not claim that an existing bot token can create another Discord application. 
 2. Hide it from ordinary members and grant only Connector and Coordinator bots View Channel, Send Messages, Read Message History, and Attach Files.
 3. Assign the existing Operator role to the Coordinator Bot so Connector thread allowlists accept it.
 4. Store exact Connector bot user IDs and the control channel ID in Coordinator configuration.
-5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Never trust every bot author with a wildcard.
+5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Execute only when that bot sends an exact relay request marker and prompt attachment in the private control channel; ordinary bot messages in work threads are never requests. Never trust every bot author with a wildcard.
 6. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
 7. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
 8. Test `/agent-chat` across two sessions, including A -> B -> A, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.

@@ -12,7 +12,7 @@ Agent thread A에서 실행합니다.
 
 `parent`에서 상대 agent의 부모 채널을 먼저 선택하면 `peer` autocomplete가 그 채널의 활성·archived thread를 검색합니다. Discord autocomplete는 한 번에 25개까지만 표시하므로 thread 이름 일부를 입력해 좁힐 수 있습니다. 목록에서 찾기 어려우면 thread ID, `<#thread-id>` mention 또는 Discord thread 링크를 직접 입력할 수 있습니다.
 
-Coordinator는 A에 첫 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 비공개 추론과 명령 로그는 전달하지 않습니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
+Coordinator는 private relay-control 채널로 A에 첫 실행 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 실행 규칙과 전체 입력 prompt는 작업 thread에 노출하지 않습니다. 상대 thread에는 agent의 최종 공개 답변과 첨부파일만 복사하며, 중간 진행·도구 event는 다음 agent의 입력으로 전달하지 않습니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread와 다음 비공개 요청에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
 
 두 agent가 연속으로 `done`을 반환하면 정상 종료합니다. `max_rounds`, 전체 timeout, `blocked`, turn 실패 또는 `/agent-chat-stop`도 대화를 종료하며 최초 A thread에서 Operator 역할을 한 번 멘션합니다. 승인이나 사용자 질문은 기존 Connector가 즉시 Operator를 멘션하고 해당 turn을 기다립니다.
 
@@ -83,5 +83,5 @@ macOS에서는 기존 `scripts/start-mac-direct.sh relay`를 호출하는 별도
 - 기본 6 왕복 라운드, 120분이며 명령에서 조정할 수 있습니다.
 - 한 turn에서 다른 서버로 relay하는 source 결과 파일은 최대 9개, 파일당 10MiB입니다. 긴 peer 답변은 열 번째 text attachment로 전달될 수 있습니다.
 - Relay가 진행되는 두 session을 Desktop/IDE나 일반 Discord 요청으로 동시에 사용하지 않는 것이 좋습니다. 사람 메시지는 relay turn에 steering되지 않고 별도 queue로 들어가지만, session 맥락 자체는 공유됩니다.
-- 일반 bot 메시지 허용으로 구현하지 마세요. exact Coordinator Bot ID, agent thread mode, machine-readable result callback 세 조건을 모두 유지해야 합니다.
+- 일반 bot 메시지 허용으로 구현하지 마세요. exact Coordinator Bot ID, private control channel ID, exact request marker, target agent thread mode와 machine-readable result callback 검증을 모두 유지해야 합니다. Coordinator가 작업 thread에 남긴 공개 안내와 상대 답변 복사본은 실행 요청이 아닙니다.
 - Coordinator는 Guild당 한 인스턴스만 실행합니다. 여러 Connector 컴퓨터가 같은 Coordinator와 control channel을 공유하는 것은 정상입니다.

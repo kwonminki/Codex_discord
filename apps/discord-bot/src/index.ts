@@ -1031,6 +1031,9 @@ export async function startBot(): Promise<void> {
   attachDiscordMessageHandler(client, handleMessage, {
     answerCopyStore,
     locale,
+    relayControlChannelId:
+      process.env.CONNECT_RELAY_CONTROL_CHANNEL_ID?.trim() ||
+      (connectConfig?.mode === "direct" ? connectConfig.direct.relay?.controlChannelId : undefined),
     trustedRelayBotUserIds: (() => {
       const environmentIds = identifierList(process.env.CONNECT_RELAY_BOT_USER_IDS);
       return environmentIds.length > 0

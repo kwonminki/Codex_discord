@@ -12,7 +12,7 @@ Run this in agent thread A:
 
 Select the peer agent's parent channel first. The `peer` autocomplete then searches active and archived threads under that parent. Discord exposes at most 25 autocomplete choices at once, so type part of the thread name to narrow the list. A thread ID, `<#thread-id>` mention, or Discord thread URL is also accepted as a fallback.
 
-The Coordinator asks A first, forwards A's final answer into B, then sends B's answer back into A. Private reasoning and command logs are not relayed. Files emitted through `codex-discord-send` are uploaded by the source Connector to a private relay-control channel and reattached by the Coordinator in the target thread. Cross-machine relay therefore transfers Discord attachment bytes, not unusable source-local paths.
+The Coordinator sends A's first execution request through the private relay-control channel, forwards A's final answer into B, then sends B's answer back into A. Execution rules and the full input prompt are not exposed in the work thread. Only the agent's final public answer and attachments are copied into the peer thread; progress and tool events are not used as the next agent's input. Files emitted through `codex-discord-send` are uploaded by the source Connector to the relay-control channel and reattached to both the target thread and the next private request. Cross-machine relay therefore transfers Discord attachment bytes, not unusable source-local paths.
 
 Two consecutive `done` decisions from different agents complete the conversation. `max_rounds`, the overall timeout, `blocked`, a failed turn, or `/agent-chat-stop` also terminate it. The Coordinator mentions the Operator role once in the original A thread. Existing approval and user-question flows still mention the Operator immediately and wait for a response.
 
@@ -83,5 +83,5 @@ Restart each Connector gateway once after applying relay configuration. Do not r
 - Defaults are 6 round trips and 120 minutes, configurable per command.
 - Up to 9 source result files, 10MiB each, cross to the peer in one turn. A long peer response may use the tenth attachment as text.
 - Avoid using either session from Desktop, an IDE, or an ordinary Discord request during relay. Human messages do not steer a relay turn and wait in a separate queue, but the underlying session context is shared.
-- Never implement relay by accepting every bot message. Preserve all three checks: exact Coordinator bot ID, agent-thread mode, and machine-readable result callbacks.
+- Never implement relay by accepting every bot message. Preserve every boundary check: exact Coordinator bot ID, private control channel ID, exact request marker, target agent-thread mode, and machine-readable result callbacks. Public notices and peer-answer copies posted by the Coordinator in work threads are not execution requests.
 - Run only one Coordinator instance per Guild. Multiple Connector computers sharing that Coordinator and control channel is expected.

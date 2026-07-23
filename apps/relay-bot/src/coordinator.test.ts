@@ -30,7 +30,12 @@ function result(input: {
 describe("relay coordinator", () => {
   it("alternates two agent threads, transfers files, and finishes after both agree", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-"));
-    const sent: Array<{ threadId: string; content: string; files: RelayTransferFile[] }> = [];
+    const sent: Array<{
+      threadId: string;
+      prompt: string;
+      publicContent: string | null;
+      files: RelayTransferFile[];
+    }> = [];
     const notices: string[] = [];
     const store = createRelayConversationStore(root);
     const coordinator = createRelayCoordinator({
@@ -60,6 +65,9 @@ describe("relay coordinator", () => {
       });
       expect(started.pendingRequestMessageId).toBe("message-1");
       expect(sent[0]?.threadId).toBe("thread-a");
+      expect(sent[0]?.publicContent).toBeNull();
+      expect(sent[0]?.prompt).toContain("```codex-discord-send");
+      expect(sent[0]?.prompt).not.toContain("비공개 추론이나 도구 로그");
 
       const file = { name: "result.txt", data: Buffer.from("result") };
       const afterA = await coordinator.handleTurnResult(result({
@@ -69,7 +77,9 @@ describe("relay coordinator", () => {
       }), [file]);
       expect(afterA?.pendingRequestMessageId).toBe("message-2");
       expect(sent[1]).toMatchObject({ threadId: "thread-b", files: [file] });
-      expect(sent[1]?.content).toContain("A의 분석");
+      expect(sent[1]?.prompt).toContain("A의 분석");
+      expect(sent[1]?.publicContent).toContain("A의 분석");
+      expect(sent[1]?.publicContent).not.toContain("agent-relay");
 
       const afterB = await coordinator.handleTurnResult(result({
         requestMessageId: "message-2",
@@ -79,7 +89,7 @@ describe("relay coordinator", () => {
       }), []);
       expect(afterB?.pendingRequestMessageId).toBe("message-3");
       expect(sent[2]?.threadId).toBe("thread-a");
-      expect(sent[2]?.content).toContain("종료를 제안");
+      expect(sent[2]?.prompt).toContain("종료를 제안");
 
       const completed = await coordinator.handleTurnResult(result({
         requestMessageId: "message-3",

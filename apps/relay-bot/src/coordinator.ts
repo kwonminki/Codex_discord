@@ -14,7 +14,8 @@ export interface RelayTransferFile {
 export interface RelayCoordinatorTransport {
   sendPrompt(input: {
     threadId: string;
-    content: string;
+    prompt: string;
+    publicContent: string | null;
     files: RelayTransferFile[];
   }): Promise<{ messageId: string }>;
   sendFinalNotice(input: {
@@ -37,8 +38,18 @@ function protocolInstructions(): string {
   return [
     "당신은 다른 AI agent와 Discord relay 대화를 진행 중입니다.",
     "상대의 주장과 자료를 검토하고, 반론·보완·합의안을 구체적으로 작성하세요.",
-    "비공개 추론이나 도구 로그가 아니라 상대에게 전달할 최종 공개 답변만 작성하세요.",
-    "파일 전달이 필요하면 기존 codex-discord-send 블록에 이 컴퓨터의 절대경로를 넣으세요.",
+    "파일을 상대 agent에게 전달하려면 최종 답변에 아래 JSON 블록을 포함하세요. Coordinator가 블록은 숨기고 파일을 전달합니다.",
+    "```codex-discord-send",
+    "{",
+    '  "message": "파일과 함께 전달할 문장",',
+    '  "files": [',
+    '    "/absolute/path/result.png",',
+    '    {"path": "/absolute/path/demo.mp4", "name": "demo.mp4"}',
+    "  ]",
+    "}",
+    "```",
+    "files에는 이 컴퓨터에 존재하는 일반 파일의 절대경로 또는 file:// URL만 넣으세요.",
+    "파일당 최대 10MiB, 한 메시지당 최대 10개이며 큰 파일은 분할하거나 압축·리사이즈·재인코딩하세요.",
     "답변 마지막에는 반드시 아래 형식 중 하나를 넣으세요.",
     "```agent-relay",
     '{"status":"continue","summary":"계속 논의해야 하는 이유"}',
@@ -46,6 +57,21 @@ function protocolInstructions(): string {
     "합의가 충분하면 status를 done, 사람의 개입이 필요하면 blocked로 바꾸세요.",
     "이 제어 블록은 상대에게 보이지 않고 Coordinator가 처리합니다.",
   ].join("\n");
+}
+
+function peerPublicMessage(input: {
+  conversation: RelayConversation;
+  sourceThreadId: string;
+  sourceAgentLabel: string;
+  response: string;
+  fileCount: number;
+}): string {
+  const sourceLabel = participantLabel(input.conversation, input.sourceThreadId);
+  return [
+    `**Agent ${sourceLabel} (${input.sourceAgentLabel})의 답변**`,
+    input.response || "(상대가 텍스트 답변을 남기지 않았습니다.)",
+    input.fileCount > 0 ? `첨부파일 ${input.fileCount}개를 함께 전달했습니다.` : null,
+  ].filter((line): line is string => line !== null).join("\n\n");
 }
 
 function initialPrompt(conversation: RelayConversation): string {
@@ -138,10 +164,11 @@ export function createRelayCoordinator(input: {
   async function dispatch(
     conversation: RelayConversation,
     threadId: string,
-    content: string,
+    prompt: string,
     files: RelayTransferFile[],
+    publicContent: string | null = null,
   ): Promise<RelayConversation> {
-    const sent = await input.transport.sendPrompt({ threadId, content, files });
+    const sent = await input.transport.sendPrompt({ threadId, prompt, publicContent, files });
     return input.store.update(conversation.id, {
       currentThreadId: threadId,
       turnCount: conversation.turnCount + 1,
@@ -248,7 +275,19 @@ export function createRelayCoordinator(input: {
       });
 
       try {
-        return await dispatch(updated, nextThreadId, nextPrompt, files);
+        return await dispatch(
+          updated,
+          nextThreadId,
+          nextPrompt,
+          files,
+          peerPublicMessage({
+            conversation: updated,
+            sourceThreadId: result.sourceThreadId,
+            sourceAgentLabel: result.agentLabel,
+            response: result.finalMessage,
+            fileCount: files.length,
+          }),
+        );
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         return finish(updated, "failed", `다음 turn을 전달하지 못했습니다: ${detail}`, result.finalMessage);

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   extractAgentRelayDecision,
   formatAgentRelayFilesMarker,
+  formatAgentRelayRequestMarker,
   formatAgentRelayResultMarker,
   parseAgentRelayFilesMarker,
+  parseAgentRelayRequestMarker,
   parseAgentRelayResultMarker,
 } from "../src/agentRelay.js";
 
@@ -29,5 +31,13 @@ describe("agent relay protocol", () => {
       total: 3,
     });
     expect(parseAgentRelayResultMarker(formatAgentRelayResultMarker("message-1"))).toBe("message-1");
+  });
+
+  it("accepts only exact control-channel request markers", () => {
+    expect(parseAgentRelayRequestMarker(
+      formatAgentRelayRequestMarker("1529012344129191946"),
+    )).toBe("1529012344129191946");
+    expect(parseAgentRelayRequestMarker("Agent relay 대화를 시작했습니다.")).toBeNull();
+    expect(parseAgentRelayRequestMarker("agent-relay-request:not-a-thread")).toBeNull();
   });
 });

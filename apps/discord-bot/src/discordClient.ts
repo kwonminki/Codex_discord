@@ -6,7 +6,9 @@ import {
   type Message,
 } from "discord.js";
 import {
+  AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
   localizeConnectorText,
+  parseAgentRelayRequestMarker,
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import type { AnswerCopyStore } from "./answerCopyStore.js";
@@ -46,7 +48,10 @@ interface DiscordMessageHandlerOptions {
   answerCopyStore?: AnswerCopyStore;
   locale?: ConnectorLocale;
   trustedRelayBotUserIds?: string[];
+  relayControlChannelId?: string;
 }
+
+const MAX_RELAY_PROMPT_ATTACHMENT_BYTES = 1024 * 1024;
 
 export function createDiscordClient(): Client {
   return new Client({
@@ -295,7 +300,7 @@ export function attachDiscordMessageHandler(
 
   client.on("messageCreate", (message) => {
     const discordMessage = message as Message;
-    const attachments = discordMessage.attachments
+    const rawAttachments = discordMessage.attachments
       ? [...discordMessage.attachments.values()].map((attachment) => ({
           id: attachment.id,
           name: attachment.name,
@@ -305,50 +310,76 @@ export function attachDiscordMessageHandler(
         }))
       : [];
 
-    void handleMessage({
-      authorBot: discordMessage.author.bot,
-      ...(discordMessage.author.bot && trustedRelayBotUserIds.has(discordMessage.author.id)
-        ? { relayRequest: true }
-        : {}),
-      userId: discordMessage.author.id,
-      channelId: discordMessage.channelId,
-      content: discordMessage.content,
-      roleIds: getRoleIds(discordMessage),
-      ...(discordMessage.id ? { messageId: discordMessage.id } : {}),
-      ...(attachments.length > 0 ? { attachments } : {}),
-      guild: createDiscordGuildSurface(discordMessage.guild, options),
-      clearMessages: (clearInput) =>
-        clearChannelMessages({
-          guild: discordMessage.guild,
-          channelId: discordMessage.channelId,
-          ...clearInput,
-        }),
-      reply: async (replyMessage) => {
-        const preparedReply = await prepareOutgoingMessage(
-          replyMessage,
-          undefined,
-          options.answerCopyStore,
-          options.locale,
+    void (async () => {
+      const trustedRelayBot = discordMessage.author.bot && trustedRelayBotUserIds.has(discordMessage.author.id);
+      const relayTargetThreadId = trustedRelayBot && discordMessage.channelId === options.relayControlChannelId
+        ? parseAgentRelayRequestMarker(discordMessage.content)
+        : null;
+      let content = discordMessage.content;
+      let attachments = rawAttachments;
+
+      if (relayTargetThreadId) {
+        const promptAttachment = rawAttachments.find(
+          (attachment) => attachment.name === AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
         );
-        const sentMessage = await discordMessage.reply(preparedReply);
-
-        if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
-          return sentMessage;
+        if (!promptAttachment || promptAttachment.size > MAX_RELAY_PROMPT_ATTACHMENT_BYTES) {
+          throw new Error("Agent relay control request has no valid prompt attachment.");
         }
+        const response = await fetch(promptAttachment.url);
+        if (!response.ok) {
+          throw new Error(`Agent relay prompt download failed with HTTP ${response.status}.`);
+        }
+        const promptBytes = Buffer.from(await response.arrayBuffer());
+        if (promptBytes.byteLength > MAX_RELAY_PROMPT_ATTACHMENT_BYTES) {
+          throw new Error("Agent relay prompt attachment exceeded 1MiB.");
+        }
+        content = promptBytes.toString("utf8");
+        attachments = rawAttachments.filter((attachment) => attachment.id !== promptAttachment.id);
+      }
 
-        return {
-          edit: async (nextMessage) => {
-            const preparedMessage = await prepareOutgoingMessage(
-              nextMessage,
-              undefined,
-              options.answerCopyStore,
-              options.locale,
-            );
-            return sentMessage.edit(preparedMessage);
-          },
-        };
-      },
-    }).catch((error) => {
+      await handleMessage({
+        authorBot: discordMessage.author.bot,
+        ...(relayTargetThreadId ? { relayRequest: true } : {}),
+        userId: discordMessage.author.id,
+        channelId: relayTargetThreadId ?? discordMessage.channelId,
+        content,
+        roleIds: getRoleIds(discordMessage),
+        ...(discordMessage.id ? { messageId: discordMessage.id } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        guild: createDiscordGuildSurface(discordMessage.guild, options),
+        clearMessages: (clearInput) =>
+          clearChannelMessages({
+            guild: discordMessage.guild,
+            channelId: relayTargetThreadId ?? discordMessage.channelId,
+            ...clearInput,
+          }),
+        reply: async (replyMessage) => {
+          const preparedReply = await prepareOutgoingMessage(
+            replyMessage,
+            undefined,
+            options.answerCopyStore,
+            options.locale,
+          );
+          const sentMessage = await discordMessage.reply(preparedReply);
+
+          if (!isEditableDiscordMessage(sentMessage) || typeof sentMessage.edit !== "function") {
+            return sentMessage;
+          }
+
+          return {
+            edit: async (nextMessage) => {
+              const preparedMessage = await prepareOutgoingMessage(
+                nextMessage,
+                undefined,
+                options.answerCopyStore,
+                options.locale,
+              );
+              return sentMessage.edit(preparedMessage);
+            },
+          };
+        },
+      });
+    })().catch((error) => {
       console.error("discord-bot failed to handle message", error);
     });
   });

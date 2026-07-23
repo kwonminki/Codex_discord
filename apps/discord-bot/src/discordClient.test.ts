@@ -16,7 +16,7 @@ import {
 } from "./responses.js";
 
 describe("attachDiscordMessageHandler", () => {
-  it("marks only configured bot authors as trusted relay requests", async () => {
+  it("accepts trusted relay requests only through the private control channel", async () => {
     const handlers = new Map<string, (message: unknown) => void>();
     const client = {
       on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
@@ -26,32 +26,57 @@ describe("attachDiscordMessageHandler", () => {
     };
     const handleMessage = vi.fn().mockResolvedValue(undefined);
     const messageBase = {
-      id: "relay-message-1",
-      channelId: "agent-thread-1",
-      content: "상대 agent의 답변입니다.",
-      attachments: new Map(),
       member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
       reply: vi.fn(),
       guild: { channels: { fetch: vi.fn() } },
     };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("상대 agent의 답변을 검토해줘")));
 
-    attachDiscordMessageHandler(client, handleMessage, { trustedRelayBotUserIds: ["relay-bot-1"] });
+    attachDiscordMessageHandler(client, handleMessage, {
+      trustedRelayBotUserIds: ["relay-bot-1"],
+      relayControlChannelId: "relay-control",
+    });
     handlers.get("messageCreate")?.({
       ...messageBase,
+      id: "relay-message-1",
+      channelId: "relay-control",
+      content: "agent-relay-request:123456789012345678",
+      attachments: new Map([
+        ["prompt", {
+          id: "prompt",
+          name: "agent-relay-prompt.txt",
+          url: "https://cdn.example/agent-relay-prompt.txt",
+          contentType: "text/plain",
+          size: 45,
+        }],
+      ]),
       author: { bot: true, id: "relay-bot-1" },
     });
     handlers.get("messageCreate")?.({
       ...messageBase,
-      id: "other-bot-message",
-      author: { bot: true, id: "other-bot" },
+      id: "relay-public-message",
+      channelId: "123456789012345678",
+      content: "Agent relay 대화를 시작했습니다.",
+      attachments: new Map(),
+      author: { bot: true, id: "relay-bot-1" },
     });
 
-    expect(handleMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalledTimes(2));
+    const adaptedMessages = handleMessage.mock.calls.map(([adapted]) => adapted);
+    expect(adaptedMessages).toContainEqual(expect.objectContaining({
       authorBot: true,
       relayRequest: true,
       userId: "relay-bot-1",
+      channelId: "123456789012345678",
+      content: "상대 agent의 답변을 검토해줘",
     }));
-    expect(handleMessage).toHaveBeenNthCalledWith(2, expect.not.objectContaining({ relayRequest: true }));
+    expect(adaptedMessages).toContainEqual(expect.objectContaining({
+      messageId: "relay-public-message",
+      channelId: "123456789012345678",
+    }));
+    expect(adaptedMessages.find((adapted) => adapted.messageId === "relay-public-message"))
+      .not.toHaveProperty("relayRequest");
+    vi.unstubAllGlobals();
   });
 
   it("adapts Discord messageCreate events into the pure message handler", async () => {

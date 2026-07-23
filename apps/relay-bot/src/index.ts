@@ -12,7 +12,9 @@ import {
   type Message,
 } from "discord.js";
 import {
+  AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
   agentRelayTurnResultSchema,
+  formatAgentRelayRequestMarker,
   parseAgentRelayFilesMarker,
   parseAgentRelayResultMarker,
   type AgentRelayTurnResult,
@@ -330,11 +332,33 @@ export async function startRelayBot(): Promise<void> {
         if (channel.isThread() && channel.archived) {
           await channel.setArchived(false, "Agent relay turn delivery");
         }
-        const fitted = fitPrompt(input.content, input.files);
-        const message = await channel.send({
-          content: fitted.content,
+
+        if (input.publicContent) {
+          const visible = fitPrompt(input.publicContent, input.files);
+          await channel.send({
+            content: visible.content,
+            allowedMentions: { parse: [] },
+            files: visible.files.map((file) => ({ attachment: file.data, name: file.name })),
+          });
+        }
+
+        const controlChannel = await client.channels.fetch(controlChannelId);
+        if (!controlChannel?.isTextBased() || !("send" in controlChannel)) {
+          throw new Error(`Discord control channel cannot receive relay requests: ${controlChannelId}`);
+        }
+        const message = await controlChannel.send({
+          content: formatAgentRelayRequestMarker(input.threadId),
           allowedMentions: { parse: [] },
-          files: fitted.files.map((file) => ({ attachment: file.data, name: file.name })),
+          files: [
+            {
+              attachment: Buffer.from(input.prompt, "utf8"),
+              name: AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
+            },
+            ...input.files.slice(0, MAX_RELAY_TRANSFER_FILES).map((file) => ({
+              attachment: file.data,
+              name: file.name,
+            })),
+          ],
         });
         return { messageId: message.id };
       },

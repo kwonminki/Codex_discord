@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const AGENT_RELAY_BLOCK_LANGUAGE = "agent-relay";
 export const AGENT_RELAY_FILES_PREFIX = "agent-relay-files:";
+export const AGENT_RELAY_PROMPT_ATTACHMENT_NAME = "agent-relay-prompt.txt";
+export const AGENT_RELAY_REQUEST_PREFIX = "agent-relay-request:";
 export const AGENT_RELAY_RESULT_PREFIX = "agent-relay-result:";
 
 export const agentRelayDecisionSchema = z.object({
@@ -55,6 +57,15 @@ export function extractAgentRelayDecision(text: string): {
 
 export function formatAgentRelayFilesMarker(requestMessageId: string, batch: number, total: number): string {
   return `${AGENT_RELAY_FILES_PREFIX}${requestMessageId}:${batch}/${total}`;
+}
+
+export function formatAgentRelayRequestMarker(targetThreadId: string): string {
+  return `${AGENT_RELAY_REQUEST_PREFIX}${targetThreadId}`;
+}
+
+export function parseAgentRelayRequestMarker(content: string): string | null {
+  const match = content.trim().match(/^agent-relay-request:(\d+)$/);
+  return match?.[1] ?? null;
 }
 
 export function parseAgentRelayFilesMarker(content: string): {
