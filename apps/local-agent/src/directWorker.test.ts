@@ -252,7 +252,7 @@ describe("direct worker", () => {
         payload: {
           workspaceRoot: root,
           cwd: root,
-          command: "sleep 0.2",
+          command: "sleep 0.5",
           timeoutMs: 5_000,
           confirmedDangerous: true,
         },
@@ -267,11 +267,18 @@ describe("direct worker", () => {
       await expect(store.readState("draining-job")).resolves.toMatchObject({ status: "running" });
 
       const stopping = worker.stop();
-      await expect(client.control({
+      const control = client.control({
         controlKey: "thread-1",
         action: "steer",
         content: "새 지시",
-      })).resolves.toEqual({
+      });
+      await expect(Promise.race([
+        control,
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error("Control was not handled until the active job finished.")),
+          250,
+        )),
+      ])).resolves.toEqual({
         status: "accepted",
         message: "Steering accepted while draining.",
       });

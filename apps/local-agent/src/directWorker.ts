@@ -364,7 +364,16 @@ export async function startDirectWorker(options: {
       while (ticking) {
         await wait(Math.min(pollIntervalMs, 25));
       }
-      await Promise.allSettled(activeJobs.values());
+      while (activeJobs.size > 0) {
+        await processControls();
+        if (activeJobs.size === 0) {
+          break;
+        }
+        await Promise.race([
+          Promise.allSettled([...activeJobs.values()]),
+          wait(Math.min(pollIntervalMs, 250)),
+        ]);
+      }
       while (ticking) {
         await wait(Math.min(pollIntervalMs, 25));
       }
