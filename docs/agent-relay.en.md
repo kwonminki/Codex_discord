@@ -42,13 +42,14 @@ Store the Coordinator secret in `.connect/relay-config.json`:
   "guildId": "DISCORD_GUILD_ID",
   "operatorRoleIds": ["OPERATOR_ROLE_ID"],
   "controlChannelId": "PRIVATE_RELAY_CONTROL_CHANNEL_ID",
+  "releaseChannelId": "OPTIONAL_RELEASE_CHANNEL_ID",
   "connectorBotUserIds": ["EXISTING_CONNECTOR_BOT_USER_ID"],
   "locale": "en",
   "stateRoot": ".connect/agent-relay"
 }
 ```
 
-Set `locale` to one of `ko`, `en`, `zh`, or `ja`, normally matching the Connector locale. `RELAY_LOCALE` may override the file value. Relay slash command descriptions, buttons, status, and result UI use this language. Keep the file mode `0600` and the `.connect`/state directories mode `0700`. Never put the token in Git or a Discord message.
+Set `locale` to one of `ko`, `en`, `zh`, or `ja`, normally matching the Connector locale. `RELAY_LOCALE` may override the file value. Relay slash command descriptions, buttons, status, and result UI use this language. Add `releaseChannelId` only when GitHub release announcements are enabled; the Coordinator then adds the registered-server update button below a release notice. Keep the file mode `0600` and the `.connect`/state directories mode `0700`. Never put the token in Git or a Discord message.
 
 Add the same Coordinator bot user ID and control channel to every participating machine's Direct `.connect/config.json`:
 

@@ -8,8 +8,11 @@ import {
 import {
   AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
   type AgentRelayStateMarker,
+  type ConnectorPresence,
+  formatConnectorPresenceMarker,
   localizeConnectorText,
   parseAgentRelayCancelMarker,
+  parseConnectorDiscoveryMarker,
   parseAgentRelayRequestMarker,
   parseAgentRelayStateMarker,
   type ConnectorLocale,
@@ -63,6 +66,7 @@ interface DiscordMessageHandlerOptions {
   trustedRelayBotUserIds?: string[];
   relayControlChannelId?: string;
   onRelayState?(state: AgentRelayStateMarker): Promise<void> | void;
+  onConnectorDiscovery?(discoveryId: string): Promise<ConnectorPresence> | ConnectorPresence;
 }
 
 const MAX_RELAY_PROMPT_ATTACHMENT_BYTES = 1024 * 1024;
@@ -336,8 +340,21 @@ export function attachDiscordMessageHandler(
       const relayState = relayControlMessage
         ? parseAgentRelayStateMarker(discordMessage.content)
         : null;
+      const connectorDiscoveryId = relayControlMessage
+        ? parseConnectorDiscoveryMarker(discordMessage.content)
+        : null;
       if (relayState) {
         await options.onRelayState?.(relayState);
+        return;
+      }
+      if (connectorDiscoveryId) {
+        const presence = await options.onConnectorDiscovery?.(connectorDiscoveryId);
+        if (presence) {
+          await discordMessage.reply({
+            content: formatConnectorPresenceMarker(presence),
+            allowedMentions: { parse: [] },
+          });
+        }
         return;
       }
       let content = discordMessage.content;

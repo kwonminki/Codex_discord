@@ -195,6 +195,10 @@ v1.2.0: Media survey improvements
 
 The subject becomes the announcement title and the remaining commit body becomes the feature description. Supported examples include `v1.0`, `v1.2.3: Summary`, and `v2.0-beta.1 Release candidate`. Never commit the Discord webhook URL.
 
+When the optional Coordinator is configured with `releaseChannelId`, it recognizes the release marker in the webhook embed and replies with a localized fleet-update button. A click sends a short-lived discovery marker through the private relay control channel. Every online Connector responds with its `computerId`, display name, installed version, Codex and optional Claude parent channel, and configured maintenance-agent preference. The Coordinator deduplicates by `computerId` and sends one hidden maintenance prompt to exactly one representative channel per computer. Codex is the default; set `direct.maintenanceAgent` or `CONNECT_MAINTENANCE_AGENT=claude` when Claude Code should maintain that installation.
+
+Discovery is live and does not use a static channel list or periodic polling. Offline Connectors are omitted and can be updated later. Keep every Connector `computerId` unique, give the Coordinator access to both the release and private control channels, and load the trusted Coordinator ID on every Connector gateway. Update prompts require a clean fast-forward, exact release commit verification, frozen lockfile installation, separate gateway/worker handling, and graceful worker drain when jobs are active.
+
 ## Safety Rules
 
 - Only users with an approved Discord role can run operator actions.

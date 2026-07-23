@@ -36,6 +36,12 @@ export interface RelayLocaleText {
   noneYet: string;
   details: string;
   endReason: string;
+  releaseUpdateAvailable: string;
+  releaseUpdateButton: string;
+  releaseUpdateAlreadyStarted: string;
+  releaseUpdateNoTargets: string;
+  releaseUpdateStarted: string;
+  releaseUpdateFailed: string;
   status: Record<RelayConversationStatus, string>;
 }
 
@@ -75,6 +81,12 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "아직 없음",
     details: "상세",
     endReason: "종료 사유",
+    releaseUpdateAvailable: "온라인 Connector를 조회해 서버별 대표 agent 한 곳에만 이 release 적용을 요청할 수 있습니다.",
+    releaseUpdateButton: "등록 서버 업데이트",
+    releaseUpdateAlreadyStarted: "이 release의 서버 업데이트 요청은 이미 처리 중이거나 전송되었습니다.",
+    releaseUpdateNoTargets: "응답한 온라인 Connector가 없습니다. 잠시 후 버튼을 다시 눌러주세요.",
+    releaseUpdateStarted: "서버 업데이트 요청을 전송했습니다.",
+    releaseUpdateFailed: "서버 업데이트 요청을 전송하지 못했습니다",
     status: {
       running: "진행 중",
       "extension-requested": "추가 왕복 요청",
@@ -121,6 +133,12 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "none yet",
     details: "Details",
     endReason: "End reason",
+    releaseUpdateAvailable: "Discover online connectors and ask one representative agent per server to apply this release.",
+    releaseUpdateButton: "Update registered servers",
+    releaseUpdateAlreadyStarted: "Server updates for this release are already running or have been dispatched.",
+    releaseUpdateNoTargets: "No online connector responded. Try the button again shortly.",
+    releaseUpdateStarted: "Dispatched server update requests.",
+    releaseUpdateFailed: "Could not dispatch server update requests",
     status: {
       running: "Running",
       "extension-requested": "Extension requested",
@@ -167,6 +185,12 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "暂无",
     details: "详情",
     endReason: "结束原因",
+    releaseUpdateAvailable: "发现在线 Connector，并仅向每台服务器的一个代表 agent 请求应用此版本。",
+    releaseUpdateButton: "更新已注册服务器",
+    releaseUpdateAlreadyStarted: "此版本的服务器更新已在进行中或已经发送。",
+    releaseUpdateNoTargets: "没有在线 Connector 响应，请稍后重试。",
+    releaseUpdateStarted: "已发送服务器更新请求。",
+    releaseUpdateFailed: "无法发送服务器更新请求",
     status: {
       running: "进行中",
       "extension-requested": "请求增加往返",
@@ -213,6 +237,12 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "まだありません",
     details: "詳細",
     endReason: "終了理由",
+    releaseUpdateAvailable: "オンライン Connector を検出し、各サーバーの代表 agent 1つだけにこの release の適用を依頼します。",
+    releaseUpdateButton: "登録サーバーを更新",
+    releaseUpdateAlreadyStarted: "この release のサーバー更新は処理中、または送信済みです。",
+    releaseUpdateNoTargets: "オンライン Connector から応答がありません。しばらくしてから再試行してください。",
+    releaseUpdateStarted: "サーバー更新リクエストを送信しました。",
+    releaseUpdateFailed: "サーバー更新リクエストを送信できませんでした",
     status: {
       running: "進行中",
       "extension-requested": "往復追加を申請中",

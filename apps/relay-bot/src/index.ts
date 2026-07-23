@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 
 import {
@@ -18,13 +19,16 @@ import {
 import {
   AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
   agentRelayTurnResultSchema,
+  formatConnectorDiscoveryMarker,
   formatAgentRelayCancelMarker,
   formatAgentRelayRequestMarker,
   formatAgentRelayStateMarker,
+  parseConnectorPresenceMarker,
   parseAgentRelayFilesMarker,
   parseAgentRelayResultMarker,
   splitDiscordMessageContent,
   type AgentRelayTurnResult,
+  type ConnectorPresence,
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import {
@@ -34,6 +38,14 @@ import {
 } from "./coordinator.js";
 import { loadRelayBotConfig } from "./config.js";
 import { relayLocaleText } from "./i18n.js";
+import {
+  buildReleaseUpdatePrompt,
+  parseReleaseFooter,
+  parseReleaseUpdateButtonId,
+  releaseUpdateButtonId,
+  selectConnectorUpdateTargets,
+  type ReleaseMetadata,
+} from "./releaseDeployment.js";
 import {
   DEFAULT_RELAY_TIMEOUT_MS,
   MAX_RELAY_TIMEOUT_MS,
@@ -52,6 +64,7 @@ const THREAD_AUTOCOMPLETE_LIMIT = 25;
 const THREAD_CACHE_TTL_MS = 2_000;
 const EXTENSION_BUTTON_PREFIX = "agent-relay:extend:";
 const EXTENSION_REJECT_BUTTON_PREFIX = "agent-relay:reject-extension:";
+const CONNECTOR_DISCOVERY_WAIT_MS = 2_500;
 
 export function relayCommands(locale: ConnectorLocale = "ko") {
   const text = relayLocaleText(locale);
@@ -152,6 +165,21 @@ export function relayExtensionActionRows(
       .setCustomId(`${EXTENSION_REJECT_BUTTON_PREFIX}${conversationId}`)
       .setLabel(text.buttonReject)
       .setStyle(ButtonStyle.Danger)
+      .setDisabled(disabled),
+  )];
+}
+
+export function releaseUpdateActionRows(
+  release: ReleaseMetadata,
+  disabled = false,
+  locale: ConnectorLocale = "ko",
+) {
+  const text = relayLocaleText(locale);
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(releaseUpdateButtonId(release))
+      .setLabel(text.releaseUpdateButton)
+      .setStyle(ButtonStyle.Primary)
       .setDisabled(disabled),
   )];
 }
@@ -366,12 +394,99 @@ export async function startRelayBot(): Promise<void> {
   const token = config.token;
   const guildId = config.guildId;
   const controlChannelId = config.controlChannelId;
+  const releaseChannelId = config.releaseChannelId?.trim() || null;
   const operatorRoleIds = config.operatorRoleIds;
   const connectorBotUserIds = new Set(config.connectorBotUserIds);
   const store = createRelayConversationStore(config.stateRoot);
   const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
   });
+  const connectorDiscoveries = new Map<string, ConnectorPresence[]>();
+  const activeReleaseDeployments = new Set<string>();
+  const publishedReleaseActions = new Set<string>();
+
+  async function controlChannel() {
+    const channel = await client.channels.fetch(controlChannelId);
+    if (!channel?.isTextBased() || !("send" in channel)) {
+      throw new Error(`Discord control channel is unavailable: ${controlChannelId}`);
+    }
+    return channel;
+  }
+
+  async function discoverConnectorTargets() {
+    const discoveryId = randomUUID();
+    const presences: ConnectorPresence[] = [];
+    connectorDiscoveries.set(discoveryId, presences);
+
+    try {
+      const channel = await controlChannel();
+      await channel.send({
+        content: formatConnectorDiscoveryMarker(discoveryId),
+        allowedMentions: { parse: [] },
+      });
+      await new Promise((resolve) => setTimeout(resolve, CONNECTOR_DISCOVERY_WAIT_MS));
+      return selectConnectorUpdateTargets(presences);
+    } finally {
+      connectorDiscoveries.delete(discoveryId);
+    }
+  }
+
+  async function dispatchReleaseUpdate(
+    release: ReleaseMetadata,
+    target: ReturnType<typeof selectConnectorUpdateTargets>[number],
+  ): Promise<void> {
+    const channel = await controlChannel();
+    await channel.send({
+      content: formatAgentRelayRequestMarker(target.channelId),
+      allowedMentions: { parse: [] },
+      files: [{
+        attachment: Buffer.from(buildReleaseUpdatePrompt(release, target), "utf8"),
+        name: AGENT_RELAY_PROMPT_ATTACHMENT_NAME,
+      }],
+    });
+  }
+
+  async function publishReleaseAction(message: Message): Promise<void> {
+    if (!releaseChannelId || message.channelId !== releaseChannelId || !message.webhookId) {
+      return;
+    }
+    const release = message.embeds
+      .map((embed) => parseReleaseFooter(embed.footer?.text))
+      .find((candidate): candidate is ReleaseMetadata => Boolean(candidate));
+    if (!release) {
+      return;
+    }
+
+    const releaseKey = `${release.version}:${release.sha}`;
+    if (publishedReleaseActions.has(releaseKey)) {
+      return;
+    }
+    publishedReleaseActions.add(releaseKey);
+
+    try {
+      const buttonId = releaseUpdateButtonId(release);
+      if (message.channel.isTextBased() && "messages" in message.channel) {
+        const history = await message.channel.messages.fetch({ limit: 100 });
+        const alreadyPublished = [...history.values()].some((candidate) =>
+          candidate.components.some((row) =>
+            "components" in row &&
+            row.components.some((component) =>
+              "customId" in component && component.customId === buttonId)));
+        if (alreadyPublished) {
+          return;
+        }
+      }
+
+      await message.reply({
+        content: text.releaseUpdateAvailable,
+        allowedMentions: { parse: [] },
+        components: releaseUpdateActionRows(release, false, locale),
+      });
+    } catch (error) {
+      publishedReleaseActions.delete(releaseKey);
+      throw error;
+    }
+  }
 
   const coordinator = createRelayCoordinator({
     store,
@@ -568,7 +683,80 @@ export async function startRelayBot(): Promise<void> {
     if (interaction.isButton()) {
       const conversationId = parseRelayExtensionButtonId(interaction.customId);
       const rejectionConversationId = parseRelayExtensionRejectButtonId(interaction.customId);
-      if (!conversationId && !rejectionConversationId) {
+      const releaseUpdate = parseReleaseUpdateButtonId(interaction.customId);
+      if (!conversationId && !rejectionConversationId && !releaseUpdate) {
+        return;
+      }
+      if (releaseUpdate) {
+        void (async () => {
+          if (await rejectUnauthorized(interaction)) {
+            return;
+          }
+          const releaseKey = `${releaseUpdate.version}:${releaseUpdate.sha}`;
+          if (activeReleaseDeployments.has(releaseKey)) {
+            await interaction.reply({
+              content: text.releaseUpdateAlreadyStarted,
+              ephemeral: true,
+            });
+            return;
+          }
+
+          activeReleaseDeployments.add(releaseKey);
+          await interaction.deferReply({ ephemeral: true });
+          await interaction.message.edit({
+            components: releaseUpdateActionRows(releaseUpdate, true, locale),
+          });
+
+          try {
+            const targets = await discoverConnectorTargets();
+            if (targets.length === 0) {
+              activeReleaseDeployments.delete(releaseKey);
+              await interaction.message.edit({
+                components: releaseUpdateActionRows(releaseUpdate, false, locale),
+              }).catch(() => undefined);
+              await interaction.editReply(text.releaseUpdateNoTargets);
+              return;
+            }
+
+            const dispatches = await Promise.allSettled(
+              targets.map((target) => dispatchReleaseUpdate(releaseUpdate, target)),
+            );
+            const delivered = targets.filter((_, index) => dispatches[index]?.status === "fulfilled");
+            const failed = targets.filter((_, index) => dispatches[index]?.status === "rejected");
+
+            if (delivered.length === 0) {
+              activeReleaseDeployments.delete(releaseKey);
+              await interaction.message.edit({
+                components: releaseUpdateActionRows(releaseUpdate, false, locale),
+              }).catch(() => undefined);
+            }
+
+            await interaction.editReply([
+              `${text.releaseUpdateStarted} (${delivered.length}/${targets.length})`,
+              ...delivered.map((target) =>
+                `- ${target.computerDisplayName} · ${target.agent === "claude" ? "Claude Code" : "Codex"} · <#${target.channelId}> · v${target.connectorVersion}`),
+              ...failed.map((target) =>
+                `- FAILED · ${target.computerDisplayName} · <#${target.channelId}>`),
+            ].join("\n"));
+          } catch (error) {
+            activeReleaseDeployments.delete(releaseKey);
+            await interaction.message.edit({
+              components: releaseUpdateActionRows(releaseUpdate, false, locale),
+            }).catch(() => undefined);
+            throw error;
+          }
+        })().catch(async (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("relay-bot release update interaction failed", error);
+          if (interaction.deferred || interaction.replied) {
+            await interaction.editReply(`${text.releaseUpdateFailed}: ${message}`).catch(() => undefined);
+          } else {
+            await interaction.reply({
+              content: `${text.releaseUpdateFailed}: ${message}`,
+              ephemeral: true,
+            }).catch(() => undefined);
+          }
+        });
         return;
       }
       void (async () => {
@@ -683,12 +871,21 @@ export async function startRelayBot(): Promise<void> {
   });
 
   client.on("messageCreate", (message) => {
-    if (message.channelId !== controlChannelId || !connectorBotUserIds.has(message.author.id)) {
-      return;
+    if (message.channelId === controlChannelId && connectorBotUserIds.has(message.author.id)) {
+      const presence = parseConnectorPresenceMarker(message.content);
+      if (presence) {
+        connectorDiscoveries.get(presence.discoveryId)?.push(presence);
+        return;
+      }
+      void enqueueControlResult(message).catch((error) => {
+        console.error("relay-bot failed to process a connector result", error);
+      });
     }
-    void enqueueControlResult(message).catch((error) => {
-      console.error("relay-bot failed to process a connector result", error);
-    });
+    if (releaseChannelId && message.channelId === releaseChannelId && message.webhookId) {
+      void publishReleaseAction(message).catch((error) => {
+        console.error("relay-bot failed to publish release update action", error);
+      });
+    }
   });
 
   client.once(Events.ClientReady, () => {
@@ -697,6 +894,19 @@ export async function startRelayBot(): Promise<void> {
       await guild.commands.set(relayCommands(locale));
       console.info(`Agent relay bot ready as ${client.user?.tag ?? "unknown"}`);
       await coordinator.republishActiveStates();
+
+      if (releaseChannelId) {
+        const releaseChannel = await client.channels.fetch(releaseChannelId);
+        if (releaseChannel?.isTextBased() && "messages" in releaseChannel) {
+          const releaseMessages = await releaseChannel.messages.fetch({ limit: 50 });
+          const webhookMessages = [...releaseMessages.values()]
+            .filter((message) => Boolean(message.webhookId))
+            .sort((left, right) => left.createdTimestamp - right.createdTimestamp);
+          for (const message of webhookMessages) {
+            await publishReleaseAction(message);
+          }
+        }
+      }
 
       const controlChannel = await client.channels.fetch(controlChannelId);
       if (controlChannel?.isTextBased() && "messages" in controlChannel) {

@@ -30,6 +30,7 @@ export interface DirectConnectConfig {
     channelMode: "shell-admin" | "session-linked";
     timeoutMs: number;
     codexHome: string;
+    maintenanceAgent?: "codex" | "claude";
     relay?: {
       trustedBotUserIds: string[];
       controlChannelId: string;
@@ -62,6 +63,7 @@ export interface BuildDirectConfigInput {
   codexHome?: string;
   timeoutMs?: number;
   locale?: string;
+  maintenanceAgent?: string;
 }
 
 export interface BuildHubConfigInput {
@@ -88,6 +90,23 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
   if (claudeChannelId && claudeChannelId === channelId) {
     throw new Error("AI agent/admin channel ID and Claude Code channel ID must be different.");
   }
+  const requestedMaintenanceAgent = input.maintenanceAgent?.trim().toLowerCase();
+  if (
+    requestedMaintenanceAgent &&
+    requestedMaintenanceAgent !== "codex" &&
+    requestedMaintenanceAgent !== "claude"
+  ) {
+    throw new Error("Maintenance agent must be codex or claude.");
+  }
+  const maintenanceAgent =
+    requestedMaintenanceAgent === "claude"
+      ? "claude"
+      : requestedMaintenanceAgent === "codex"
+        ? "codex"
+        : undefined;
+  if (maintenanceAgent === "claude" && !claudeChannelId) {
+    throw new Error("Claude maintenance requires a Claude Code channel ID.");
+  }
 
   return {
     mode: "direct",
@@ -109,6 +128,7 @@ export function buildDirectConfig(input: BuildDirectConfigInput): DirectConnectC
       channelMode: "shell-admin",
       timeoutMs: input.timeoutMs ?? 30_000,
       codexHome: input.codexHome ?? path.join(os.homedir(), ".codex"),
+      ...(maintenanceAgent ? { maintenanceAgent } : {}),
     },
   };
 }
@@ -152,6 +172,7 @@ export function renderEnvFile(config: ConnectConfig): string {
     if (config.direct.claudeChannelId) {
       lines.push(`CLAUDE_CHANNEL_ID="${config.direct.claudeChannelId}"`);
     }
+    lines.push(`CONNECT_MAINTENANCE_AGENT="${config.direct.maintenanceAgent ?? "codex"}"`);
     lines.push(`CODEX_HOME="${config.direct.codexHome}"`);
   }
 

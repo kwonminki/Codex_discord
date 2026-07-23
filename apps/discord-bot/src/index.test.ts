@@ -216,11 +216,27 @@ describe("bot entrypoint", () => {
         {
           answerCopyStore: expect.any(Object),
           locale: "en",
+          onConnectorDiscovery: expect.any(Function),
           onRelayState: expect.any(Function),
           relayControlChannelId: "relay-control-1",
           trustedRelayBotUserIds: ["relay-bot-1"],
         },
       );
+      const discoveryOptions = attachDiscordMessageHandler.mock.calls[0]?.[2] as {
+        onConnectorDiscovery(discoveryId: string): Promise<unknown>;
+      };
+      await expect(
+        discoveryOptions.onConnectorDiscovery("30519a6b-5fd5-4944-9fd2-2e3293c1c925"),
+      ).resolves.toMatchObject({
+        computerId: "local-dev",
+        computerDisplayName: "Local Dev",
+        connectorVersion: "1.2.0",
+        preferredAgent: "codex",
+        channels: {
+          codex: "channel-1",
+          claude: null,
+        },
+      });
       expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
         { login, once, on },
         expect.any(Function),

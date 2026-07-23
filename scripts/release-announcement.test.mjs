@@ -5,6 +5,7 @@ import {
   announceVersionCommits,
   buildDiscordReleasePayload,
   collectVersionCommits,
+  formatReleaseFooter,
   parseVersionCommit,
 } from "./release-announcement.mjs";
 
@@ -60,6 +61,10 @@ describe("release announcement", () => {
     assert.equal(payload.embeds[0].title, "AI Agent Discord Connector v1.0");
     assert.equal(payload.embeds[0].description, "**첫 공개 버전**\n\n- 자동 공지");
     assert.match(payload.embeds[0].fields[0].value, /abcdef1/);
+    assert.equal(
+      payload.embeds[0].footer.text,
+      formatReleaseFooter({ version: "1.0", sha: "abcdef123" }),
+    );
   });
 
   it("does not require a webhook for ordinary pushes", async () => {

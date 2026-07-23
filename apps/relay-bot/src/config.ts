@@ -11,6 +11,7 @@ export const relayBotConfigSchema = z.object({
   operatorRoleIds: z.array(z.string().min(1)).min(1),
   controlChannelId: z.string().min(1),
   connectorBotUserIds: z.array(z.string().min(1)).min(1),
+  releaseChannelId: z.string().min(1).optional(),
   locale: z.enum(["ko", "en", "zh", "ja"]).default("ko"),
   stateRoot: z.string().min(1).optional(),
 });
@@ -47,6 +48,7 @@ export async function loadRelayBotConfig(configPath = defaultRelayBotConfigPath(
     connectorBotUserIds: connectorBotUserIds.length > 0
       ? connectorBotUserIds
       : fileConfig.connectorBotUserIds,
+    releaseChannelId: process.env.RELAY_RELEASE_CHANNEL_ID?.trim() || fileConfig.releaseChannelId,
     locale: resolveConnectorLocale(process.env.RELAY_LOCALE?.trim() || fileConfig.locale),
     stateRoot: process.env.RELAY_STATE_ROOT?.trim() || fileConfig.stateRoot,
   });

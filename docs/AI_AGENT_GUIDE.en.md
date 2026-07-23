@@ -41,6 +41,7 @@ When a user gives you this repository URL, work in this order:
 11. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
 12. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
 13. When the user wants two agent sessions to converse automatically, follow the [Agent Relay Guide](agent-relay.en.md), configure the optional Coordinator Bot with a separate token, and match its locale to the Connector.
+14. When GitHub release announcements and the Coordinator are both enabled, connect the release channel to the Coordinator and choose exactly one maintenance agent per computer. Do not make the user maintain channel-ID lists or routing rules.
 
 ### Compatibility variables for Codex-only installations
 
@@ -127,7 +128,7 @@ After the bot has joined, use the Discord API and the existing token to configur
 7. Use API-returned Guild, Role, and Channel IDs directly in connector setup.
 8. Register guild slash commands.
 9. On a dedicated private connector server, call `PATCH /guilds/{guild.id}` with `default_message_notifications: 1` and verify the returned value. This sets the guild default to `ONLY_MENTIONS`. On a shared or ambiguous server, explain the guild-wide effect and ask first.
-10. Optionally create an `#ai-agent-releases` channel and an `AI Agent Releases` webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`.
+10. Optionally create an `#ai-agent-releases` channel and an `AI Agent Releases` webhook, then store its URL only as the GitHub Actions secret `DISCORD_RELEASE_WEBHOOK_URL`. When the Coordinator is enabled, also record that channel ID as `releaseChannelId` for one-click server updates.
 
 Before creating anything, search for matching roles, categories, channels, and webhooks. Do not delete or overwrite resources with unclear ownership. Re-running setup after a partial failure must not create duplicates.
 
@@ -214,8 +215,17 @@ Do not claim that an existing bot token can create another Discord application. 
 7. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
 8. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
 9. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request, **Add one round trip** and **Reject extension and stop** buttons, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention. Also verify that an ordinary message steers active Codex and Claude Code threads, while the waiting thread suppresses execution and links to the active one.
+10. If GitHub release announcements are enabled, store the announcement channel ID as the Coordinator `releaseChannelId`. Verify that every Connector has a unique `computerId`. For a computer with both agents, choose one `direct.maintenanceAgent`; Codex is the default, so set `claude` only when Claude Code should perform Connector maintenance.
 
 An approval or user question during a relay turn uses the existing Connector mention flow and waits for the person. The Coordinator publishes active/waiting state through the private control channel, and each Connector stores it in a permission-restricted local file so a gateway restart does not open the wrong thread to new work. `/agent-chat-stop` carries the exact relay request ID, so a late stop must not interrupt a newer turn. A final `codex-discord-survey` pauses the conversation as `blocked`. Coordinator restarts recover durable state and recent private control results; verify that an already dispatched target turn is not deliberately replayed. Follow [Agent Relay Guide](agent-relay.en.md) for the complete configuration and limits.
+
+## GitHub release announcements and fleet updates
+
+Release announcements are sent by `.github/workflows/release-announcement.yml` through the `DISCORD_RELEASE_WEBHOOK_URL` repository secret. Configure this once per publishing repository, never per computer, and never store the webhook URL in Connector configuration, logs, shell history, or source control.
+
+When the Coordinator has `releaseChannelId`, it recognizes the release marker and adds a localized **Update registered servers** button. Clicking it sends a one-time discovery through the private control channel. Online Connectors answer with their unique `computerId`, display name, installed version, Codex parent, optional Claude parent, and maintenance preference. The Coordinator deduplicates by `computerId` and sends exactly one update request per computer. Do not add a static target list or periodic polling.
+
+The installation agent must verify that the release channel is visible to the Coordinator, all Connector gateways trust the same Coordinator and control channel, and every computer uses a distinct `computerId`. Select `direct.maintenanceAgent` or `CONNECT_MAINTENANCE_AGENT=claude` only when Claude Code should be preferred; otherwise Codex is used. Update prompts enforce an exact release commit, clean fast-forward Git state, lockfile installation, separate gateway/worker handling, and graceful worker drain. Offline Connectors are skipped and updated later.
 
 ## Discord permissions
 

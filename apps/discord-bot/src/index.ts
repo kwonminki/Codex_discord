@@ -1,4 +1,5 @@
 import os from "node:os";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import type { DiscoveredCodexSession } from "../../../packages/codex-adapter/src/index.js";
@@ -109,6 +110,22 @@ function resolveBoundedInteger(value: string | undefined, fallback: number, min:
 
 function identifierList(value: string | undefined): string[] {
   return [...new Set((value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean))];
+}
+
+let packageVersionPromise: Promise<string> | null = null;
+
+function connectorPackageVersion(): Promise<string> {
+  packageVersionPromise ??= readFile(new URL("../../../package.json", import.meta.url), "utf8")
+    .then((content) => {
+      const version = (JSON.parse(content) as { version?: unknown }).version;
+      return typeof version === "string" && version.trim() ? version.trim() : "unknown";
+    })
+    .catch(() => process.env.npm_package_version?.trim() || "unknown");
+  return packageVersionPromise;
+}
+
+function maintenanceAgent(input: string | undefined): "codex" | "claude" {
+  return input?.trim().toLowerCase() === "claude" ? "claude" : "codex";
 }
 
 export function shouldSkipBackgroundPolling(input: {
@@ -1055,6 +1072,24 @@ export async function startBot(): Promise<void> {
     onRelayState: relayPresenceStore
       ? (state) => relayPresenceStore.apply(state)
       : undefined,
+    onConnectorDiscovery:
+      connectConfig?.mode === "direct"
+        ? async (discoveryId) => ({
+            version: 1,
+            discoveryId,
+            computerId: connectConfig.direct.computerId,
+            computerDisplayName: connectConfig.direct.computerDisplayName,
+            connectorVersion: await connectorPackageVersion(),
+            preferredAgent: maintenanceAgent(
+              process.env.CONNECT_MAINTENANCE_AGENT ?? connectConfig.direct.maintenanceAgent,
+            ),
+            channels: {
+              codex: connectConfig.direct.channelId,
+              claude: connectConfig.direct.claudeChannelId?.trim() || null,
+            },
+            registeredAt: new Date().toISOString(),
+          })
+        : undefined,
   });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),

@@ -232,6 +232,7 @@ async function setup(flags: Map<string, string | boolean>) {
           computerId: flag(flags, "computer-id"),
           computerDisplayName: flag(flags, "computer-name"),
           codexHome: flag(flags, "codex-home"),
+          maintenanceAgent: flag(flags, "maintenance-agent"),
           locale,
         });
 

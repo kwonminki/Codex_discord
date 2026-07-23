@@ -111,6 +111,10 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 
 When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments. When an agent returns `extend`, an Operator can grant one more round trip or reject the extension and stop the conversation from the final notice. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. During a relay, an ordinary message in the active Codex or Claude Code thread steers the current turn, while the waiting thread points you to the active one. `/agent-chat-stop` ends the relay and interrupts the current Codex or Claude Code turn.
 
+### One-click server updates
+
+With the Coordinator and GitHub release announcements enabled, each version notice gets an **Update registered servers** button. Online connectors identify themselves when the button is clicked, and the Coordinator selects exactly one representative agent channel per `computerId`. A server configured for both Codex and Claude Code still receives only one update request; the installation agent chooses the appropriate maintenance agent.
+
 ## Files and media
 
 Attach an image, video, audio file, document, or archive to a normal Discord message and describe the task. The bot stores it temporarily on the connected machine and gives the local path to the agent.

@@ -53,6 +53,7 @@ describe("connect setup config", () => {
       },
     });
     expect(renderEnvFile(config)).toContain('CLAUDE_CHANNEL_ID="claude-channel-1"');
+    expect(renderEnvFile(config)).toContain('CONNECT_MAINTENANCE_AGENT="codex"');
     expect(renderEnvFile(config)).toContain('CONNECT_LOCALE="ko"');
   });
 
@@ -110,6 +111,32 @@ describe("connect setup config", () => {
       roleIds: "role-operator",
       workspaceRoot: "/repo",
     })).toThrow("AI agent/admin channel ID and Claude Code channel ID must be different.");
+  });
+
+  it("allows Claude Code to be the single maintenance agent when its channel exists", () => {
+    const config = buildDirectConfig({
+      token: "discord-token",
+      guildId: "guild-1",
+      channelId: "channel-1",
+      claudeChannelId: "claude-channel-1",
+      roleIds: "role-operator",
+      workspaceRoot: "/repo",
+      maintenanceAgent: "claude",
+    });
+
+    expect(config.direct.maintenanceAgent).toBe("claude");
+    expect(renderEnvFile(config)).toContain('CONNECT_MAINTENANCE_AGENT="claude"');
+  });
+
+  it("rejects Claude maintenance without a Claude Code channel", () => {
+    expect(() => buildDirectConfig({
+      token: "discord-token",
+      guildId: "guild-1",
+      channelId: "channel-1",
+      roleIds: "role-operator",
+      workspaceRoot: "/repo",
+      maintenanceAgent: "claude",
+    })).toThrow("Claude maintenance requires a Claude Code channel ID.");
   });
 
   it("writes generated config and env files", async () => {

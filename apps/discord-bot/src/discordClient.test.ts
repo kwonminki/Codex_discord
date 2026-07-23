@@ -2,6 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import {
+  formatConnectorDiscoveryMarker,
+  parseConnectorPresenceMarker,
+} from "../../../packages/core/src/index.js";
 import { createAnswerCopyStore } from "./answerCopyStore.js";
 import {
   attachDiscordMessageHandler,
@@ -111,6 +115,54 @@ describe("attachDiscordMessageHandler", () => {
       content: "interrupt",
     }));
     vi.unstubAllGlobals();
+  });
+
+  it("answers trusted connector discovery without creating an agent request", async () => {
+    const handlers = new Map<string, (message: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const reply = vi.fn().mockResolvedValue(undefined);
+    const discoveryId = "30519a6b-5fd5-4944-9fd2-2e3293c1c925";
+
+    attachDiscordMessageHandler(client, handleMessage, {
+      trustedRelayBotUserIds: ["relay-bot-1"],
+      relayControlChannelId: "relay-control",
+      onConnectorDiscovery: (receivedDiscoveryId) => ({
+        version: 1,
+        discoveryId: receivedDiscoveryId,
+        computerId: "server-a",
+        computerDisplayName: "Server A",
+        connectorVersion: "1.3.0",
+        preferredAgent: "codex",
+        channels: { codex: "100", claude: "101" },
+        registeredAt: "2026-07-24T00:00:00.000Z",
+      }),
+    });
+
+    handlers.get("messageCreate")?.({
+      id: "discovery-message",
+      channelId: "relay-control",
+      content: formatConnectorDiscoveryMarker(discoveryId),
+      attachments: new Map(),
+      author: { bot: true, id: "relay-bot-1" },
+      member: null,
+      reply,
+      guild: null,
+    });
+
+    await vi.waitFor(() => expect(reply).toHaveBeenCalledOnce());
+    expect(handleMessage).not.toHaveBeenCalled();
+    const payload = reply.mock.calls[0]?.[0] as { content: string };
+    expect(parseConnectorPresenceMarker(payload.content)).toEqual(expect.objectContaining({
+      discoveryId,
+      computerId: "server-a",
+      preferredAgent: "codex",
+    }));
   });
 
   it("adapts Discord messageCreate events into the pure message handler", async () => {

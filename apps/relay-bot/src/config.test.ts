@@ -17,6 +17,7 @@ describe("relay bot config", () => {
       operatorRoleIds: ["role-1"],
       controlChannelId: "control-1",
       connectorBotUserIds: ["connector-1"],
+      releaseChannelId: "release-1",
       locale: "ja",
     }), { mode: 0o644 });
 
@@ -27,6 +28,7 @@ describe("relay bot config", () => {
         operatorRoleIds: ["role-1"],
         controlChannelId: "control-1",
         connectorBotUserIds: ["connector-1"],
+        releaseChannelId: "release-1",
         locale: "ja",
       });
       if (process.platform !== "win32") {

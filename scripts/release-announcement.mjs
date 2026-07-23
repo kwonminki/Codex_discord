@@ -5,6 +5,10 @@ const VERSION_COMMIT_PATTERN =
   /^v(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)(?:(?:\s*[:\-–—]\s*|\s+)(.*))?$/i;
 const MAX_DESCRIPTION_LENGTH = 3_800;
 
+export function formatReleaseFooter(release) {
+  return `AI Agent Release | v${release.version} | ${release.sha.toLowerCase()}`;
+}
+
 export function parseVersionCommit(commit) {
   if (!commit || typeof commit.id !== "string" || typeof commit.message !== "string" || typeof commit.url !== "string") {
     return null;
@@ -62,6 +66,9 @@ export function buildDiscordReleasePayload(release) {
         name: "GitHub",
         value: `[\`${release.sha.slice(0, 7)}\`](${release.url})`,
       }],
+      footer: {
+        text: formatReleaseFooter(release),
+      },
     }],
   };
 }

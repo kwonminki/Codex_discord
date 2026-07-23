@@ -111,6 +111,10 @@ Codex 또는 Claude Code가 작업 중일 때 같은 스레드에 보낸 일반 
 
 별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림에서 왕복 1회를 추가하거나 연장을 거절하고 대화를 종료할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. 대화 중 현재 실행 중인 Codex 또는 Claude Code thread에 일반 메시지를 보내면 현재 turn에 steering되고, 대기 thread에서는 활성 thread를 안내합니다. `/agent-chat-stop`은 relay를 끝내고 현재 실행 중인 Codex 또는 Claude Code turn도 중단합니다.
 
+### 원클릭 서버 업데이트
+
+Coordinator와 GitHub release 공지를 활성화하면 버전 공지 아래에 **등록 서버 업데이트** 버튼이 표시됩니다. 버튼을 누를 때 온라인 Connector가 자신을 실시간 등록하고, Coordinator가 `computerId`별로 대표 agent 채널 하나만 선택해 안전 업데이트를 요청합니다. Codex와 Claude Code를 모두 쓰는 서버에도 요청은 한 번만 전송되며, 설치 에이전트가 서버 구성에 맞는 대표 agent를 정합니다.
+
 ## 파일과 미디어
 
 Discord 메시지에 이미지, 영상, 오디오, 문서 또는 압축 파일을 그냥 첨부하고 원하는 작업을 적으면 됩니다. 봇이 연결된 컴퓨터에 임시 저장한 뒤 agent에게 전달합니다.
