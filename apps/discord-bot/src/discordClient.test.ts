@@ -730,6 +730,63 @@ describe("attachDiscordInteractionHandler", () => {
     expect(reply).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a free-text survey modal and queues the submitted answer", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const showModal = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage);
+    handlers.get("interactionCreate")?.({
+      isButton: () => true,
+      customId: "cdc:survey:other:agent:claude",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply: vi.fn(),
+      showModal,
+    });
+
+    await vi.waitFor(() => expect(showModal).toHaveBeenCalled());
+    expect(showModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: "기타 답변",
+      custom_id: "cdc:survey:other:agent:claude",
+    }));
+    expect(handleMessage).not.toHaveBeenCalled();
+
+    const reply = vi.fn().mockResolvedValue(undefined);
+    handlers.get("interactionCreate")?.({
+      isModalSubmit: () => true,
+      customId: "cdc:survey:other:agent:claude",
+      user: { id: "discord-user-1" },
+      channelId: "discord-channel-1",
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      guild: null,
+      reply,
+      fields: {
+        getTextInputValue: (fieldId: string) =>
+          fieldId === "answer" ? "두 결과의 장점을 섞어주세요" : "",
+      },
+    });
+
+    await vi.waitFor(() => expect(handleMessage).toHaveBeenCalled());
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      ephemeral: true,
+      content: "자유 답변을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+    }));
+    expect(handleMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining(
+        "/queue prompt:claude Discord 미디어 설문에서 사용자가 자유 입력으로 답했습니다:",
+      ),
+    }));
+  });
+
   it("ignores button interactions in unmanaged channels before replying", async () => {
     const handlers = new Map<string, (interaction: unknown) => void>();
     const client = {

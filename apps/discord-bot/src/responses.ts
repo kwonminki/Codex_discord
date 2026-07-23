@@ -5,7 +5,10 @@ import {
   splitDiscordMessageContent,
 } from "../../../packages/core/src/index.js";
 export { splitDiscordMessageContent } from "../../../packages/core/src/index.js";
-import { COMPONENT_IDS } from "./componentRouter.js";
+import {
+  agentSurveyOtherCustomId,
+  COMPONENT_IDS,
+} from "./componentRouter.js";
 import { extractAgentSurveyRequests, type AgentSurveyRequest } from "./agentSurvey.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
 import {
@@ -336,6 +339,11 @@ export function formatAgentSurveyMessages(input: {
   const customId = input.response.kind === "user-input"
     ? `${COMPONENT_IDS.codexUserInputSurveyPrefix}${input.response.token}`
     : `${COMPONENT_IDS.agentSurveyPrefix}${input.agent}`;
+  const otherCustomId = agentSurveyOtherCustomId(
+    input.response.kind === "user-input"
+      ? { kind: "user-input", token: input.response.token }
+      : { kind: "agent", agent: input.agent },
+  );
   const details = [
     input.response.kind === "user-input" ? input.response.context : null,
     input.survey.message,
@@ -352,14 +360,22 @@ export function formatAgentSurveyMessages(input: {
       color: input.agent === "claude" ? 0x8e44ad : COLORS.codex,
       description: truncateDescription(details.join("\n\n")),
     }],
-    components: [actionRow([{
-      type: 3,
-      custom_id: customId,
-      placeholder: input.survey.multiple ? "하나 이상 선택" : "하나 선택",
-      min_values: 1,
-      max_values: input.survey.multiple ? optionPayloads.length : 1,
-      options: optionPayloads,
-    }])],
+    components: [
+      actionRow([{
+        type: 3,
+        custom_id: customId,
+        placeholder: input.survey.multiple ? "하나 이상 선택" : "하나 선택",
+        min_values: 1,
+        max_values: input.survey.multiple ? optionPayloads.length : 1,
+        options: optionPayloads,
+      }]),
+      actionRow([{
+        type: 2,
+        custom_id: otherCustomId,
+        label: "기타...",
+        style: BUTTON_STYLES.secondary,
+      }]),
+    ],
     ...(fileOutputs.attachments.length > 0
       ? { files: fileOutputs.attachments.slice(0, MAX_DISCORD_FILES) }
       : {}),

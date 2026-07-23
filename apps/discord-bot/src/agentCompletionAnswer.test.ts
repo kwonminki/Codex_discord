@@ -63,10 +63,19 @@ describe("prepareAgentCompletionAnswer", () => {
     expect(result.answer).toBe("선택해주세요.");
     expect(result.surveyMessages).toEqual([
       expect.objectContaining({
-        components: [{
-          type: 1,
-          components: [expect.objectContaining({ custom_id: "cdc:agent:survey:claude" })],
-        }],
+        components: [
+          {
+            type: 1,
+            components: [expect.objectContaining({ custom_id: "cdc:agent:survey:claude" })],
+          },
+          {
+            type: 1,
+            components: [expect.objectContaining({
+              custom_id: "cdc:survey:other:agent:claude",
+              label: "기타...",
+            })],
+          },
+        ],
       }),
     ]);
   });

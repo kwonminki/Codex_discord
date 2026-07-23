@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { routeDiscordComponent } from "./componentRouter.js";
+import {
+  agentSurveyOtherCustomId,
+  parseAgentSurveyOtherCustomId,
+  routeAgentSurveyOtherAnswer,
+  routeDiscordComponent,
+} from "./componentRouter.js";
 
 describe("routeDiscordComponent", () => {
   it("maps safe Discord buttons to the same text commands used by message routing", () => {
@@ -42,6 +47,35 @@ describe("routeDiscordComponent", () => {
     expect(routeDiscordComponent("cdc:agent:survey:claude", ["2:둘 다 수정"])).toContain(
       "/queue prompt:claude Discord 미디어 설문에서 사용자가 다음 항목을 선택했습니다:",
     );
+  });
+
+  it("routes free-text survey answers to the same active question or next agent turn", () => {
+    const userInputId = agentSurveyOtherCustomId({ kind: "user-input", token: "question-7" });
+    const claudeId = agentSurveyOtherCustomId({ kind: "agent", agent: "claude" });
+
+    expect(userInputId).toBe("cdc:survey:other:user-input:question-7");
+    expect(parseAgentSurveyOtherCustomId(userInputId)).toEqual({
+      kind: "user-input",
+      token: "question-7",
+    });
+    expect(routeAgentSurveyOtherAnswer(
+      { kind: "user-input", token: "question-7" },
+      "선택지 밖의 답변",
+    )).toBe(
+      `__cdc_codex_user_input question-7 ${encodeURIComponent(JSON.stringify(["선택지 밖의 답변"]))}`,
+    );
+    expect(parseAgentSurveyOtherCustomId(claudeId)).toEqual({
+      kind: "agent",
+      agent: "claude",
+    });
+    expect(routeAgentSurveyOtherAnswer(
+      { kind: "agent", agent: "claude" },
+      "두 결과를 섞어주세요",
+    )).toContain("/queue prompt:claude Discord 미디어 설문에서 사용자가 자유 입력으로 답했습니다:");
+    expect(routeAgentSurveyOtherAnswer(
+      { kind: "agent", agent: "codex" },
+      "   ",
+    )).toBeNull();
   });
 
   it("ignores unknown component ids", () => {

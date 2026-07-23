@@ -763,20 +763,30 @@ describe("responses", () => {
             title: "미디어 설문",
             description: expect.stringContaining("어느 결과가 자연스러워?"),
           })],
-          components: [{
-            type: 1,
-            components: [expect.objectContaining({
-              type: 3,
-              custom_id: "cdc:agent:survey:claude",
-              min_values: 1,
-              max_values: 1,
-              options: [
-                expect.objectContaining({ label: "A가 좋음", value: "0:A가 좋음" }),
-                expect.objectContaining({ label: "B가 좋음", value: "1:B가 좋음" }),
-                expect.objectContaining({ label: "둘 다 수정", value: "2:둘 다 수정" }),
-              ],
-            })],
-          }],
+          components: [
+            {
+              type: 1,
+              components: [expect.objectContaining({
+                type: 3,
+                custom_id: "cdc:agent:survey:claude",
+                min_values: 1,
+                max_values: 1,
+                options: [
+                  expect.objectContaining({ label: "A가 좋음", value: "0:A가 좋음" }),
+                  expect.objectContaining({ label: "B가 좋음", value: "1:B가 좋음" }),
+                  expect.objectContaining({ label: "둘 다 수정", value: "2:둘 다 수정" }),
+                ],
+              })],
+            },
+            {
+              type: 1,
+              components: [expect.objectContaining({
+                type: 2,
+                custom_id: "cdc:survey:other:agent:claude",
+                label: "기타...",
+              })],
+            },
+          ],
           files: [{ attachment: videoPath, name: "comparison.mp4" }],
         }),
       ]);

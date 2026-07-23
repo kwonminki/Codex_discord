@@ -23,7 +23,12 @@ import {
 } from "./applicationCommands.js";
 import type { DiscordGuildSurface } from "./codexSessionSync.js";
 import type { DiscordMessageLike } from "./messageHandler.js";
-import { COMPONENT_IDS, routeDiscordComponent } from "./componentRouter.js";
+import {
+  COMPONENT_IDS,
+  parseAgentSurveyOtherCustomId,
+  routeAgentSurveyOtherAnswer,
+  routeDiscordComponent,
+} from "./componentRouter.js";
 import { localizeDiscordModal, localizeDiscordOutgoing } from "./i18n.js";
 import {
   getAnswerCopyText,
@@ -578,6 +583,29 @@ function codexPromptModal() {
   };
 }
 
+function agentSurveyOtherModal(customId: string) {
+  return {
+    title: "기타 답변",
+    custom_id: customId,
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 4,
+            custom_id: "answer",
+            label: "자유 답변",
+            style: 2,
+            required: true,
+            max_length: 4_000,
+            placeholder: "선택지에 없는 답변을 입력하세요.",
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function codexContinueModal(sessionId: string) {
   return {
     title: "완료된 작업에 답장",
@@ -995,6 +1023,60 @@ export function attachDiscordInteractionHandler(
       return;
     }
 
+    if (isModalSubmitInteraction(interaction) && interaction.isModalSubmit()) {
+      const surveyTarget = parseAgentSurveyOtherCustomId(interaction.customId);
+
+      if (surveyTarget) {
+        void (async () => {
+          if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+            return;
+          }
+
+          const content = routeAgentSurveyOtherAnswer(
+            surveyTarget,
+            interaction.fields.getTextInputValue("answer"),
+          );
+          if (!content) {
+            await interaction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: localizeConnectorText("자유 답변이 비어 있습니다.", locale),
+            });
+            return;
+          }
+
+          const queuedAgentSurvey = surveyTarget.kind === "agent";
+          if (queuedAgentSurvey) {
+            await interaction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: localizeConnectorText(
+                "자유 답변을 접수했습니다. 같은 agent 세션의 다음 작업으로 전달합니다.",
+                locale,
+              ),
+            });
+          }
+
+          await handleMessage({
+            authorBot: false,
+            userId: interaction.user.id,
+            channelId: interaction.channelId,
+            content,
+            roleIds: getMemberRoleIds(interaction.member),
+            guild: createDiscordGuildSurface(interaction.guild, options),
+            reply: interactionReplyAdapter(interaction, {
+              initialReplySent: queuedAgentSurvey,
+              answerCopyStore: options.answerCopyStore,
+              locale,
+            }),
+          });
+        })().catch((error) => {
+          console.error("discord-bot failed to handle survey free-text answer", error);
+        });
+        return;
+      }
+    }
+
     if (
       isModalSubmitInteraction(interaction) &&
       interaction.isModalSubmit() &&
@@ -1156,6 +1238,27 @@ export function attachDiscordInteractionHandler(
       }
 
       if (componentInteraction.isButton()) {
+        const surveyTarget = parseAgentSurveyOtherCustomId(componentInteraction.customId);
+
+        if (surveyTarget) {
+          if (typeof componentInteraction.showModal !== "function") {
+            await componentInteraction.reply({
+              allowedMentions: { parse: [] },
+              ephemeral: true,
+              content: localizeConnectorText("이 Discord 클라이언트는 모달을 열 수 없습니다.", locale),
+            });
+            return;
+          }
+
+          await componentInteraction.showModal(
+            localizeDiscordModal(
+              agentSurveyOtherModal(componentInteraction.customId),
+              locale,
+            ),
+          );
+          return;
+        }
+
         const answerCopyId = parseAnswerCopyButton(componentInteraction.customId);
 
         if (answerCopyId) {

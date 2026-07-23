@@ -585,7 +585,7 @@ Default attachment limits:
 - Input: 10 files per message, 100 MiB each, 250 MiB total
 - Output: 10 MiB per file
 
-Final media surveys work for Codex and Claude Code. Live mid-task `request_user_input` round trips require Codex app-server.
+Final media surveys work for Codex and Claude Code. Every survey also includes an **Other...** button that opens a modal for a free-text answer and routes it through the same guarded question or queued-turn path. Live mid-task `request_user_input` round trips require Codex app-server.
 
 ## Permissions and models
 

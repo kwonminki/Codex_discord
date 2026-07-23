@@ -28,6 +28,7 @@ export const COMPONENT_IDS = {
   codexApprovalPrefix: "cdc:codex:approval:",
   codexUserInputSurveyPrefix: "cdc:codex:user-input:",
   agentSurveyPrefix: "cdc:agent:survey:",
+  agentSurveyOtherPrefix: "cdc:survey:other:",
   gitDiff: "cdc:git:diff",
   gitStatus: "cdc:git:status",
   gitConflicts: "cdc:git:conflicts",
@@ -39,6 +40,55 @@ export const COMPONENT_IDS = {
   reloadRestartConfirm: "cdc:reload:restart:confirm",
   reloadRestartForceConfirm: "cdc:reload:restart:force:confirm",
 } as const;
+
+export type AgentSurveyOtherTarget =
+  | { kind: "user-input"; token: string }
+  | { kind: "agent"; agent: "codex" | "claude" };
+
+export function agentSurveyOtherCustomId(
+  target: AgentSurveyOtherTarget,
+): string {
+  return target.kind === "user-input"
+    ? `${COMPONENT_IDS.agentSurveyOtherPrefix}user-input:${target.token}`
+    : `${COMPONENT_IDS.agentSurveyOtherPrefix}agent:${target.agent}`;
+}
+
+export function parseAgentSurveyOtherCustomId(
+  customId: string,
+): AgentSurveyOtherTarget | null {
+  const userInputMatch = customId.match(
+    /^cdc:survey:other:user-input:([A-Za-z0-9_-]{1,48})$/i,
+  );
+  if (userInputMatch) {
+    return { kind: "user-input", token: userInputMatch[1] ?? "" };
+  }
+
+  const agentMatch = customId.match(/^cdc:survey:other:agent:(codex|claude)$/i);
+  if (agentMatch) {
+    return {
+      kind: "agent",
+      agent: agentMatch[1]?.toLowerCase() === "claude" ? "claude" : "codex",
+    };
+  }
+
+  return null;
+}
+
+export function routeAgentSurveyOtherAnswer(
+  target: AgentSurveyOtherTarget,
+  answer: string,
+): string | null {
+  const normalizedAnswer = answer.trim();
+  if (!normalizedAnswer) {
+    return null;
+  }
+
+  if (target.kind === "user-input") {
+    return `__cdc_codex_user_input ${target.token} ${encodeURIComponent(JSON.stringify([normalizedAnswer]))}`;
+  }
+
+  return `/queue prompt:${target.agent} Discord 미디어 설문에서 사용자가 자유 입력으로 답했습니다:\n- ${normalizedAnswer}\n이 답변을 반영해 작업을 이어가세요.`;
+}
 
 function componentShellCommand(command: string): string {
   return `__cdc_exec ${command}`;

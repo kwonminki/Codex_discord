@@ -1403,7 +1403,7 @@ CODEX_DISCORD_CODEX_SANDBOX=workspace-write
 
 Codex가 작업 중 `request_user_input` 도구를 호출하면 봇은 같은 Discord 스레드에 operator role을 멘션한 질문을 보냅니다. 선택지가 있으면 `1`, `2` 같은 번호나 선택지 이름으로 답할 수 있고, 직접 문장을 보내도 됩니다. 이 답변은 새 작업, FIFO 큐, steering으로 처리되지 않고 대기 중인 같은 app-server turn의 도구 응답으로 즉시 전달됩니다. 질문이 여러 개면 한 번에 하나씩 순서대로 표시합니다.
 
-미디어를 함께 검수하려면 agent가 최종 답변 또는 `request_user_input.question` 안에 `codex-discord-survey` JSON block을 넣습니다. 최종 block에는 `question`, `files`, `options`, `multiple`을 넣고, 중간 질문 block에는 주로 `files`와 `multiple`만 넣은 뒤 선택지는 `request_user_input.options`를 사용합니다. 최종 선택은 source agent를 보존한 명시적 queue prompt로 변환되므로 활성 turn에 steering되지 않습니다. 중간 선택은 token과 channel을 검증한 뒤 현재 user-input request에만 전달됩니다. 질문 메시지 자체가 Operator role을 mention하며, 최종 설문이 있으면 별도의 완료 mention은 중복 전송하지 않습니다. 최대 설문 5개, 설문당 선택지 25개이며 첨부에는 기존 10MiB 안전 한도와 메시지별 파일 분할 규칙을 적용합니다.
+미디어를 함께 검수하려면 agent가 최종 답변 또는 `request_user_input.question` 안에 `codex-discord-survey` JSON block을 넣습니다. 최종 block에는 `question`, `files`, `options`, `multiple`을 넣고, 중간 질문 block에는 주로 `files`와 `multiple`만 넣은 뒤 선택지는 `request_user_input.options`를 사용합니다. 모든 설문에는 `기타...` 버튼이 함께 표시되며 사용자는 모달에서 선택지에 없는 자유 답변을 제출할 수 있습니다. 최종 선택과 자유 답변은 source agent를 보존한 명시적 queue prompt로 변환되므로 활성 turn에 steering되지 않습니다. 중간 선택과 자유 답변은 token과 channel을 검증한 뒤 현재 user-input request에만 전달됩니다. 질문 메시지 자체가 Operator role을 mention하며, 최종 설문이 있으면 별도의 완료 mention은 중복 전송하지 않습니다. 최대 설문 5개, 설문당 선택지 25개이며 첨부에는 기존 10MiB 안전 한도와 메시지별 파일 분할 규칙을 적용합니다.
 
 질문을 기다리는 동안 `/status`, `/interrupt`, `/queue prompt:<요청>` 같은 제어 명령은 질문 답변으로 소비되지 않습니다. `/interrupt`는 대기 중인 질문도 해제하고 현재 turn을 중단합니다. `autoResolutionMs`가 있는 질문은 제한 시간이 지나면 첫 번째 권장 선택지로 자동 진행합니다. 비밀 입력 질문도 Discord에는 일반 메시지로 보이므로 토큰과 비밀번호는 보내지 마세요. 이 기능은 Codex app-server 전용이며 현재 Claude Code headless 경로에는 적용되지 않습니다.
 
