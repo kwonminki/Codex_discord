@@ -24,6 +24,11 @@ export interface DiscordGuildSurface {
     autoArchiveDuration?: number;
     reason?: string;
   }): Promise<{ id: string }>;
+  findThreadByName?(input: {
+    name: string;
+    parentChannelId: string;
+  }): Promise<{ id: string } | null>;
+  ensureChannelAvailable?(id: string): Promise<boolean>;
   sendTextMessage?(
     channelId: string,
     content: string | DiscordMessagePayload,

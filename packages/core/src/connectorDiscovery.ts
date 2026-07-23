@@ -19,6 +19,10 @@ export const connectorPresenceSchema = z.object({
     codex: discordChannelIdSchema,
     claude: discordChannelIdSchema.nullable(),
   }),
+  maintenance: z.object({
+    agent: z.enum(["codex", "claude"]),
+    channelId: discordChannelIdSchema,
+  }).nullable().optional(),
   registeredAt: z.string().datetime({ offset: true }),
 });
 

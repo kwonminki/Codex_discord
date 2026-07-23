@@ -1018,12 +1018,12 @@ pnpm test
 6. URL을 표준 입력으로 전달해 대상 저장소의 repository Actions secret `DISCORD_RELEASE_WEBHOOK_URL`을 설정합니다. 예: `printf '%s' "$WEBHOOK_URL" | gh secret set DISCORD_RELEASE_WEBHOOK_URL --repo OWNER/REPOSITORY`.
 7. `gh secret list --repo OWNER/REPOSITORY`로 secret **이름만** 확인하고, workflow 파일과 target branch를 확인합니다. secret 값은 GitHub에서도 다시 읽어 보여주지 않습니다.
 8. Coordinator를 사용하는 설치라면 `.connect/relay-config.json`의 `releaseChannelId`를 같은 공지 channel ID로 설정하고 Coordinator service만 재시작합니다.
-9. 모든 Connector가 같은 private control channel과 Coordinator bot user ID를 신뢰하는지, `computerId`가 서로 다른지 확인합니다. 서버별 대표 유지보수 agent는 `direct.maintenanceAgent` 또는 `CONNECT_MAINTENANCE_AGENT`로 하나만 선택합니다.
+9. 모든 Connector가 같은 private control channel과 Coordinator bot user ID를 신뢰하는지, `computerId`가 서로 다른지 확인합니다. 서버별 대표 유지보수 agent는 `direct.maintenanceAgent` 또는 `CONNECT_MAINTENANCE_AGENT`로 하나만 선택합니다. 최초 discovery에서 선택한 agent 부모 채널 아래에 `디스코드봇업데이트` 전용 스레드가 자동 생성되고 이후 재사용되는지 확인합니다.
 10. 테스트용 가짜 버전 공지는 사용자가 요청한 경우에만 보냅니다. 일반 커밋은 workflow가 실행되어도 Discord 전송을 건너뜁니다.
 
 하나의 repository secret에는 webhook URL 하나만 저장할 수 있습니다. 여러 fork가 같은 Discord webhook을 각각 등록하면 각 저장소의 버전 push가 별도 공지를 만들 수 있으므로, 실제 릴리스를 발행하는 저장소 하나에만 설정하는 것을 권장합니다.
 
-원클릭 업데이트 버튼을 누르면 Coordinator가 private control channel에 일회성 discovery를 보내고, 현재 온라인인 Connector만 응답합니다. 응답에는 각 컴퓨터의 Codex parent와 선택적인 Claude Code parent가 함께 들어가지만, Coordinator는 `computerId`별 대표 agent 하나에만 요청합니다. static channel 목록과 주기 polling을 추가하지 않습니다. 업데이트 prompt는 exact release commit, clean/ff-only Git, lockfile 설치, gateway/worker 분리, active job의 graceful drain을 요구합니다. 오프라인 서버는 자동으로 건너뛰므로 나중에 별도로 업데이트합니다.
+원클릭 업데이트 버튼을 누르면 Coordinator가 private control channel에 일회성 discovery를 보내고, 현재 온라인인 Connector만 응답합니다. 각 Connector는 선택된 agent 부모 채널 아래에서 `디스코드봇업데이트` 스레드를 상태와 Discord 양쪽에서 확인해 재사용하고, 없거나 삭제됐을 때만 다시 만듭니다. Coordinator는 `computerId`별로 이 전용 스레드 하나에만 요청하며 기존 사용자 작업 스레드로 fallback하지 않습니다. static channel 목록과 주기 polling을 추가하지 않습니다. 업데이트 prompt는 exact release commit, clean/ff-only Git, lockfile 설치, gateway/worker 분리, active job의 graceful drain을 요구합니다. 오프라인 서버와 아직 전용 스레드를 등록하지 못한 구버전 Connector는 안전하게 건너뜁니다.
 
 ### Discord 채널과 알림 권장 설정
 

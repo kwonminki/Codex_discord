@@ -26,6 +26,10 @@ function presence(input: Partial<ConnectorPresence> & Pick<ConnectorPresence, "c
       codex: "100",
       claude: null,
     },
+    maintenance: {
+      agent: "codex",
+      channelId: "199",
+    },
     registeredAt: "2026-07-24T00:00:00.000Z",
     ...input,
   };
@@ -38,25 +42,28 @@ describe("release deployment", () => {
     expect(parseReleaseUpdateButtonId("agent-release-update:bad")).toBeNull();
   });
 
-  it("selects one preferred agent channel per computer", () => {
+  it("selects one dedicated maintenance thread per computer", () => {
     const targets = selectConnectorUpdateTargets([
       presence({
         computerId: "server-a",
         computerDisplayName: "Server A",
         preferredAgent: "codex",
         channels: { codex: "101", claude: "102" },
+        maintenance: { agent: "codex", channelId: "191" },
       }),
       presence({
         computerId: "server-b",
         computerDisplayName: "Server B",
         preferredAgent: "claude",
         channels: { codex: "201", claude: "202" },
+        maintenance: { agent: "claude", channelId: "292" },
       }),
       presence({
         computerId: "server-b",
         computerDisplayName: "Server B stale",
         preferredAgent: "codex",
         channels: { codex: "203", claude: null },
+        maintenance: { agent: "codex", channelId: "293" },
         registeredAt: "2026-07-23T00:00:00.000Z",
       }),
       presence({
@@ -64,13 +71,19 @@ describe("release deployment", () => {
         computerDisplayName: "Server C",
         preferredAgent: "claude",
         channels: { codex: "301", claude: null },
+        maintenance: { agent: "codex", channelId: "391" },
+      }),
+      presence({
+        computerId: "legacy-server",
+        computerDisplayName: "Legacy Server",
+        maintenance: undefined,
       }),
     ]);
 
     expect(targets).toEqual([
-      expect.objectContaining({ computerId: "server-a", agent: "codex", channelId: "101" }),
-      expect.objectContaining({ computerId: "server-b", agent: "claude", channelId: "202" }),
-      expect.objectContaining({ computerId: "server-c", agent: "codex", channelId: "301" }),
+      expect.objectContaining({ computerId: "server-a", agent: "codex", channelId: "191" }),
+      expect.objectContaining({ computerId: "server-b", agent: "claude", channelId: "292" }),
+      expect.objectContaining({ computerId: "server-c", agent: "codex", channelId: "391" }),
     ]);
   });
 

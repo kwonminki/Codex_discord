@@ -54,6 +54,26 @@ export interface ForkDiscordSessionThreadInput {
   now?: Date;
 }
 
+export const CONNECTOR_MAINTENANCE_THREAD_NAME = "디스코드봇업데이트";
+
+export interface EnsureConnectorMaintenanceThreadInput {
+  guild: DiscordGuildSurface;
+  controlApi: Pick<ControlApiClient, "createManagedChannel">;
+  stateStore: DirectSyncStateStore;
+  computerId: string;
+  defaultWorkspaceRoot: string;
+  preferredAgent: "codex" | "claude";
+  codexParentChannelId: string;
+  claudeParentChannelId?: string | null;
+}
+
+export interface ConnectorMaintenanceThreadResult {
+  agent: "codex" | "claude";
+  channelId: string;
+  parentChannelId: string;
+  created: boolean;
+}
+
 function sanitizeName(value: string): string {
   const sanitized = value
     .trim()
@@ -72,6 +92,157 @@ function workspaceDisplayName(workspaceRoot: string): string {
 
 function workspaceId(computerId: string, workspaceRoot: string): string {
   return `${computerId}:${workspaceRoot}`;
+}
+
+async function registerMaintenanceThread(input: {
+  controlApi: EnsureConnectorMaintenanceThreadInput["controlApi"];
+  stateStore: DirectSyncStateStore;
+  computerId: string;
+  workspaceRoot: string;
+  channelId: string;
+  parentChannelId: string;
+  channelMode: Extract<ChannelMode, "session-linked" | "claude-code">;
+}): Promise<void> {
+  const displayName = workspaceDisplayName(input.workspaceRoot);
+  const nextChannel: SyncedSessionChannelState = {
+    codexSessionId: null,
+    threadName: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    updatedAt: new Date().toISOString(),
+    cwd: input.workspaceRoot,
+    workspaceRoot: input.workspaceRoot,
+    workspaceDisplayName: displayName,
+    discordCategoryId: null,
+    discordChannelId: input.channelId,
+    discordParentChannelId: input.parentChannelId,
+    discordDeliveryMode: "thread",
+    channelPurpose: "maintenance",
+    channelMode: input.channelMode,
+    channelName: sanitizeName(CONNECTOR_MAINTENANCE_THREAD_NAME),
+    computerId: input.computerId,
+    workspaceId: workspaceId(input.computerId, input.workspaceRoot),
+  };
+
+  await input.controlApi.createManagedChannel({
+    id: `channel:${input.channelId}`,
+    discordChannelId: input.channelId,
+    computerId: input.computerId,
+    workspaceId: nextChannel.workspaceId,
+    channelMode: input.channelMode,
+  });
+  await input.stateStore.update((state) => ({
+    ...state,
+    sessionChannels: [
+      ...state.sessionChannels.filter(
+        (candidate) =>
+          candidate.discordChannelId !== input.channelId &&
+          !(
+            candidate.channelPurpose === "maintenance" &&
+            candidate.discordParentChannelId === input.parentChannelId &&
+            candidate.channelMode === input.channelMode
+          ),
+      ),
+      nextChannel,
+    ],
+  }));
+}
+
+export async function ensureConnectorMaintenanceThread(
+  input: EnsureConnectorMaintenanceThreadInput,
+): Promise<ConnectorMaintenanceThreadResult> {
+  if (!input.guild.createThread) {
+    throw new Error("Discord guild surface cannot create maintenance threads.");
+  }
+
+  const useClaude = input.preferredAgent === "claude" && Boolean(input.claudeParentChannelId?.trim());
+  const agent = useClaude ? "claude" : "codex";
+  const channelMode = useClaude ? "claude-code" : "session-linked";
+  const parentChannelId = useClaude
+    ? input.claudeParentChannelId!.trim()
+    : input.codexParentChannelId.trim();
+  const state = await input.stateStore.read();
+  const existing = state.sessionChannels.find(
+    (channel) =>
+      channel.discordDeliveryMode === "thread" &&
+      channel.discordParentChannelId === parentChannelId &&
+      channel.channelMode === channelMode &&
+      (channel.channelPurpose === "maintenance" ||
+        channel.threadName === CONNECTOR_MAINTENANCE_THREAD_NAME),
+  );
+
+  if (existing) {
+    const available = input.guild.ensureChannelAvailable
+      ? await input.guild.ensureChannelAvailable(existing.discordChannelId)
+      : true;
+    if (available) {
+      if (existing.channelPurpose !== "maintenance") {
+        await input.stateStore.update((latestState) => ({
+          ...latestState,
+          sessionChannels: latestState.sessionChannels.map((channel) =>
+            channel.discordChannelId === existing.discordChannelId
+              ? { ...channel, channelPurpose: "maintenance" }
+              : channel,
+          ),
+        }));
+      }
+      return {
+        agent,
+        channelId: existing.discordChannelId,
+        parentChannelId,
+        created: false,
+      };
+    }
+    await input.stateStore.update((latestState) => ({
+      ...latestState,
+      sessionChannels: latestState.sessionChannels.filter(
+        (channel) => channel.discordChannelId !== existing.discordChannelId,
+      ),
+    }));
+  }
+
+  const discovered = await input.guild.findThreadByName?.({
+    name: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    parentChannelId,
+  });
+  if (discovered) {
+    await registerMaintenanceThread({
+      controlApi: input.controlApi,
+      stateStore: input.stateStore,
+      computerId: input.computerId,
+      workspaceRoot: input.defaultWorkspaceRoot,
+      channelId: discovered.id,
+      parentChannelId,
+      channelMode,
+    });
+    return {
+      agent,
+      channelId: discovered.id,
+      parentChannelId,
+      created: false,
+    };
+  }
+
+  const created = await input.guild.createThread({
+    name: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    parentChannelId,
+    autoArchiveDuration: 10_080,
+    reason: "AI Agent Discord Connector release maintenance",
+  });
+  await registerMaintenanceThread({
+    controlApi: input.controlApi,
+    stateStore: input.stateStore,
+    computerId: input.computerId,
+    workspaceRoot: input.defaultWorkspaceRoot,
+    channelId: created.id,
+    parentChannelId,
+    channelMode,
+  });
+
+  return {
+    agent,
+    channelId: created.id,
+    parentChannelId,
+    created: true,
+  };
 }
 
 function defaultGeneralChatsRoot(): string {

@@ -29,6 +29,10 @@ describe("connector discovery markers", () => {
         codex: "1527202616818405498",
         claude: "1528612744973123727",
       },
+      maintenance: {
+        agent: "claude",
+        channelId: "1528612744973123999",
+      },
       registeredAt: "2026-07-24T00:00:00.000Z",
     });
 
@@ -43,6 +47,10 @@ describe("connector discovery markers", () => {
       channels: {
         codex: "1527202616818405498",
         claude: "1528612744973123727",
+      },
+      maintenance: {
+        agent: "claude",
+        channelId: "1528612744973123999",
       },
       registeredAt: "2026-07-24T00:00:00.000Z",
     });

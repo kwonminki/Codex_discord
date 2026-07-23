@@ -113,7 +113,7 @@ Codex 또는 Claude Code가 작업 중일 때 같은 스레드에 보낸 일반 
 
 ### 원클릭 서버 업데이트
 
-Coordinator와 GitHub release 공지를 활성화하면 버전 공지 아래에 **등록 서버 업데이트** 버튼이 표시됩니다. 버튼을 누를 때 온라인 Connector가 자신을 실시간 등록하고, Coordinator가 `computerId`별로 대표 agent 채널 하나만 선택해 안전 업데이트를 요청합니다. Codex와 Claude Code를 모두 쓰는 서버에도 요청은 한 번만 전송되며, 설치 에이전트가 서버 구성에 맞는 대표 agent를 정합니다.
+Coordinator와 GitHub release 공지를 활성화하면 버전 공지 아래에 **등록 서버 업데이트** 버튼이 표시됩니다. 버튼을 누를 때 각 온라인 Connector는 선택된 agent의 부모 채널 아래에 `디스코드봇업데이트` 전용 스레드를 찾거나 한 번만 생성합니다. Coordinator는 `computerId`별 전용 스레드 하나에만 안전 업데이트를 요청하므로 사용자가 작업 중인 세션을 침범하지 않습니다. Codex와 Claude Code를 모두 쓰는 서버에도 요청은 한 번만 전송되며, 설치 에이전트가 서버 구성에 맞는 대표 agent를 정합니다.
 
 ## 파일과 미디어
 

@@ -113,7 +113,7 @@ When a separate Coordinator Bot is enabled, `/agent-chat` links the current thre
 
 ### One-click server updates
 
-With the Coordinator and GitHub release announcements enabled, each version notice gets an **Update registered servers** button. Online connectors identify themselves when the button is clicked, and the Coordinator selects exactly one representative agent channel per `computerId`. A server configured for both Codex and Claude Code still receives only one update request; the installation agent chooses the appropriate maintenance agent.
+With the Coordinator and GitHub release announcements enabled, each version notice gets an **Update registered servers** button. On discovery, every online Connector finds or creates one dedicated `디스코드봇업데이트` thread under its selected agent parent channel. The Coordinator sends the update only to that thread for each `computerId`, leaving active user sessions untouched. A server configured for both Codex and Claude Code still receives only one update request; the installation agent chooses the appropriate maintenance agent.
 
 ## Files and media
 

@@ -15,7 +15,9 @@ import {
   createForkedDiscordSessionThread,
   createNewCodexChatChannel,
   discardPendingDiscordSessionThread,
+  ensureConnectorMaintenanceThread,
   linkPendingNewCodexChatSession,
+  type ConnectorMaintenanceThreadResult,
 } from "./codexNewChat.js";
 import { archiveSyncedCodexSession } from "./codexSessionArchive.js";
 import {
@@ -295,6 +297,7 @@ export async function startBot(): Promise<void> {
   const relayPresenceStore = connectConfig?.mode === "direct" ? createAgentRelayPresenceStore() : null;
   const answerCopyStore = createAnswerCopyStore();
   const activelyStreamedSessionIds = new Set<string>();
+  let connectorMaintenanceThreadPromise: Promise<ConnectorMaintenanceThreadResult> | null = null;
 
   if (requestedMode === "direct" && connectConfig?.mode !== "direct") {
     throw new Error("Direct mode requires .connect/config.json. Run `pnpm connect setup --direct`.");
@@ -1073,22 +1076,46 @@ export async function startBot(): Promise<void> {
       ? (state) => relayPresenceStore.apply(state)
       : undefined,
     onConnectorDiscovery:
-      connectConfig?.mode === "direct"
-        ? async (discoveryId) => ({
-            version: 1,
-            discoveryId,
-            computerId: connectConfig.direct.computerId,
-            computerDisplayName: connectConfig.direct.computerDisplayName,
-            connectorVersion: await connectorPackageVersion(),
-            preferredAgent: maintenanceAgent(
+      connectConfig?.mode === "direct" && directStateStore
+        ? async (discoveryId, guild) => {
+            if (!guild) {
+              return null;
+            }
+            const preferredAgent = maintenanceAgent(
               process.env.CONNECT_MAINTENANCE_AGENT ?? connectConfig.direct.maintenanceAgent,
-            ),
-            channels: {
-              codex: connectConfig.direct.channelId,
-              claude: connectConfig.direct.claudeChannelId?.trim() || null,
-            },
-            registeredAt: new Date().toISOString(),
-          })
+            );
+            connectorMaintenanceThreadPromise ??= ensureConnectorMaintenanceThread({
+              guild,
+              controlApi: controlApiClient,
+              stateStore: directStateStore,
+              computerId: connectConfig.direct.computerId,
+              defaultWorkspaceRoot: connectConfig.direct.workspaceRoot,
+              preferredAgent,
+              codexParentChannelId: connectConfig.direct.channelId,
+              claudeParentChannelId: connectConfig.direct.claudeChannelId,
+            }).finally(() => {
+              connectorMaintenanceThreadPromise = null;
+            });
+            const maintenance = await connectorMaintenanceThreadPromise;
+
+            return {
+              version: 1,
+              discoveryId,
+              computerId: connectConfig.direct.computerId,
+              computerDisplayName: connectConfig.direct.computerDisplayName,
+              connectorVersion: await connectorPackageVersion(),
+              preferredAgent,
+              channels: {
+                codex: connectConfig.direct.channelId,
+                claude: connectConfig.direct.claudeChannelId?.trim() || null,
+              },
+              maintenance: {
+                agent: maintenance.agent,
+                channelId: maintenance.channelId,
+              },
+              registeredAt: new Date().toISOString(),
+            };
+          }
         : undefined,
   });
   attachDiscordInteractionHandler(client, handleMessage, {

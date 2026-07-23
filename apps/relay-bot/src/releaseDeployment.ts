@@ -66,15 +66,19 @@ export function selectConnectorUpdateTargets(
   }
 
   return [...latestByComputer.values()]
-    .map((presence): ConnectorUpdateTarget => {
-      const useClaude = presence.preferredAgent === "claude" && Boolean(presence.channels.claude);
-      return {
-        computerId: presence.computerId,
-        computerDisplayName: presence.computerDisplayName,
-        connectorVersion: presence.connectorVersion,
-        agent: useClaude ? "claude" : "codex",
-        channelId: useClaude ? presence.channels.claude! : presence.channels.codex,
-      };
+    .flatMap((presence): ConnectorUpdateTarget[] => {
+      if (!presence.maintenance) {
+        return [];
+      }
+      return [
+        {
+          computerId: presence.computerId,
+          computerDisplayName: presence.computerDisplayName,
+          connectorVersion: presence.connectorVersion,
+          agent: presence.maintenance.agent,
+          channelId: presence.maintenance.channelId,
+        },
+      ];
     })
     .sort((left, right) =>
       left.computerDisplayName.localeCompare(right.computerDisplayName) ||

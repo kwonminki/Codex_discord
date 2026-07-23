@@ -223,10 +223,19 @@ describe("bot entrypoint", () => {
         },
       );
       const discoveryOptions = attachDiscordMessageHandler.mock.calls[0]?.[2] as {
-        onConnectorDiscovery(discoveryId: string): Promise<unknown>;
+        onConnectorDiscovery(discoveryId: string, guild: unknown): Promise<unknown>;
       };
       await expect(
-        discoveryOptions.onConnectorDiscovery("30519a6b-5fd5-4944-9fd2-2e3293c1c925"),
+        discoveryOptions.onConnectorDiscovery(
+          "30519a6b-5fd5-4944-9fd2-2e3293c1c925",
+          {
+            createCategory: vi.fn(),
+            createTextChannel: vi.fn(),
+            createThread: vi.fn().mockResolvedValue({ id: "maintenance-thread-1" }),
+            findThreadByName: vi.fn().mockResolvedValue(null),
+            ensureChannelAvailable: vi.fn().mockResolvedValue(true),
+          },
+        ),
       ).resolves.toMatchObject({
         computerId: "local-dev",
         computerDisplayName: "Local Dev",
@@ -235,6 +244,10 @@ describe("bot entrypoint", () => {
         channels: {
           codex: "channel-1",
           claude: null,
+        },
+        maintenance: {
+          agent: "codex",
+          channelId: "maintenance-thread-1",
         },
       });
       expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(

@@ -140,6 +140,7 @@ describe("attachDiscordMessageHandler", () => {
         connectorVersion: "1.3.0",
         preferredAgent: "codex",
         channels: { codex: "100", claude: "101" },
+        maintenance: { agent: "codex", channelId: "102" },
         registeredAt: "2026-07-24T00:00:00.000Z",
       }),
     });

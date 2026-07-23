@@ -4,11 +4,124 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CONNECTOR_MAINTENANCE_THREAD_NAME,
   createForkedDiscordSessionThread,
   createNewCodexChatChannel,
   discardPendingDiscordSessionThread,
+  ensureConnectorMaintenanceThread,
 } from "./codexNewChat.js";
 import { createDirectSyncStateStore } from "./directState.js";
+
+describe("ensureConnectorMaintenanceThread", () => {
+  it("creates one dedicated thread and reuses it on later discovery requests", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "maintenance-thread-"));
+
+    try {
+      const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+      const guild = {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: "maintenance-thread-1" }),
+        findThreadByName: vi.fn().mockResolvedValue(null),
+        ensureChannelAvailable: vi.fn().mockResolvedValue(true),
+      };
+      const controlApi = {
+        createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-1" }),
+      };
+      const input = {
+        guild,
+        controlApi,
+        stateStore,
+        computerId: "local-dev",
+        defaultWorkspaceRoot: tempRoot,
+        preferredAgent: "codex" as const,
+        codexParentChannelId: "codex-main",
+        claudeParentChannelId: "claude-main",
+      };
+
+      await expect(ensureConnectorMaintenanceThread(input)).resolves.toEqual({
+        agent: "codex",
+        channelId: "maintenance-thread-1",
+        parentChannelId: "codex-main",
+        created: true,
+      });
+      await expect(ensureConnectorMaintenanceThread(input)).resolves.toEqual({
+        agent: "codex",
+        channelId: "maintenance-thread-1",
+        parentChannelId: "codex-main",
+        created: false,
+      });
+
+      expect(guild.createThread).toHaveBeenCalledOnce();
+      expect(guild.createThread).toHaveBeenCalledWith(expect.objectContaining({
+        name: CONNECTOR_MAINTENANCE_THREAD_NAME,
+        parentChannelId: "codex-main",
+      }));
+      expect(controlApi.createManagedChannel).toHaveBeenCalledOnce();
+      await expect(stateStore.findSessionChannelByDiscordId("maintenance-thread-1")).resolves.toMatchObject({
+        channelPurpose: "maintenance",
+        channelMode: "session-linked",
+        discordParentChannelId: "codex-main",
+        threadName: CONNECTOR_MAINTENANCE_THREAD_NAME,
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("registers an existing Discord thread after a stale mapping is removed", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "maintenance-thread-"));
+
+    try {
+      const stateStore = createDirectSyncStateStore(path.join(tempRoot, "state.json"));
+      const controlApi = {
+        createManagedChannel: vi.fn().mockResolvedValue({ id: "managed-1" }),
+      };
+      const initialGuild = {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: "deleted-thread" }),
+        findThreadByName: vi.fn().mockResolvedValue(null),
+        ensureChannelAvailable: vi.fn().mockResolvedValue(true),
+      };
+      const common = {
+        controlApi,
+        stateStore,
+        computerId: "local-dev",
+        defaultWorkspaceRoot: tempRoot,
+        preferredAgent: "claude" as const,
+        codexParentChannelId: "codex-main",
+        claudeParentChannelId: "claude-main",
+      };
+      await ensureConnectorMaintenanceThread({ ...common, guild: initialGuild });
+
+      const replacementGuild = {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        createThread: vi.fn(),
+        findThreadByName: vi.fn().mockResolvedValue({ id: "existing-thread" }),
+        ensureChannelAvailable: vi.fn().mockResolvedValue(false),
+      };
+      await expect(
+        ensureConnectorMaintenanceThread({ ...common, guild: replacementGuild }),
+      ).resolves.toEqual({
+        agent: "claude",
+        channelId: "existing-thread",
+        parentChannelId: "claude-main",
+        created: false,
+      });
+
+      expect(replacementGuild.createThread).not.toHaveBeenCalled();
+      await expect(stateStore.findSessionChannelByDiscordId("deleted-thread")).resolves.toBeNull();
+      await expect(stateStore.findSessionChannelByDiscordId("existing-thread")).resolves.toMatchObject({
+        channelPurpose: "maintenance",
+        channelMode: "claude-code",
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("createNewCodexChatChannel", () => {
   it("creates a category-less pending Codex chat channel in a dedicated general chat folder by default", async () => {

@@ -21,6 +21,7 @@ export interface SyncedWorkspaceState {
 
 export type TranscriptSyncMode = "on-chat" | "realtime";
 export type DiscordSessionDeliveryMode = "channel" | "thread";
+export type DiscordSessionChannelPurpose = "maintenance";
 
 export interface SyncedSessionChannelState {
   codexSessionId: string | null;
@@ -33,6 +34,7 @@ export interface SyncedSessionChannelState {
   discordChannelId: string;
   discordParentChannelId?: string | null;
   discordDeliveryMode?: DiscordSessionDeliveryMode;
+  channelPurpose?: DiscordSessionChannelPurpose | null;
   channelMode?: ChannelMode;
   claudeSessionId?: string | null;
   agentModelOverride?: string | null;

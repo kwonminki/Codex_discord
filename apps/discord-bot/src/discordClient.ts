@@ -66,7 +66,10 @@ interface DiscordMessageHandlerOptions {
   trustedRelayBotUserIds?: string[];
   relayControlChannelId?: string;
   onRelayState?(state: AgentRelayStateMarker): Promise<void> | void;
-  onConnectorDiscovery?(discoveryId: string): Promise<ConnectorPresence> | ConnectorPresence;
+  onConnectorDiscovery?(
+    discoveryId: string,
+    guild: DiscordGuildSurface | null,
+  ): Promise<ConnectorPresence | null> | ConnectorPresence | null;
 }
 
 const MAX_RELAY_PROMPT_ATTACHMENT_BYTES = 1024 * 1024;
@@ -136,7 +139,49 @@ interface ThreadParentDiscordChannelLike {
       autoArchiveDuration?: number;
       reason?: string;
     }): Promise<{ id: string }>;
+    fetchActive?(): Promise<unknown>;
+    fetchArchived?(options?: { fetchAll?: boolean; type?: "public" | "private" }): Promise<unknown>;
   };
+}
+
+interface DiscordThreadLike {
+  id: string;
+  name?: string;
+  parentId?: string | null;
+  archived?: boolean | null;
+  setArchived?(archived: boolean, reason?: string): Promise<unknown>;
+}
+
+function discordThreadsFrom(value: unknown): DiscordThreadLike[] {
+  const collection =
+    typeof value === "object" && value !== null && "threads" in value
+      ? (value as { threads?: unknown }).threads
+      : value;
+  if (
+    typeof collection !== "object" ||
+    collection === null ||
+    !("values" in collection) ||
+    typeof (collection as { values?: unknown }).values !== "function"
+  ) {
+    return [];
+  }
+
+  return [...(collection as { values(): IterableIterator<unknown> }).values()].filter(
+    (thread): thread is DiscordThreadLike =>
+      typeof thread === "object" &&
+      thread !== null &&
+      typeof (thread as DiscordThreadLike).id === "string",
+  );
+}
+
+function isUnknownDiscordChannelError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ((error as { code?: unknown }).code === 10_003 ||
+      (error as { code?: unknown }).code === "Unknown Channel")
+  );
 }
 
 async function clearChannelMessages(input: {
@@ -261,6 +306,53 @@ export function createDiscordGuildSurface(
 
       return { id: thread.id };
     },
+    async findThreadByName(input) {
+      const parentChannel = (await guild.channels.fetch(input.parentChannelId)) as ThreadParentDiscordChannelLike | null;
+      const threadManager = parentChannel?.threads;
+      if (!threadManager) {
+        return null;
+      }
+
+      const candidates: DiscordThreadLike[] = [];
+      if (typeof threadManager.fetchActive === "function") {
+        candidates.push(...discordThreadsFrom(await threadManager.fetchActive()));
+      }
+      if (typeof threadManager.fetchArchived === "function") {
+        candidates.push(...discordThreadsFrom(await threadManager.fetchArchived({
+          type: "public",
+          fetchAll: true,
+        })));
+      }
+      const matchingThread = candidates.find(
+        (thread) =>
+          thread.name === input.name &&
+          (!thread.parentId || thread.parentId === input.parentChannelId),
+      );
+      if (!matchingThread) {
+        return null;
+      }
+      if (matchingThread.archived && typeof matchingThread.setArchived === "function") {
+        await matchingThread.setArchived(false, "AI Agent Discord Connector release maintenance");
+      }
+      return { id: matchingThread.id };
+    },
+    async ensureChannelAvailable(id) {
+      try {
+        const channel = (await guild.channels.fetch(id)) as DiscordThreadLike | null;
+        if (!channel) {
+          return false;
+        }
+        if (channel.archived && typeof channel.setArchived === "function") {
+          await channel.setArchived(false, "AI Agent Discord Connector release maintenance");
+        }
+        return true;
+      } catch (error) {
+        if (isUnknownDiscordChannelError(error)) {
+          return false;
+        }
+        throw error;
+      }
+    },
     async sendTextMessage(channelId, content, options) {
       const channel = await guild.channels.fetch(channelId);
       const sender = channel as { send?: (message: string | DiscordMessagePayload) => Promise<unknown> } | null;
@@ -348,7 +440,10 @@ export function attachDiscordMessageHandler(
         return;
       }
       if (connectorDiscoveryId) {
-        const presence = await options.onConnectorDiscovery?.(connectorDiscoveryId);
+        const presence = await options.onConnectorDiscovery?.(
+          connectorDiscoveryId,
+          createDiscordGuildSurface(discordMessage.guild, options),
+        );
         if (presence) {
           await discordMessage.reply({
             content: formatConnectorPresenceMarker(presence),
