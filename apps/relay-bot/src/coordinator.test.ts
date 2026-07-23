@@ -260,6 +260,71 @@ describe("relay coordinator", () => {
     }
   });
 
+  it("atomically rejects an extension request and releases both threads", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-extension-reject-"));
+    let messageCount = 0;
+    const store = createRelayConversationStore(root);
+    const coordinator = createRelayCoordinator({
+      store,
+      now: () => Date.parse("2026-07-23T00:00:00.000Z"),
+      transport: {
+        async sendPrompt() {
+          messageCount += 1;
+          return { messageId: `message-${messageCount}` };
+        },
+        async sendFinalNotice() {},
+      },
+    });
+
+    try {
+      const started = await coordinator.start({
+        guildId: "guild-1",
+        originThreadId: "thread-a",
+        peerThreadId: "thread-b",
+        operatorUserId: "user-1",
+        operatorRoleIds: ["role-1"],
+        goal: "연장 거절 테스트",
+        maxRounds: 1,
+        timeoutMs: 60_000,
+      });
+      await coordinator.handleTurnResult(result({
+        requestMessageId: "message-1",
+        sourceThreadId: "thread-a",
+        status: "extend",
+        text: "추가 검토 필요",
+      }), []);
+
+      const outcomes = await Promise.allSettled([
+        coordinator.rejectExtension(started.id),
+        coordinator.grantExtension(started.id, 1),
+      ]);
+      expect(outcomes[0]?.status).toBe("fulfilled");
+      expect(outcomes[1]?.status).toBe("rejected");
+      const stopped = await coordinator.status("thread-a");
+      expect(stopped).toMatchObject({
+        status: "stopped",
+        statusDetail: "사용자가 추가 왕복 요청을 거절하고 대화를 중지했습니다.",
+        finalNoticeSentAt: "2026-07-23T00:00:00.000Z",
+      });
+      expect(await store.findActiveByThread("thread-a")).toBeNull();
+      expect(await store.findActiveByThread("thread-b")).toBeNull();
+
+      const next = await coordinator.start({
+        guildId: "guild-1",
+        originThreadId: "thread-a",
+        peerThreadId: "thread-c",
+        operatorUserId: "user-1",
+        operatorRoleIds: ["role-1"],
+        goal: "스레드 재사용",
+        maxRounds: 1,
+        timeoutMs: 60_000,
+      });
+      expect(next.status).toBe("running");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("atomically prevents overlapping conversations on the same thread", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-overlap-"));
     let messageCount = 0;

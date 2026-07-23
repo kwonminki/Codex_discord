@@ -4,6 +4,7 @@ import {
   DEFAULT_MAX_ROUNDS,
   RELAY_COMMANDS,
   parseRelayExtensionButtonId,
+  parseRelayExtensionRejectButtonId,
   parseRelayThreadId,
   relayExtensionActionRows,
   relayThreadAutocompleteChoices,
@@ -25,15 +26,24 @@ describe("relay bot thread selection", () => {
   it("builds a one-round extension button with an exact conversation ID", () => {
     const conversationId = "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0";
     const customId = `agent-relay:extend:${conversationId}`;
+    const rejectCustomId = `agent-relay:reject-extension:${conversationId}`;
     expect(parseRelayExtensionButtonId(customId)).toBe(conversationId);
     expect(parseRelayExtensionButtonId("agent-relay:extend:not-a-uuid")).toBeNull();
-    expect(relayExtensionActionRows(conversationId)[0]?.toJSON()).toMatchObject({
-      components: [expect.objectContaining({
+    expect(parseRelayExtensionRejectButtonId(rejectCustomId)).toBe(conversationId);
+    expect(parseRelayExtensionRejectButtonId("agent-relay:reject-extension:not-a-uuid")).toBeNull();
+    const components = relayExtensionActionRows(conversationId)[0]?.toJSON().components;
+    expect(components).toEqual([
+      expect.objectContaining({
         custom_id: customId,
         label: "왕복 1회 추가",
         disabled: false,
-      })],
-    });
+      }),
+      expect.objectContaining({
+        custom_id: rejectCustomId,
+        label: "연장 거절 · 대화 종료",
+        disabled: false,
+      }),
+    ]);
   });
 
   it("accepts autocomplete IDs, thread mentions, and Discord links", () => {

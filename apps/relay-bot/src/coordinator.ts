@@ -375,6 +375,10 @@ export function createRelayCoordinator(input: {
       }
     },
 
+    async rejectExtension(conversationId: string): Promise<RelayConversation> {
+      return input.store.rejectExtension(conversationId, new Date(now()).toISOString());
+    },
+
     async status(threadId: string): Promise<RelayConversation | null> {
       return input.store.findLatestByThread(threadId);
     },

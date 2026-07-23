@@ -93,7 +93,7 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므
 | `/howtouse` | 현재 agent에게 Discord 파일·설문 전송법 알려주기 |
 | `/where` | 현재 컴퓨터, 작업 폴더와 session ID 확인 |
 
-별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림의 버튼으로 왕복 1회를 추가할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. `/agent-chat-status`로 상태를 확인하고 `/agent-chat-stop`으로 다음 relay를 중단할 수 있습니다.
+별도의 Coordinator Bot을 활성화한 서버에서는 `/agent-chat`으로 현재 스레드와 다른 agent 스레드를 연결할 수 있습니다. 기본 최대 20왕복이며 A와 B가 각각 한 번 답하면 1왕복입니다. 두 agent의 최종 공개 답변과 Discord 첨부파일을 번갈아 전달하고, `extend` 요청이 오면 Operator가 완료 알림에서 왕복 1회를 추가하거나 연장을 거절하고 대화를 종료할 수 있습니다. 양쪽이 종료에 동의하거나 설정한 왕복·시간 제한에 도달하면 Operator 역할을 한 번 멘션합니다. `/agent-chat-status`로 상태를 확인하고 `/agent-chat-stop`으로 다음 relay를 중단할 수 있습니다.
 
 ## 파일과 미디어
 

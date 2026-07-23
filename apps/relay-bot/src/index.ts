@@ -40,6 +40,7 @@ const DEFAULT_TIMEOUT_MINUTES = 120;
 const THREAD_AUTOCOMPLETE_LIMIT = 25;
 const THREAD_CACHE_TTL_MS = 2_000;
 const EXTENSION_BUTTON_PREFIX = "agent-relay:extend:";
+const EXTENSION_REJECT_BUTTON_PREFIX = "agent-relay:reject-extension:";
 
 export const RELAY_COMMANDS = [
   {
@@ -109,12 +110,27 @@ export function parseRelayExtensionButtonId(customId: string): string | null {
     : null;
 }
 
+export function parseRelayExtensionRejectButtonId(customId: string): string | null {
+  if (!customId.startsWith(EXTENSION_REJECT_BUTTON_PREFIX)) {
+    return null;
+  }
+  const conversationId = customId.slice(EXTENSION_REJECT_BUTTON_PREFIX.length);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)
+    ? conversationId.toLowerCase()
+    : null;
+}
+
 export function relayExtensionActionRows(conversationId: string, disabled = false) {
   return [new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${EXTENSION_BUTTON_PREFIX}${conversationId}`)
       .setLabel("왕복 1회 추가")
       .setStyle(ButtonStyle.Primary)
+      .setDisabled(disabled),
+    new ButtonBuilder()
+      .setCustomId(`${EXTENSION_REJECT_BUTTON_PREFIX}${conversationId}`)
+      .setLabel("연장 거절 · 대화 종료")
+      .setStyle(ButtonStyle.Danger)
       .setDisabled(disabled),
   )];
 }
@@ -512,7 +528,8 @@ export async function startRelayBot(): Promise<void> {
 
     if (interaction.isButton()) {
       const conversationId = parseRelayExtensionButtonId(interaction.customId);
-      if (!conversationId) {
+      const rejectionConversationId = parseRelayExtensionRejectButtonId(interaction.customId);
+      if (!conversationId && !rejectionConversationId) {
         return;
       }
       void (async () => {
@@ -520,22 +537,30 @@ export async function startRelayBot(): Promise<void> {
           return;
         }
         await interaction.deferReply({ ephemeral: true });
-        const conversation = await coordinator.grantExtension(conversationId, 1);
+        const targetConversationId = conversationId ?? rejectionConversationId!;
+        const conversation = conversationId
+          ? await coordinator.grantExtension(conversationId, 1)
+          : await coordinator.rejectExtension(targetConversationId);
         await interaction.message.edit({
-          components: relayExtensionActionRows(conversationId, true),
+          components: relayExtensionActionRows(targetConversationId, true),
         }).catch(() => undefined);
-        await interaction.editReply([
-          "왕복 1회를 추가하고 대화를 재개했습니다.",
-          conversationSummary(conversation),
-        ].join("\n"));
+        await interaction.editReply(conversationId
+          ? [
+              "왕복 1회를 추가하고 대화를 재개했습니다.",
+              conversationSummary(conversation),
+            ].join("\n")
+          : [
+              "추가 왕복을 거절하고 대화를 종료했습니다.",
+              conversationSummary(conversation),
+            ].join("\n"));
       })().catch(async (error) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error("relay-bot extension interaction failed", error);
         if (interaction.deferred || interaction.replied) {
-          await interaction.editReply(`추가 왕복을 부여하지 못했습니다: ${message}`).catch(() => undefined);
+          await interaction.editReply(`추가 왕복 요청을 처리하지 못했습니다: ${message}`).catch(() => undefined);
         } else {
           await interaction.reply({
-            content: `추가 왕복을 부여하지 못했습니다: ${message}`,
+            content: `추가 왕복 요청을 처리하지 못했습니다: ${message}`,
             ephemeral: true,
           }).catch(() => undefined);
         }

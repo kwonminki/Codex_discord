@@ -204,6 +204,28 @@ export function createRelayConversationStore(rootPath = defaultRelayConversation
         return { conversations: next, result: updated };
       });
     },
+    async rejectExtension(conversationId: string, completedAt: string): Promise<RelayConversation> {
+      return mutate((conversations) => {
+        const index = conversations.findIndex((conversation) => conversation.id === conversationId);
+        const conversation = conversations[index];
+        if (!conversation || conversation.status !== "extension-requested") {
+          throw new Error("이 대화는 현재 추가 왕복 승인을 기다리고 있지 않습니다.");
+        }
+        const updated = relayConversationSchema.parse({
+          ...conversation,
+          status: "stopped",
+          statusDetail: "사용자가 추가 왕복 요청을 거절하고 대화를 중지했습니다.",
+          pendingRequestMessageId: null,
+          lastDoneThreadId: null,
+          completedAt,
+          finalNoticeSentAt: conversation.finalNoticeSentAt ?? completedAt,
+          updatedAt: completedAt,
+        });
+        const next = [...conversations];
+        next[index] = updated;
+        return { conversations: next, result: updated };
+      });
+    },
     async findLatestByThread(threadId: string): Promise<RelayConversation | null> {
       return (await this.list())
         .filter((conversation) =>

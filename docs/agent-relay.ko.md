@@ -14,7 +14,7 @@ Agent thread A에서 실행합니다.
 
 Coordinator는 private relay-control 채널로 A에 첫 실행 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 실행 규칙과 전체 입력 prompt는 작업 thread에 노출하지 않습니다. 상대 thread에는 agent의 최종 공개 답변과 첨부파일만 복사하며, 중간 진행·도구 event는 다음 agent의 입력으로 전달하지 않습니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread와 다음 비공개 요청에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
 
-두 agent가 연속으로 `done`을 반환하면 정상 종료합니다. A와 B가 각각 한 번 답하는 것을 왕복 1회로 계산하며, 모든 agent prompt에는 현재 왕복과 개별 agent turn이 표시됩니다. Agent가 `extend`를 반환하면 Operator에게 추가 왕복을 요청하고 대화를 잠시 멈춥니다. 최종 알림의 **왕복 1회 추가** 버튼을 누르면 허용량을 agent turn 2개 늘리고 반대편 agent부터 재개합니다. `max_rounds`, 전체 timeout, `blocked`, turn 실패 또는 `/agent-chat-stop`도 대화를 종료하며 최초 A thread에서 Operator 역할을 한 번 멘션합니다. 승인이나 사용자 질문은 기존 Connector가 즉시 Operator를 멘션하고 해당 turn을 기다립니다.
+두 agent가 연속으로 `done`을 반환하면 정상 종료합니다. A와 B가 각각 한 번 답하는 것을 왕복 1회로 계산하며, 모든 agent prompt에는 현재 왕복과 개별 agent turn이 표시됩니다. Agent가 `extend`를 반환하면 Operator에게 추가 왕복을 요청하고 대화를 잠시 멈춥니다. 최종 알림의 **왕복 1회 추가** 버튼을 누르면 허용량을 agent turn 2개 늘리고 반대편 agent부터 재개하며, **연장 거절 · 대화 종료**를 누르면 즉시 `stopped` 처리하고 두 thread를 해제합니다. `max_rounds`, 전체 timeout, `blocked`, turn 실패 또는 `/agent-chat-stop`도 대화를 종료하며 최초 A thread에서 Operator 역할을 한 번 멘션합니다. 승인이나 사용자 질문은 기존 Connector가 즉시 Operator를 멘션하고 해당 turn을 기다립니다.
 
 ## Discord 구성
 
@@ -81,7 +81,7 @@ macOS에서는 기존 `scripts/start-mac-direct.sh relay`를 호출하는 별도
 ## 한도와 주의사항
 
 - 기본 20 왕복, 120분이며 명령에서 조정할 수 있습니다. 왕복 1회는 A와 B의 답변 하나씩, 즉 agent turn 2개입니다.
-- `extend` 요청 알림의 **왕복 1회 추가** 버튼은 Operator role만 사용할 수 있으며, 한 번 누를 때 agent turn 2개를 추가합니다. 같은 버튼을 다시 누르는 중복 요청은 거부합니다.
+- `extend` 요청 알림의 **왕복 1회 추가**와 **연장 거절 · 대화 종료** 버튼은 Operator role만 사용할 수 있습니다. 승인은 agent turn 2개를 추가하고, 거절은 대화를 `stopped` 처리해 두 thread를 해제합니다. 동시에 누르거나 이미 처리된 버튼을 다시 누르면 먼저 처리된 동작만 성공합니다.
 - 한 turn에서 다른 서버로 relay하는 source 결과 파일은 최대 9개, 파일당 10MiB입니다. 긴 peer 답변은 열 번째 text attachment로 전달될 수 있습니다.
 - Relay가 진행되는 두 session을 Desktop/IDE나 일반 Discord 요청으로 동시에 사용하지 않는 것이 좋습니다. 사람 메시지는 relay turn에 steering되지 않고 별도 queue로 들어가지만, session 맥락 자체는 공유됩니다.
 - 일반 bot 메시지 허용으로 구현하지 마세요. exact Coordinator Bot ID, private control channel ID, exact request marker, target agent thread mode와 machine-readable result callback 검증을 모두 유지해야 합니다. Coordinator가 작업 thread에 남긴 공개 안내와 상대 답변 복사본은 실행 요청이 아닙니다.
