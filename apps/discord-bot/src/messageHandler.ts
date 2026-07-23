@@ -28,6 +28,7 @@ import type { DiscordIncomingAttachment, MaterializedDiscordAttachment } from ".
 import { extractAgentSurveyRequests } from "./agentSurvey.js";
 import type { AgentDefaultSettings, AgentEffort, AgentKind } from "./agentSettings.js";
 import { createAgentSettingsController } from "./agentSettingsController.js";
+import { buildAgentRelayCallbackMessages, collectAgentResultFiles } from "./agentRelayBridge.js";
 import type { ScheduleCommandRequest, ScheduleCommandResult } from "./scheduler.js";
 import { routeDiscordMessage } from "./commandRouter.js";
 import type { DiscordMessagePayload } from "./responses.js";
@@ -125,6 +126,7 @@ export type { ManagedDiscordChannelContext } from "./channelContext.js";
 
 export interface DiscordMessageLike {
   authorBot: boolean;
+  relayRequest?: boolean;
   userId: string;
   channelId: string;
   content: string;
@@ -254,9 +256,13 @@ export interface CreateDiscordMessageHandlerInput {
     userId: string;
     content: string;
     roleIds: string[];
+    authorBot?: boolean;
+    messageId?: string;
+    relayRequest?: boolean;
     createdAt?: string;
   }) => Promise<{ requestId: string; createdAt: string }>;
   completeDurableRequest?: (requestId: string) => Promise<void>;
+  relayControlChannelId?: string | null;
   materializeIncomingAttachments?: (input: {
     messageId: string;
     attachments: DiscordIncomingAttachment[];
@@ -439,7 +445,7 @@ async function sendThreadCompletionMention(input: {
   failed: boolean;
   deferForPendingRequest?: boolean;
 }): Promise<"sent" | "deferred" | "unavailable"> {
-  if (input.deferForPendingRequest) {
+  if (input.message.relayRequest || input.deferForPendingRequest) {
     return "deferred";
   }
 
@@ -465,6 +471,41 @@ async function sendThreadCompletionMention(input: {
   } catch (error) {
     console.error("discord-bot failed to send thread completion mention", error);
     return "unavailable";
+  }
+}
+
+async function sendAgentRelayCallback(input: {
+  message: DiscordMessageLike;
+  relayControlChannelId?: string | null;
+  agentLabel: "Codex" | "Claude Code";
+  response: { result?: unknown; error?: { message: string } };
+  resultPayload: DiscordMessagePayload;
+}): Promise<void> {
+  const requestMessageId = input.message.messageId?.trim();
+  const controlChannelId = input.relayControlChannelId?.trim();
+
+  if (!input.message.relayRequest || !requestMessageId || !controlChannelId || !input.message.guild?.sendTextMessage) {
+    return;
+  }
+
+  const failed = promptResponseFailed(input.response);
+  const finalMessage = extractAgentResponseFinalMessage(input.response) ?? input.response.error?.message ?? "";
+  const callbackMessages = buildAgentRelayCallbackMessages({
+    requestMessageId,
+    sourceThreadId: input.message.channelId,
+    agentLabel: input.agentLabel,
+    status: failed ? "failed" : "completed",
+    finalMessage,
+    errorMessage: failed ? finalMessage || "Agent relay turn failed." : null,
+    files: collectAgentResultFiles(input.resultPayload),
+  });
+
+  try {
+    for (const callbackMessage of callbackMessages) {
+      await input.message.guild.sendTextMessage(controlChannelId, callbackMessage);
+    }
+  } catch (error) {
+    console.error(`discord-bot failed to send ${input.agentLabel} relay callback`, error);
   }
 }
 
@@ -1824,7 +1865,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(codexMessage, response),
-          questionMentionRoleIds: channelContext.allowedRoleIds,
+          questionMentionRoleIds: message.relayRequest ? [] : channelContext.allowedRoleIds,
         });
         const responseFailed = promptResponseFailed(response);
         const completionDelivery = await sendThreadCompletionMention({
@@ -1857,7 +1898,7 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
           payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
-          questionMentionRoleIds: channelContext.allowedRoleIds,
+          questionMentionRoleIds: message.relayRequest ? [] : channelContext.allowedRoleIds,
         });
         await sendThreadCompletionMention({
           message,
@@ -2193,14 +2234,22 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           });
         }
 
+        const resultPayload = formatAgentResultUpdate(claudeMessage, responseForDisplay);
         const questionMentionSent = await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatAgentResultUpdate(claudeMessage, responseForDisplay),
+          payload: resultPayload,
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: responseFailed }),
-          questionMentionRoleIds: channelContext.allowedRoleIds,
+          questionMentionRoleIds: message.relayRequest ? [] : channelContext.allowedRoleIds,
+        });
+        await sendAgentRelayCallback({
+          message,
+          relayControlChannelId: input.relayControlChannelId,
+          agentLabel: "Claude Code",
+          response: responseForDisplay,
+          resultPayload,
         });
         await sendThreadCompletionMention({
           message,
@@ -2214,14 +2263,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
       } catch (error) {
         progressReporter.finish();
         const messageText = error instanceof Error ? error.message : "Claude Code prompt failed";
+        const failedResponse = { error: { message: messageText } };
+        const resultPayload = formatAgentResultUpdate(claudeMessage, failedResponse);
         await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatAgentResultUpdate(claudeMessage, { error: { message: messageText } }),
+          payload: resultPayload,
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Claude Code", failed: true }),
           questionMentionRoleIds: channelContext.allowedRoleIds,
+        });
+        await sendAgentRelayCallback({
+          message,
+          relayControlChannelId: input.relayControlChannelId,
+          agentLabel: "Claude Code",
+          response: failedResponse,
+          resultPayload,
         });
         await sendThreadCompletionMention({
           message,
@@ -2404,14 +2462,22 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         const responseFailed = promptResponseFailed(response);
+        const resultPayload = formatAgentResultUpdate(codexMessage, responseForDisplay);
         const questionMentionSent = await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatAgentResultUpdate(codexMessage, responseForDisplay),
+          payload: resultPayload,
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: responseFailed }),
-          questionMentionRoleIds: channelContext.allowedRoleIds,
+          questionMentionRoleIds: message.relayRequest ? [] : channelContext.allowedRoleIds,
+        });
+        await sendAgentRelayCallback({
+          message,
+          relayControlChannelId: input.relayControlChannelId,
+          agentLabel: "Codex",
+          response: responseForDisplay,
+          resultPayload,
         });
         const completionDelivery = await sendThreadCompletionMention({
           message,
@@ -2451,14 +2517,23 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
         }
 
         const messageText = error instanceof Error ? error.message : "Codex prompt failed";
+        const failedResponse = { error: { message: messageText } };
+        const resultPayload = formatAgentResultUpdate(codexMessage, failedResponse);
         await updateQueuedResultReply({
           message,
           queuedReply,
           fallbackReply: (replyMessage) => reply(replyMessage),
-          payload: formatAgentResultUpdate(codexMessage, { error: { message: messageText } }),
+          payload: resultPayload,
           postAsNewMessage: channelContext.discordDeliveryMode === "thread",
           terminalPayload: formatAgentResultPosted({ agentLabel: "Codex", failed: true }),
           questionMentionRoleIds: channelContext.allowedRoleIds,
+        });
+        await sendAgentRelayCallback({
+          message,
+          relayControlChannelId: input.relayControlChannelId,
+          agentLabel: "Codex",
+          response: failedResponse,
+          resultPayload,
         });
         await sendThreadCompletionMention({
           message,
@@ -2612,8 +2687,15 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
   }
 
   const handleDiscordMessage = async (incomingMessage: DiscordMessageLike): Promise<void> => {
-    if (incomingMessage.authorBot) {
+    if (incomingMessage.authorBot && !incomingMessage.relayRequest) {
       return;
+    }
+
+    if (incomingMessage.relayRequest) {
+      const relayChannelContext = await input.resolveChannelContext(incomingMessage.channelId);
+      if (!relayChannelContext || relayChannelContext.channelMode === "shell-admin") {
+        return;
+      }
     }
 
     const message = await prepareIncomingAttachments(incomingMessage);
@@ -2652,7 +2734,11 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
 
       if (routed.type === "queue-prompt") {
         queuedMessage = { ...message, content: routed.content };
-      } else if (queue?.activeMessage && await tryAutoSteerCodexTurn(message, channelContext, queue)) {
+      } else if (
+        queue?.activeMessage &&
+        queue.activeMessage.relayRequest === message.relayRequest &&
+        await tryAutoSteerCodexTurn(message, channelContext, queue)
+      ) {
         return;
       }
     }
@@ -2671,6 +2757,9 @@ export function createDiscordMessageHandler(input: CreateDiscordMessageHandlerIn
           userId: queuedMessage.userId,
           content: queuedMessage.content,
           roleIds: queuedMessage.roleIds,
+          authorBot: queuedMessage.authorBot,
+          messageId: queuedMessage.messageId,
+          relayRequest: queuedMessage.relayRequest,
           createdAt: queuedMessage.durableQueuedAt,
         });
         queuedMessage = {

@@ -55,12 +55,14 @@ apps/
   control-api/      experimental Hub mode API
   discord-bot/      Discord client, commands, buttons, channel routing
   local-agent/      experimental Hub mode local agent
+  relay-bot/        bounded agent-to-agent Discord coordinator
 packages/
   codex-adapter/    Codex session index, state, and transcript parsing
   core/             shared domain types and command policy
 docs/
   operator-guide.md operator-facing usage and safety guide
   technical-roadmap.md deferred architecture and packaging work
+  agent-relay.*.md agent-to-agent relay setup and safety
 ```
 
 Use the existing package boundaries when adding behavior. Prefer small, focused changes over cross-package rewrites.

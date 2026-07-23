@@ -25,6 +25,10 @@ export interface DirectConnectConfig {
     channelMode: ChannelMode;
     timeoutMs: number;
     codexHome: string;
+    relay?: {
+      trustedBotUserIds: string[];
+      controlChannelId: string;
+    };
   };
 }
 

@@ -53,6 +53,7 @@ Never commit or publish:
 - local database files
 - logs containing command output
 - `.connect/discord-queue` and `.connect/worker` dead-letter records
+- `.connect/relay-config.json` and `.connect/agent-relay`
 - Codex session or transcript files
 
 If a Discord token is exposed, rotate it immediately in the Discord Developer Portal and restart the connector.
@@ -73,6 +74,8 @@ Incoming attachment bytes are stored separately under `.connect/incoming-attachm
 Configure or disable a limit with `CONNECT_DISCORD_QUEUE_TTL_MS`, `CONNECT_DISCORD_QUEUE_MAX_REQUESTS`, `CONNECT_DISCORD_QUEUE_MAX_BYTES`, and `CONNECT_DISCORD_QUEUE_MAX_REQUEST_BYTES`. A value of `0` disables that limit.
 
 Use operating-system full-disk encryption for data at rest. Keep the repository and `.connect` outside Dropbox, OneDrive, iCloud Drive, Google Drive, Syncthing, network shares, and automatic backup scopes unless those systems are explicitly trusted and encrypted. Do not send tokens, passwords, private keys, or other secrets in Discord prompts merely because the local files have restrictive permissions.
+
+Agent Relay accepts bot-authored prompts only from explicitly configured Coordinator bot user IDs and only in agent session threads. Keep its control channel private, use a separate bot token, and do not broaden this exception to all bots or shell-admin channels. Relay state and result metadata may contain full agent answers.
 
 ## Shell Execution
 

@@ -17,6 +17,9 @@ describe("durable Discord request store", () => {
         userId: "user-1",
         content: "second",
         roleIds: ["role-1"],
+        authorBot: true,
+        messageId: "discord-message-2",
+        relayRequest: true,
         createdAt: "2026-07-21T00:00:02.000Z",
       });
       await store.enqueue({
@@ -30,7 +33,13 @@ describe("durable Discord request store", () => {
 
       await expect(store.list()).resolves.toMatchObject([
         { requestId: "request-1", content: "first" },
-        { requestId: "request-2", content: "second" },
+        {
+          requestId: "request-2",
+          content: "second",
+          authorBot: true,
+          messageId: "discord-message-2",
+          relayRequest: true,
+        },
       ]);
       await store.remove("request-1");
       await expect(store.list()).resolves.toMatchObject([{ requestId: "request-2" }]);

@@ -187,6 +187,9 @@ describe("connect setup config", () => {
     expect(buildManagedProcessCommands("direct", "bot")).toEqual([
       ["node", ["--import", "tsx", "apps/discord-bot/src/index.ts"], "dev:bot"],
     ]);
+    expect(buildManagedProcessCommands("direct", "relay")).toEqual([
+      ["node", ["--import", "tsx", "apps/relay-bot/src/index.ts"], "dev:relay"],
+    ]);
   });
 
   it("keeps operator config and state paths rooted in the launch directory", () => {

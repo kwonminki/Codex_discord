@@ -101,6 +101,10 @@ function resolveBoundedInteger(value: string | undefined, fallback: number, min:
   return Math.min(Math.max(parsed, min), max);
 }
 
+function identifierList(value: string | undefined): string[] {
+  return [...new Set((value ?? "").split(",").map((entry) => entry.trim()).filter(Boolean))];
+}
+
 export function shouldSkipBackgroundPolling(input: {
   loadAverage: number;
   cpuCount: number;
@@ -708,6 +712,9 @@ export async function startBot(): Promise<void> {
     scheduleCommand,
     updateChannelCwd: controlApiClient.updateChannelCwd,
     recordCommandAudit: controlApiClient.recordCommandAudit,
+    relayControlChannelId:
+      process.env.CONNECT_RELAY_CONTROL_CHANNEL_ID?.trim() ||
+      (connectConfig?.mode === "direct" ? connectConfig.direct.relay?.controlChannelId : undefined),
     persistDurableRequest: durableRequestStore
       ? (request) => durableRequestStore.enqueue(request)
       : undefined,
@@ -755,11 +762,13 @@ export async function startBot(): Promise<void> {
           for (const request of requests) {
             try {
               await processMessage({
-                authorBot: false,
+                authorBot: request.authorBot ?? false,
+                relayRequest: request.relayRequest,
                 userId: request.userId,
                 channelId: request.channelId,
                 content: request.content,
                 roleIds: request.roleIds,
+                messageId: request.messageId,
                 requestId: request.requestId,
                 durableQueuedAt: request.createdAt,
                 restoreOnly: true,
@@ -1019,7 +1028,18 @@ export async function startBot(): Promise<void> {
       timer.unref();
     }
   });
-  attachDiscordMessageHandler(client, handleMessage, { answerCopyStore, locale });
+  attachDiscordMessageHandler(client, handleMessage, {
+    answerCopyStore,
+    locale,
+    trustedRelayBotUserIds: (() => {
+      const environmentIds = identifierList(process.env.CONNECT_RELAY_BOT_USER_IDS);
+      return environmentIds.length > 0
+        ? environmentIds
+        : connectConfig?.mode === "direct"
+          ? connectConfig.direct.relay?.trustedBotUserIds
+          : undefined;
+    })(),
+  });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),
     answerCopyStore,

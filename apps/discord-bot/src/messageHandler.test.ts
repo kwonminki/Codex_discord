@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { agentRelayTurnResultSchema } from "../../../packages/core/src/index.js";
 import {
   DEFAULT_AGENT_PROMPT_TIMEOUT_MS,
   createDiscordMessageHandler,
@@ -38,6 +39,112 @@ describe("createDiscordMessageHandler", () => {
     expect(resolveAgentPromptTimeoutMs(3_000, "7200000")).toBe(7_200_000);
     expect(resolveAgentPromptTimeoutMs(3_000, "0")).toBe(0);
     expect(resolveAgentPromptTimeoutMs(10_000, "1000")).toBe(10_000);
+  });
+
+  it("accepts a trusted relay prompt only in an agent thread and returns a structured callback without a mention", async () => {
+    const sendTextMessage = vi.fn().mockResolvedValue({ id: "message-1" });
+    const submitCodexPrompt = vi.fn().mockResolvedValue({
+      jobId: "job-relay-1",
+      result: {
+        status: "completed",
+        finalMessage: [
+          "상대 agent에게 전달할 답변입니다.",
+          "```agent-relay",
+          '{"status":"continue","summary":"한 번 더 검토"}',
+          "```",
+        ].join("\n"),
+        sessionId: "session-relay-1",
+      },
+    });
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => ({
+        ...sessionChannelContext,
+        codexSessionId: "session-relay-1",
+        discordDeliveryMode: "thread",
+      }),
+      submitCommandJob: vi.fn(),
+      submitCodexPrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+      relayControlChannelId: "relay-control",
+    });
+
+    await handleMessage({
+      authorBot: true,
+      relayRequest: true,
+      userId: "trusted-relay-bot",
+      channelId: "thread-a",
+      messageId: "relay-request-1",
+      content: "상대 agent의 제안을 검토해줘",
+      roleIds: ["role-operator"],
+      guild: {
+        createCategory: vi.fn(),
+        createTextChannel: vi.fn(),
+        sendTextMessage,
+      },
+      reply: async () => ({ edit: async () => undefined }),
+    });
+
+    expect(submitCodexPrompt).toHaveBeenCalledTimes(1);
+    expect(sendTextMessage).toHaveBeenCalledTimes(2);
+    expect(sendTextMessage).toHaveBeenNthCalledWith(
+      1,
+      "thread-a",
+      expect.objectContaining({
+        embeds: [expect.objectContaining({
+          title: "답변",
+          description: "상대 agent에게 전달할 답변입니다.",
+        })],
+      }),
+    );
+    const callbackPayload = sendTextMessage.mock.calls[1]?.[1];
+    expect(sendTextMessage.mock.calls[1]?.[0]).toBe("relay-control");
+    expect(callbackPayload).toEqual(expect.objectContaining({
+      content: "agent-relay-result:relay-request-1",
+      allowedMentions: { parse: [] },
+    }));
+    const resultFile = callbackPayload.files?.[0]?.attachment;
+    expect(Buffer.isBuffer(resultFile)).toBe(true);
+    expect(agentRelayTurnResultSchema.parse(JSON.parse(resultFile.toString("utf8")))).toMatchObject({
+      requestMessageId: "relay-request-1",
+      sourceThreadId: "thread-a",
+      finalMessage: "상대 agent에게 전달할 답변입니다.",
+      decision: { status: "continue", summary: "한 번 더 검토" },
+    });
+    expect(sendTextMessage.mock.calls).not.toContainEqual([
+      "thread-a",
+      "**Codex 작업 완료**",
+      { mentionRoleIds: ["role-operator"] },
+    ]);
+  });
+
+  it("never executes a relay bot message in a shell-admin channel", async () => {
+    const submitCommandJob = vi.fn();
+    const submitCodexPrompt = vi.fn();
+    const reply = vi.fn();
+    const handleMessage = createDiscordMessageHandler({
+      resolveChannelContext: async () => channelContext,
+      submitCommandJob,
+      submitCodexPrompt,
+      updateChannelCwd: vi.fn(),
+      recordCommandAudit: vi.fn(),
+      relayControlChannelId: "relay-control",
+    });
+
+    await handleMessage({
+      authorBot: true,
+      relayRequest: true,
+      userId: "trusted-relay-bot",
+      channelId: "admin-channel",
+      messageId: "relay-request-admin",
+      content: "rm -rf /",
+      roleIds: ["role-operator"],
+      reply,
+    });
+
+    expect(submitCommandJob).not.toHaveBeenCalled();
+    expect(submitCodexPrompt).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
   });
 
   it("submits an authorized shell command to the control api and edits the queued reply with the result", async () => {

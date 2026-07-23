@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { extractAgentRelayDecision } from "../../../packages/core/src/index.js";
 import { COMPONENT_IDS } from "./componentRouter.js";
 import { extractAgentSurveyRequests, type AgentSurveyRequest } from "./agentSurvey.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
@@ -3763,9 +3764,12 @@ export function formatAgentResultUpdate(
   }
 
   const currentAgentLabel = agentLabel(input);
+  const relayOutput = failed
+    ? { cleanedText: finalMessage }
+    : extractAgentRelayDecision(finalMessage);
   const surveyOutputs = failed
     ? { cleanedText: finalMessage, surveys: [], notices: [], hadBlocks: false }
-    : extractAgentSurveyRequests(finalMessage);
+    : extractAgentSurveyRequests(relayOutput.cleanedText);
   const discordSendOutputs = failed
     ? { cleanedText: finalMessage, attachments: [], messages: [], notices: [], hadBlocks: false }
     : extractCodexDiscordSendOutputs(surveyOutputs.cleanedText);

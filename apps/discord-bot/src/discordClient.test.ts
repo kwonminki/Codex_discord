@@ -16,6 +16,44 @@ import {
 } from "./responses.js";
 
 describe("attachDiscordMessageHandler", () => {
+  it("marks only configured bot authors as trusted relay requests", async () => {
+    const handlers = new Map<string, (message: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (message: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn().mockResolvedValue(undefined);
+    const messageBase = {
+      id: "relay-message-1",
+      channelId: "agent-thread-1",
+      content: "상대 agent의 답변입니다.",
+      attachments: new Map(),
+      member: { roles: { cache: new Map([["role-operator", { id: "role-operator" }]]) } },
+      reply: vi.fn(),
+      guild: { channels: { fetch: vi.fn() } },
+    };
+
+    attachDiscordMessageHandler(client, handleMessage, { trustedRelayBotUserIds: ["relay-bot-1"] });
+    handlers.get("messageCreate")?.({
+      ...messageBase,
+      author: { bot: true, id: "relay-bot-1" },
+    });
+    handlers.get("messageCreate")?.({
+      ...messageBase,
+      id: "other-bot-message",
+      author: { bot: true, id: "other-bot" },
+    });
+
+    expect(handleMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      authorBot: true,
+      relayRequest: true,
+      userId: "relay-bot-1",
+    }));
+    expect(handleMessage).toHaveBeenNthCalledWith(2, expect.not.objectContaining({ relayRequest: true }));
+  });
+
   it("adapts Discord messageCreate events into the pure message handler", async () => {
     const handlers = new Map<string, (message: unknown) => void>();
     const client = {

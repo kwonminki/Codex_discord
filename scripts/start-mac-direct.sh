@@ -6,9 +6,9 @@ REPO_ROOT="${CODEX_DISCORD_REPO_ROOT:-${SCRIPT_DIR:h}}"
 COMPONENT="${1:-${CONNECT_COMPONENT:-all}}"
 
 case "$COMPONENT" in
-  all|bot|worker) ;;
+  all|bot|worker|relay) ;;
   *)
-    echo "usage: $0 [all|bot|worker]" >&2
+    echo "usage: $0 [all|bot|worker|relay]" >&2
     exit 2
     ;;
 esac
@@ -46,6 +46,9 @@ case "$COMPONENT" in
     ;;
   worker)
     exec "$NODE_COMMAND" --import tsx apps/local-agent/src/directWorker.ts
+    ;;
+  relay)
+    exec "$NODE_COMMAND" --import tsx apps/relay-bot/src/index.ts
     ;;
   all)
     exec "$NODE_COMMAND" --import tsx apps/connect-cli/src/index.ts start --direct

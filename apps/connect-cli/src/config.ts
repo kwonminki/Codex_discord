@@ -30,6 +30,10 @@ export interface DirectConnectConfig {
     channelMode: "shell-admin" | "session-linked";
     timeoutMs: number;
     codexHome: string;
+    relay?: {
+      trustedBotUserIds: string[];
+      controlChannelId: string;
+    };
   };
 }
 

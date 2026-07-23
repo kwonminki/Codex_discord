@@ -1,0 +1,9 @@
+{
+  "name": "@ai-agent-discord/relay-bot",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "zod": "^3.24.2"
+  }
+}

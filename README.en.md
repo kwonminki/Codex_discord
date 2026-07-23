@@ -93,6 +93,8 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/howtouse` | Teach the current agent Discord file and survey output |
 | `/where` | Show the computer, working directory, and session ID |
 
+When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. It alternates final public answers and Discord attachments between the two agents, then mentions the Operator role once when both agents agree to finish or a configured round/time limit is reached. Use `/agent-chat-status` to inspect it and `/agent-chat-stop` to stop future relay turns.
+
 ## Files and media
 
 Attach an image, video, audio file, document, or archive to a normal Discord message and describe the task. The bot stores it temporarily on the connected machine and gives the local path to the agent.
@@ -128,6 +130,8 @@ Connect another Windows computer to this Discord connector.
 
 The agent asks for the machine type, connection method, workspace, and agent combination: Codex only, Claude Code only, or both. It then reuses the existing Discord setup while creating the required channels and services for that machine.
 
+Ask the installation agent to enable the Coordinator Bot when agents on different computers should discuss work with one another. Discord carries the relay traffic, so the computers do not need direct network access to each other.
+
 ## Important notes
 
 ### Do not message the same session from another surface while it is answering
@@ -150,6 +154,7 @@ The default automation setup can access files and commands broadly on the connec
 - [English AI Agent Guide](docs/AI_AGENT_GUIDE.en.md): agent-only installation, updates, service operations, and troubleshooting
 - [Korean AI Agent Guide](docs/AI_AGENT_GUIDE.md)
 - [Localization Guide](docs/localization.md)
+- [Agent Relay Guide](docs/agent-relay.en.md)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 

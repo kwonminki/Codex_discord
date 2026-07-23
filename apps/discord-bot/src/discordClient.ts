@@ -45,6 +45,7 @@ interface DiscordInteractionHandlerOptions {
 interface DiscordMessageHandlerOptions {
   answerCopyStore?: AnswerCopyStore;
   locale?: ConnectorLocale;
+  trustedRelayBotUserIds?: string[];
 }
 
 export function createDiscordClient(): Client {
@@ -290,6 +291,8 @@ export function attachDiscordMessageHandler(
   handleMessage: (message: DiscordMessageLike) => Promise<void>,
   options: DiscordMessageHandlerOptions = {},
 ): void {
+  const trustedRelayBotUserIds = new Set(options.trustedRelayBotUserIds?.filter(Boolean) ?? []);
+
   client.on("messageCreate", (message) => {
     const discordMessage = message as Message;
     const attachments = discordMessage.attachments
@@ -304,6 +307,9 @@ export function attachDiscordMessageHandler(
 
     void handleMessage({
       authorBot: discordMessage.author.bot,
+      ...(discordMessage.author.bot && trustedRelayBotUserIds.has(discordMessage.author.id)
+        ? { relayRequest: true }
+        : {}),
       userId: discordMessage.author.id,
       channelId: discordMessage.channelId,
       content: discordMessage.content,

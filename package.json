@@ -40,11 +40,14 @@
     "apps/control-api/src",
     "apps/discord-bot/src",
     "apps/local-agent/src",
+    "apps/relay-bot/src",
     "packages/core/src",
     "packages/codex-adapter/src",
     "prisma/schema.prisma",
     "docs/operator-guide.md",
     "docs/localization.md",
+    "docs/agent-relay.ko.md",
+    "docs/agent-relay.en.md",
     "docs/AI_AGENT_GUIDE.md",
     "docs/AI_AGENT_GUIDE.en.md",
     "scripts/start-windows-direct.ps1",
@@ -79,6 +82,7 @@
     "connect:start": "tsx apps/connect-cli/src/index.ts start",
     "dev:control": "tsx apps/control-api/src/index.ts",
     "dev:bot": "tsx apps/discord-bot/src/index.ts",
+    "dev:relay": "tsx apps/relay-bot/src/index.ts",
     "dev:agent": "tsx apps/local-agent/src/index.ts"
   },
   "dependencies": {

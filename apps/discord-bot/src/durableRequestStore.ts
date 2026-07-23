@@ -16,6 +16,9 @@ export const durableDiscordRequestSchema = z.object({
   userId: z.string().min(1),
   content: z.string(),
   roleIds: z.array(z.string()),
+  authorBot: z.boolean().optional(),
+  messageId: z.string().min(1).optional(),
+  relayRequest: z.boolean().optional(),
   createdAt: z.string().datetime({ offset: true }),
 }).passthrough();
 
@@ -172,6 +175,9 @@ export function createDurableDiscordRequestStore(
       userId: string;
       content: string;
       roleIds: string[];
+      authorBot?: boolean;
+      messageId?: string;
+      relayRequest?: boolean;
       createdAt?: string;
     }): Promise<DurableDiscordRequest> {
       await ensurePrivateDirectory(root);
@@ -182,6 +188,9 @@ export function createDurableDiscordRequestStore(
         userId: input.userId,
         content: input.content,
         roleIds: [...input.roleIds],
+        ...(input.authorBot ? { authorBot: true } : {}),
+        ...(input.messageId ? { messageId: input.messageId } : {}),
+        ...(input.relayRequest ? { relayRequest: true } : {}),
         createdAt: input.createdAt ?? new Date(now()).toISOString(),
       });
       const filePath = requestPath(request.requestId);

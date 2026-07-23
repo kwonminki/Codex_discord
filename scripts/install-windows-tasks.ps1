@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$TaskPrefix = "CodexDiscordConnector",
+  [switch]$IncludeRelay,
   [switch]$StartNow
 )
 
@@ -48,6 +49,9 @@ function Register-ConnectorTask([string]$component) {
 
 Register-ConnectorTask "Worker"
 Register-ConnectorTask "Bot"
+if ($IncludeRelay) {
+  Register-ConnectorTask "Relay"
+}
 
 Write-Host "Logs: $env:LOCALAPPDATA\CodexDiscordConnector\Logs"
 Write-Host "Inspect with: Get-ScheduledTask -TaskName '$TaskPrefix-*' | Get-ScheduledTaskInfo"

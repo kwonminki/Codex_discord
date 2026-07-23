@@ -24,6 +24,7 @@ When a user gives you this repository URL, work in this order:
 10. Run `pnpm typecheck` and the platform test suite after installation: `pnpm test` on macOS/Linux and `pnpm test:windows` on native Windows. Also verify services, the Discord ready log, and a short round trip for every enabled agent.
 11. If a worker update is required, prefer graceful `SIGTERM` drain. Force termination only after explicit user approval.
 12. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
+13. When the user wants two agent sessions to converse automatically, follow the [Agent Relay Guide](agent-relay.en.md) and configure the optional Coordinator Bot with a separate token.
 
 ## Language selection
 
@@ -164,6 +165,29 @@ When the user wants another installation, collect details one machine at a time 
 
 Roll out one machine at a time so a failure cannot disturb active work elsewhere. When an existing installation is found, inspect its branch, commit, configuration, services, and active jobs and perform a safe update or repair instead of overwriting it. Multiple instances may share one bot token only when every instance owns distinct agent parent channels.
 
+## Optional Agent Relay Coordinator
+
+When the user asks for automatic conversation between sessions on the same computer or agents on different computers, configure a separate **Coordinator Bot**. It alternates one side's final public answer and Discord attachments into the other thread, then mentions the Operator role once after both sides agree to finish or a hard limit is reached.
+
+Discord application ownership and OAuth approval belong to the user's Discord account. Ask the user for only these one-time account actions, one step at a time:
+
+1. Create a dedicated Coordinator application and bot user in the Developer Portal.
+2. Enable Message Content Intent and enter the token directly into a local secret input.
+3. Approve the private-server invite with `bot`, `applications.commands`, and the required thread/file permissions.
+
+Do not claim that an existing bot token can create another Discord application. Never ask the user to paste the token into the conversation; use a local secret prompt or a permission-restricted `.connect/relay-config.json`. After the application and invite exist, perform the remaining Discord API work idempotently:
+
+1. Create or reuse a private `agent-relay-control` text channel.
+2. Hide it from ordinary members and grant only Connector and Coordinator bots View Channel, Send Messages, Read Message History, and Attach Files.
+3. Assign the existing Operator role to the Coordinator Bot so Connector thread allowlists accept it.
+4. Store exact Connector bot user IDs and the control channel ID in Coordinator configuration.
+5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Never trust every bot author with a wildcard.
+6. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
+7. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
+8. Test `/agent-chat` across two sessions, including A -> B -> A, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.
+
+An approval or user question during a relay turn uses the existing Connector mention flow and waits for the person. A final `codex-discord-survey` pauses the conversation as `blocked`. Coordinator restarts recover durable state and recent private control results; verify that an already dispatched target turn is not deliberately replayed. Follow [Agent Relay Guide](agent-relay.en.md) for the complete configuration and limits.
+
 ## Discord permissions
 
 | Permission | Feature |
@@ -204,6 +228,10 @@ This is a guild-wide default. Never change it silently on a shared server. Disco
 | `apps/discord-bot/src/commandRouter.ts` | text and slash command routing |
 | `apps/discord-bot/src/responses.ts` | embeds, buttons, answer splitting, attachment output |
 | `apps/discord-bot/src/directWorkerClient.ts` | durable bot-to-worker spool client |
+| `apps/discord-bot/src/agentRelayBridge.ts` | converts public agent results and files into private relay callbacks |
+| `apps/relay-bot/src/index.ts` | Coordinator gateway, slash commands, and control-channel recovery |
+| `apps/relay-bot/src/coordinator.ts` | bounded A/B turn state machine, completion agreement, final mention |
+| `apps/relay-bot/src/store.ts` | durable Coordinator conversation state |
 | `apps/local-agent/src/directWorker.ts` | independent worker, queue serialization, graceful drain |
 | `apps/local-agent/src/codexAppServerRunner.ts` | Codex app-server resume, fork, steer, interrupt, approval, questions |
 | `apps/local-agent/src/codexRunner.ts` | compatibility `codex exec` runner |

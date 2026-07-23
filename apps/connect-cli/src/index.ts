@@ -29,11 +29,11 @@ export function shouldRestartManagedProcess(input: {
   }
 
   return input.mode === "direct" &&
-    (input.script === "dev:bot" || input.script === "direct-worker");
+    (input.script === "dev:bot" || input.script === "direct-worker" || input.script === "dev:relay");
 }
 
 type ManagedProcessCommand = [command: string, args: string[], script: string];
-export type ManagedDirectComponent = "all" | "bot" | "worker";
+export type ManagedDirectComponent = "all" | "bot" | "worker" | "relay";
 
 export function buildManagedProcessCommands(
   mode: ConnectMode,
@@ -51,6 +51,10 @@ export function buildManagedProcessCommands(
       runTs("apps/local-agent/src/index.ts", "dev:agent"),
       runTs("apps/discord-bot/src/index.ts", "dev:bot"),
     ];
+  }
+
+  if (component === "relay") {
+    return [runTs("apps/relay-bot/src/index.ts", "dev:relay")];
   }
 
   const directCommands = [
@@ -258,8 +262,13 @@ async function start(flags: Map<string, string | boolean>) {
   if (mode === "hub" && requestedComponent !== "all") {
     throw new Error("--component is supported only in direct mode.");
   }
-  if (requestedComponent !== "all" && requestedComponent !== "bot" && requestedComponent !== "worker") {
-    throw new Error("--component must be all, bot, or worker.");
+  if (
+    requestedComponent !== "all" &&
+    requestedComponent !== "bot" &&
+    requestedComponent !== "worker" &&
+    requestedComponent !== "relay"
+  ) {
+    throw new Error("--component must be all, bot, worker, or relay.");
   }
   const component = requestedComponent as ManagedDirectComponent;
   const env = buildManagedProcessEnv(mode, process.cwd());
@@ -360,6 +369,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   console.info("  cdc start --direct");
   console.info("  cdc start --direct --component bot");
   console.info("  cdc start --direct --component worker");
+  console.info("  cdc start --direct --component relay");
   console.info("  cdc status");
 }
 

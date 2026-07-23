@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("All", "Bot", "Worker")]
+  [ValidateSet("All", "Bot", "Worker", "Relay")]
   [string]$Component = "All"
 )
 
@@ -83,6 +83,9 @@ try {
     }
     "Worker" {
       & $nodeCommand --import tsx apps/local-agent/src/directWorker.ts
+    }
+    "Relay" {
+      & $nodeCommand --import tsx apps/relay-bot/src/index.ts
     }
     default {
       & $nodeCommand --import tsx apps/connect-cli/src/index.ts start --direct
