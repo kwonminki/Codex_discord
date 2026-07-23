@@ -42,6 +42,12 @@ AI Agent Discord Connector는 로컬 컴퓨터의 Codex와 Claude Code 같은 AI
 12. 완료 보고에는 설치 경로, commit, 서비스 이름, 로그 경로, 적용한 권한, 검증 결과와 남은 수동 작업만 적습니다. 사용자가 묻지 않았다면 locale 코드나 내부 설정값은 보고하지 않습니다.
 13. 사용자가 두 agent session의 자동 대화를 원하면 [Agent Relay Guide](agent-relay.ko.md)에 따라 별도 Coordinator Bot을 선택 기능으로 구성합니다. 일반 Connector Bot과 같은 token을 재사용하지 않고 Connector와 같은 locale을 설정합니다.
 
+### Codex-only 설치의 호환 변수
+
+사용자가 Codex만 연결하더라도 현재 런타임이 읽는 기존 Codex 전용 이름을 그대로 사용해야 합니다. 저장소와 제품 설명이 AI agent로 일반화되어 있어도 `CODEX_DISCORD_CODEX_RUNNER`, `CODEX_DISCORD_CODEX_COMMAND`, `CODEX_DISCORD_CODEX_APPROVAL_POLICY`, `CODEX_DISCORD_CODEX_SANDBOX`, `CONNECT_CODEX_PROMPT_TIMEOUT_MS`와 `.connect/config.json`의 `codexHome`은 역사적 호환성을 위해 유지되는 실제 설정 계약입니다. Codex-only 설치에서는 불가피하지만 정상적인 구성입니다.
+
+설치 에이전트는 이 이름들을 임의의 `AI_AGENT_*` 또는 `CONNECT_AGENT_*` 변수로 바꾸거나 문서에 없는 별칭을 만들지 않습니다. 이름을 일반화하려면 코드, 설정 schema, 서비스 정의, 문서와 기존 설치 migration을 함께 구현해야 합니다. Claude Code를 활성화하지 않은 Codex-only 설치에서는 Claude command와 Claude channel 관련 값은 설정하지 않아도 됩니다.
+
 ## 설치 언어 결정
 
 첫 설치에서는 사용자의 현재 대화 언어를 기본 UI 언어로 사용합니다. 이 선택은 에이전트가 내부적으로 처리하며, 지원되는 언어라면 사용자에게 별도 선택이나 설정을 요구하지 않습니다.

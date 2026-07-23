@@ -42,6 +42,12 @@ When a user gives you this repository URL, work in this order:
 12. Report the install path, commit, service names, log paths, permissions, verification, and remaining manual steps. Do not report locale implementation details unless asked.
 13. When the user wants two agent sessions to converse automatically, follow the [Agent Relay Guide](agent-relay.en.md), configure the optional Coordinator Bot with a separate token, and match its locale to the Connector.
 
+### Compatibility variables for Codex-only installations
+
+Even when the user connects only Codex, use the existing Codex-specific names that the runtime actually reads. Although the repository and product language are agent-neutral, `CODEX_DISCORD_CODEX_RUNNER`, `CODEX_DISCORD_CODEX_COMMAND`, `CODEX_DISCORD_CODEX_APPROVAL_POLICY`, `CODEX_DISCORD_CODEX_SANDBOX`, `CONNECT_CODEX_PROMPT_TIMEOUT_MS`, and `codexHome` in `.connect/config.json` remain part of the real configuration contract for historical compatibility. These unavoidable compatibility names are the correct configuration for a Codex-only installation.
+
+Do not replace them with invented `AI_AGENT_*` or `CONNECT_AGENT_*` variables or undocumented aliases. Generalizing these names requires coordinated changes to the code, configuration schema, service definitions, documentation, and migration support for existing installations. A Codex-only installation does not need Claude command or Claude channel values unless Claude Code is also enabled.
+
 ## Language selection
 
 Select the locale internally from the language used by the user:
