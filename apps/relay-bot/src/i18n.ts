@@ -36,7 +36,6 @@ export interface RelayLocaleText {
   noneYet: string;
   details: string;
   endReason: string;
-  fullMessageAttached: string;
   status: Record<RelayConversationStatus, string>;
 }
 
@@ -76,7 +75,6 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "아직 없음",
     details: "상세",
     endReason: "종료 사유",
-    fullMessageAttached: "전체 relay 메시지는 첨부된 agent-relay-message.txt에서 확인하세요.",
     status: {
       running: "진행 중",
       "extension-requested": "추가 왕복 요청",
@@ -123,7 +121,6 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "none yet",
     details: "Details",
     endReason: "End reason",
-    fullMessageAttached: "See the attached agent-relay-message.txt for the complete relay message.",
     status: {
       running: "Running",
       "extension-requested": "Extension requested",
@@ -170,7 +167,6 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "暂无",
     details: "详情",
     endReason: "结束原因",
-    fullMessageAttached: "完整 relay 消息请查看附件 agent-relay-message.txt。",
     status: {
       running: "进行中",
       "extension-requested": "请求增加往返",
@@ -217,7 +213,6 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     noneYet: "まだありません",
     details: "詳細",
     endReason: "終了理由",
-    fullMessageAttached: "relay メッセージ全文は添付の agent-relay-message.txt を確認してください。",
     status: {
       running: "進行中",
       "extension-requested": "往復追加を申請中",

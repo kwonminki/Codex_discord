@@ -1,6 +1,10 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
-import { extractAgentRelayDecision } from "../../../packages/core/src/index.js";
+import {
+  extractAgentRelayDecision,
+  splitDiscordMessageContent,
+} from "../../../packages/core/src/index.js";
+export { splitDiscordMessageContent } from "../../../packages/core/src/index.js";
 import { COMPONENT_IDS } from "./componentRouter.js";
 import { extractAgentSurveyRequests, type AgentSurveyRequest } from "./agentSurvey.js";
 import type { ScheduledCommandState, TranscriptSyncMode } from "./directState.js";
@@ -29,7 +33,6 @@ const BUTTON_STYLES = {
 const MAX_FIELD_VALUE_LENGTH = 1_024;
 const MAX_EMBED_DESCRIPTION_LENGTH = 4_096;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_900;
-const MAX_SPLIT_MESSAGE_CONTENT_LENGTH = 1_800;
 const ATTACH_TEXT_THRESHOLD = 1_000;
 export const AGENT_PROGRESS_EVENT_LIMIT = 16;
 
@@ -199,76 +202,6 @@ function truncateMessageContent(value: string): string {
 
   const suffix = "\n\n... (일부만 표시)";
   return `${value.slice(0, MAX_MESSAGE_CONTENT_LENGTH - suffix.length)}${suffix}`;
-}
-
-function findNaturalMessageSplit(value: string, maxLength: number): number {
-  const minimumUsefulSplit = Math.floor(maxLength * 0.4);
-  const candidates = [
-    value.lastIndexOf("\n\n", maxLength),
-    value.lastIndexOf("\n", maxLength),
-    value.lastIndexOf(" ", maxLength),
-  ];
-
-  return candidates.find((candidate) => candidate >= minimumUsefulSplit) ?? maxLength;
-}
-
-function splitRawDiscordContent(value: string, maxLength: number): string[] {
-  const chunks: string[] = [];
-  let remaining = value.trim();
-
-  while (remaining.length > maxLength) {
-    const splitIndex = findNaturalMessageSplit(remaining, maxLength);
-    const chunk = remaining.slice(0, splitIndex).trimEnd();
-
-    if (chunk.length > 0) {
-      chunks.push(chunk);
-    }
-
-    remaining = remaining.slice(splitIndex).trimStart();
-  }
-
-  if (remaining.length > 0) {
-    chunks.push(remaining);
-  }
-
-  return chunks;
-}
-
-function nextFenceLanguage(value: string, currentLanguage: string | null): string | null {
-  const fencePattern = /(?:^|\n)```([^\n`]*)/g;
-  let nextLanguage = currentLanguage;
-
-  for (const match of value.matchAll(fencePattern)) {
-    nextLanguage = nextLanguage === null ? (match[1]?.trim().slice(0, 32) ?? "") : null;
-  }
-
-  return nextLanguage;
-}
-
-export function splitDiscordMessageContent(
-  value: string,
-  maxLength = MAX_MESSAGE_CONTENT_LENGTH,
-): string[] {
-  const sanitized = sanitizeDiscordMarkdown(value).trim();
-
-  if (sanitized.length <= maxLength) {
-    return sanitized.length > 0 ? [sanitized] : [];
-  }
-
-  const rawChunkLength = Math.max(1, Math.min(MAX_SPLIT_MESSAGE_CONTENT_LENGTH, maxLength - 64));
-  const rawChunks = splitRawDiscordContent(sanitized, rawChunkLength);
-  const chunks: string[] = [];
-  let activeFenceLanguage: string | null = null;
-
-  for (const rawChunk of rawChunks) {
-    const openingFence = activeFenceLanguage === null ? "" : `\`\`\`${activeFenceLanguage}\n`;
-    const nextLanguage = nextFenceLanguage(rawChunk, activeFenceLanguage);
-    const closingFence = nextLanguage === null ? "" : "\n```";
-    chunks.push(`${openingFence}${rawChunk}${closingFence}`);
-    activeFenceLanguage = nextLanguage;
-  }
-
-  return chunks;
 }
 
 export function getAgentResultContinuationMessages(

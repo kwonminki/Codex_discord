@@ -71,4 +71,39 @@ describe("agent relay bridge", () => {
       summary: "Agent가 Discord 설문으로 사용자 입력을 요청했습니다.",
     });
   });
+
+  it("keeps a long multi-message answer and its trailing decision in one relay result", () => {
+    const answer = Array.from(
+      { length: 180 },
+      (_, index) => `긴 공개 답변 ${index + 1}: ${"전체 내용 ".repeat(8)}`,
+    ).join("\n");
+    const messages = buildAgentRelayCallbackMessages({
+      requestMessageId: "request-long",
+      sourceThreadId: "thread-a",
+      agentLabel: "Codex",
+      status: "completed",
+      finalMessage: [
+        answer,
+        "```agent-relay",
+        '{"status":"continue","summary":"긴 답변 전체를 검토해야 함"}',
+        "```",
+      ].join("\n"),
+      files: [],
+      createdAt: "2026-07-23T00:00:00.000Z",
+    });
+    const resultAttachment = messages.at(-1)?.files?.[0]?.attachment;
+    expect(Buffer.isBuffer(resultAttachment)).toBe(true);
+    const parsed = agentRelayTurnResultSchema.parse(
+      JSON.parse((resultAttachment as Buffer).toString("utf8")),
+    );
+
+    expect(parsed.finalMessage).toBe(answer.trim());
+    expect(parsed.finalMessage).toContain("긴 공개 답변 1:");
+    expect(parsed.finalMessage).toContain("긴 공개 답변 90:");
+    expect(parsed.finalMessage).toContain("긴 공개 답변 180:");
+    expect(parsed.decision).toEqual({
+      status: "continue",
+      summary: "긴 답변 전체를 검토해야 함",
+    });
+  });
 });

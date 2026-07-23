@@ -12,7 +12,7 @@ Agent thread A에서 실행합니다.
 
 `parent`에서 상대 agent의 부모 채널을 먼저 선택하면 `peer` autocomplete가 그 채널의 활성·archived thread를 검색합니다. Discord autocomplete는 한 번에 25개까지만 표시하므로 thread 이름 일부를 입력해 좁힐 수 있습니다. 목록에서 찾기 어려우면 thread ID, `<#thread-id>` mention 또는 Discord thread 링크를 직접 입력할 수 있습니다.
 
-Coordinator는 private relay-control 채널로 A에 첫 실행 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 실행 규칙과 전체 입력 prompt는 작업 thread에 노출하지 않습니다. 상대 thread에는 agent의 최종 공개 답변과 첨부파일만 복사하며, 중간 진행·도구 event는 다음 agent의 입력으로 전달하지 않습니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread와 다음 비공개 요청에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
+Coordinator는 private relay-control 채널로 A에 첫 실행 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 실행 규칙과 전체 입력 prompt는 작업 thread에 노출하지 않습니다. 상대 thread에는 agent의 최종 공개 답변과 첨부파일만 복사하며, 중간 진행·도구 event는 다음 agent의 입력으로 전달하지 않습니다. 긴 최종 답변은 Discord 길이 제한에 맞춰 상대 thread에 여러 메시지로 전부 표시하고, 다음 agent의 비공개 입력에는 분할 전 전체 원문을 전달합니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread와 다음 비공개 요청에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
 
 두 agent가 연속으로 `done`을 반환하면 정상 종료합니다. A와 B가 각각 한 번 답하는 것을 왕복 1회로 계산하며, 모든 agent prompt에는 현재 왕복과 개별 agent turn이 표시됩니다. Agent가 `extend`를 반환하면 Operator에게 추가 왕복을 요청하고 대화를 잠시 멈춥니다. 최종 알림의 **왕복 1회 추가** 버튼을 누르면 허용량을 agent turn 2개 늘리고 반대편 agent부터 재개하며, **연장 거절 · 대화 종료**를 누르면 즉시 `stopped` 처리하고 두 thread를 해제합니다. `max_rounds`, 전체 timeout, `blocked`, turn 실패 또는 `/agent-chat-stop`도 대화를 종료하며 최초 A thread에서 Operator 역할을 한 번 멘션합니다. `/agent-chat-stop`은 대기 중인 relay 요청을 취소하고 이미 실행 중인 Codex 또는 Claude Code turn에도 종료 신호를 보냅니다. 승인이나 사용자 질문은 기존 Connector가 즉시 Operator를 멘션하고 해당 turn을 기다립니다.
 

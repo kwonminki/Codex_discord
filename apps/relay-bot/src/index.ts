@@ -23,6 +23,7 @@ import {
   formatAgentRelayStateMarker,
   parseAgentRelayFilesMarker,
   parseAgentRelayResultMarker,
+  splitDiscordMessageContent,
   type AgentRelayTurnResult,
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
@@ -244,27 +245,19 @@ function hasOperatorRole(
   return operatorRoleIds.some((roleId) => roles.has(roleId));
 }
 
-function fitPrompt(content: string, files: RelayTransferFile[], locale: ConnectorLocale = "ko"): {
+export function relayPublicMessages(content: string, files: RelayTransferFile[]): Array<{
   content: string;
   files: RelayTransferFile[];
-} {
-  if (content.length <= MAX_PROMPT_CONTENT) {
-    return { content, files: files.slice(0, MAX_RELAY_FILES) };
-  }
+}> {
+  const chunks = splitDiscordMessageContent(content, MAX_PROMPT_CONTENT);
+  const visibleChunks = chunks.length > 0 ? chunks : [""];
 
-  const transcript: RelayTransferFile = {
-    name: "agent-relay-message.txt",
-    data: Buffer.from(content, "utf8"),
-    contentType: "text/plain; charset=utf-8",
-  };
-  return {
-    content: [
-      content.slice(0, 1_250),
-      "",
-      relayLocaleText(locale).fullMessageAttached,
-    ].join("\n"),
-    files: [transcript, ...files].slice(0, MAX_RELAY_FILES),
-  };
+  return visibleChunks.map((chunk, index) => ({
+    content: chunk,
+    files: index === visibleChunks.length - 1
+      ? files.slice(0, MAX_RELAY_FILES)
+      : [],
+  }));
 }
 
 function statusLabel(status: RelayConversation["status"], locale: ConnectorLocale = "ko"): string {
@@ -393,12 +386,13 @@ export async function startRelayBot(): Promise<void> {
         }
 
         if (input.publicContent) {
-          const visible = fitPrompt(input.publicContent, input.files, locale);
-          await channel.send({
-            content: visible.content,
-            allowedMentions: { parse: [] },
-            files: visible.files.map((file) => ({ attachment: file.data, name: file.name })),
-          });
+          for (const visible of relayPublicMessages(input.publicContent, input.files)) {
+            await channel.send({
+              content: visible.content,
+              allowedMentions: { parse: [] },
+              files: visible.files.map((file) => ({ attachment: file.data, name: file.name })),
+            });
+          }
         }
 
         const controlChannel = await client.channels.fetch(controlChannelId);

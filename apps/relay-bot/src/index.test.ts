@@ -8,6 +8,7 @@ import {
   parseRelayExtensionButtonId,
   parseRelayExtensionRejectButtonId,
   parseRelayThreadId,
+  relayPublicMessages,
   relayCommands,
   relayExtensionActionRows,
   relayThreadAutocompleteChoices,
@@ -105,5 +106,29 @@ describe("relay bot thread selection", () => {
       })),
       "",
     )).toHaveLength(25);
+  });
+
+  it("publishes every chunk of a long peer answer and attaches files only once", () => {
+    const content = Array.from(
+      { length: 100 },
+      (_, index) => `Relay 공개 답변 ${index + 1}: ${"내용 ".repeat(20)}`,
+    ).join("\n");
+    const files = [{
+      name: "result.txt",
+      data: Buffer.from("result"),
+      contentType: "text/plain",
+    }];
+    const messages = relayPublicMessages(content, files);
+    const visible = messages.map((message) => message.content).join("\n");
+
+    expect(messages.length).toBeGreaterThan(1);
+    expect(messages.every((message) => message.content.length <= 1_850)).toBe(true);
+    expect(visible).toContain("Relay 공개 답변 1:");
+    expect(visible).toContain("Relay 공개 답변 50:");
+    expect(visible).toContain("Relay 공개 답변 100:");
+    expect(messages.slice(0, -1).every((message) => message.files.length === 0)).toBe(true);
+    expect(messages.at(-1)?.files).toEqual(files);
+    expect(messages.flatMap((message) => message.files).map((file) => file.name))
+      .toEqual(["result.txt"]);
   });
 });
