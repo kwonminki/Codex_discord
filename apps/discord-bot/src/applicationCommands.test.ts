@@ -89,6 +89,19 @@ describe("Discord application commands", () => {
     );
   });
 
+  it("enables model autocomplete without restricting custom model names", () => {
+    const modelCommand = DISCORD_APPLICATION_COMMANDS.find((command) => command.name === "model");
+
+    expect(modelCommand?.options?.[0]).toEqual(
+      expect.objectContaining({
+        name: "model",
+        required: true,
+        autocomplete: true,
+      }),
+    );
+    expect(modelCommand?.options?.[0]?.choices).toBeUndefined();
+  });
+
   it("registers English slash command descriptions without changing command names", () => {
     const commands = discordApplicationCommands("en");
     const codex = commands.find((command) => command.name === "codex");

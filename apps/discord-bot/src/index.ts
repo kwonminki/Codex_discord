@@ -8,6 +8,7 @@ import {
 } from "../../../packages/core/src/index.js";
 import { createAnswerCopyStore, type AnswerCopyStore } from "./answerCopyStore.js";
 import { createAgentRelayPresenceStore } from "./agentRelayPresence.js";
+import { agentKindForContext } from "./agentSettingsController.js";
 import { DISCORD_APPLICATION_COMMANDS } from "./applicationCommands.js";
 import {
   createForkedDiscordSessionThread,
@@ -56,6 +57,10 @@ import {
 } from "./discordClient.js";
 import { createDiscordMessageHandler } from "./messageHandler.js";
 import type { BotReloadExecutionState, DiscordOutgoingMessage } from "./messageHandler.js";
+import {
+  loadCodexModelChoices,
+  modelAutocompleteChoices,
+} from "./modelAutocomplete.js";
 import { manageScheduledCommand, runDueScheduledCommands } from "./scheduler.js";
 
 export const BOT_RELOAD_EXIT_CODE = 42;
@@ -1053,6 +1058,28 @@ export async function startBot(): Promise<void> {
   });
   attachDiscordInteractionHandler(client, handleMessage, {
     isManagedChannel: async (channelId) => Boolean(await controlApiClient.getChannelContext(channelId)),
+    modelAutocomplete: async (channelId, query) => {
+      const channelContext = await controlApiClient.getChannelContext(channelId);
+      if (!channelContext) {
+        return [];
+      }
+
+      const agent = agentKindForContext(channelContext);
+      const currentModel = channelContext.agentMain
+        ? channelContext.agentDefaults?.[agent]?.model
+        : channelContext.agentModelOverride ?? channelContext.agentDefaults?.[agent]?.model;
+      const codexModels =
+        agent === "codex" && connectConfig?.mode === "direct"
+          ? await loadCodexModelChoices(connectConfig.direct.codexHome)
+          : [];
+
+      return modelAutocompleteChoices({
+        agent,
+        query,
+        currentModel,
+        codexModels,
+      });
+    },
     answerCopyStore,
     locale,
   });

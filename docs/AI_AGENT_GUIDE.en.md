@@ -573,7 +573,7 @@ Do not repeatedly restart a failing service. Stop the loop, inspect logs, compar
 - `/queue prompt:<request>` schedules a separate next turn.
 - `/interrupt` stops an active Codex turn.
 - `/status` shows connection, session, active task, activity time, model, effort, and queue.
-- `/model`, `/effort`, and `/settings` manage parent defaults and thread overrides.
+- `/model`, `/effort`, and `/settings` manage parent defaults and thread overrides. The `model` option autocompletes channel-aware Codex or Claude Code suggestions while still accepting custom model names.
 - `/howtouse` teaches the active agent the attachment and media-survey protocol.
 - Agent questions, approval requests, completion, and failure mention the Operator role.
 - Progress messages do not mention the role.

@@ -1192,6 +1192,8 @@ chat new cwd:/Users/me/project name:주간 보고서
 | `/reload mode:restart confirm:true` | 봇 프로세스를 Discord에서 재시작 요청합니다. |
 | `/codex-command command:<name> prompt:<args>` | 운영 단축 명령을 실행합니다. Admin에서는 `diff`, `mcp` 등 운영 명령만 사용하고 Codex 대화형 shortcut은 차단됩니다. |
 
+`/model`의 `model` 옵션은 채널 종류를 보고 Codex 또는 Claude Code 추천 모델을 자동완성합니다. Codex 추천 목록은 해당 컴퓨터의 `codexHome/models_cache.json`에서 사용 시점에 읽고, Claude Code는 CLI의 안정적인 모델 별칭을 제안합니다. 목록에 없는 provider 또는 사용자 지정 모델명도 직접 입력할 수 있습니다.
+
 ### Session 전용 또는 Session 중심 명령
 
 | 명령어 | 설명 |
@@ -1218,6 +1220,8 @@ chat new cwd:/Users/me/project name:주간 보고서
 | `/diff` | 현재 cwd에서 `git diff --stat`을 실행합니다. |
 | `/codex-command command:<name> prompt:<args>` | `model`, `review`, `compact`, `mcp` 같은 session shortcut을 같은 라우터로 실행합니다. |
 | `/schedule action:create mode:once/every/daily/weekly command:<명령> at:<시간> every:<주기> weekdays:<요일>` | 이 세션 채널에서 기존 채팅형 명령을 예약 실행합니다. |
+
+Session thread의 `/model` 자동완성도 현재 agent 종류와 해당 컴퓨터의 모델 목록을 따릅니다. 자동완성은 추천 기능일 뿐이므로 직접 입력한 모델명은 기존과 동일하게 override로 저장됩니다.
 
 `/fork`와 `/howtouse`는 앞에 `/`가 붙은 명령으로만 동작합니다. `fork는 잘 되는건가?`, `howtouse 내용을 바꿔줘`처럼 같은 단어가 들어간 일반 메시지는 명령으로 해석하지 않고 현재 agent에게 그대로 전달합니다.
 

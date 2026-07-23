@@ -96,7 +96,7 @@ Claude Code의 현재 headless 실행은 live steering을 지원하지 않으므
 | `/chat-new` | 새 Discord 스레드와 agent 세션 만들기 |
 | `/status` | 실행 상태, 마지막 활동, 대기열과 모델 설정 확인 |
 | `/settings` | 현재 적용되는 모델과 effort 확인 |
-| `/model` | 부모 채널 기본값 또는 현재 스레드 모델 변경 |
+| `/model` | 채널별 추천 목록에서 부모 기본값 또는 현재 스레드 모델 변경. 직접 입력도 지원 |
 | `/effort` | 부모 채널 기본값 또는 현재 스레드 effort 변경 |
 | `/steer` | 실행 중인 Codex 작업에 명시적으로 지시 추가 |
 | `/queue` | 다음 turn 예약 또는 대기열 상태 확인 |

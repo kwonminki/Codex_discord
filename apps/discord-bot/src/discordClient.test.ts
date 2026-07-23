@@ -365,6 +365,46 @@ describe("attachDiscordMessageHandler", () => {
 });
 
 describe("attachDiscordInteractionHandler", () => {
+  it("returns channel-aware model autocomplete choices", async () => {
+    const handlers = new Map<string, (interaction: unknown) => void>();
+    const client = {
+      on: vi.fn((eventName: string, handler: (interaction: unknown) => void) => {
+        handlers.set(eventName, handler);
+        return client;
+      }),
+    };
+    const handleMessage = vi.fn();
+    const isManagedChannel = vi.fn().mockResolvedValue(true);
+    const modelAutocomplete = vi.fn().mockResolvedValue([
+      { name: "default", value: "default" },
+      { name: "GPT-5.6-Sol", value: "gpt-5.6-sol" },
+    ]);
+    const respond = vi.fn().mockResolvedValue(undefined);
+
+    attachDiscordInteractionHandler(client, handleMessage, {
+      isManagedChannel,
+      modelAutocomplete,
+    });
+    handlers.get("interactionCreate")?.({
+      isAutocomplete: () => true,
+      commandName: "model",
+      channelId: "codex-thread-1",
+      options: {
+        getFocused: () => ({ name: "model", value: "sol" }),
+      },
+      respond,
+    });
+
+    await vi.waitFor(() => expect(respond).toHaveBeenCalled());
+    expect(isManagedChannel).toHaveBeenCalledWith("codex-thread-1");
+    expect(modelAutocomplete).toHaveBeenCalledWith("codex-thread-1", "sol");
+    expect(respond).toHaveBeenCalledWith([
+      { name: "default", value: "default" },
+      { name: "GPT-5.6-Sol", value: "gpt-5.6-sol" },
+    ]);
+    expect(handleMessage).not.toHaveBeenCalled();
+  });
+
   it("opens short answers in a copyable modal and returns long answers as text files", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "answer-copy-interaction-"));
     const answerCopyStore = createAnswerCopyStore(tempRoot);

@@ -20,6 +20,7 @@ export interface DiscordApplicationCommandOptionDefinition {
   name: string;
   description: string;
   required?: boolean;
+  autocomplete?: boolean;
   min_value?: number;
   max_value?: number;
   choices?: DiscordApplicationCommandChoiceDefinition[];
@@ -59,6 +60,7 @@ function stringOption(input: {
   name: string;
   description: string;
   required?: boolean;
+  autocomplete?: boolean;
   choices?: DiscordApplicationCommandChoiceDefinition[];
 }): DiscordApplicationCommandOptionDefinition {
   return {
@@ -66,6 +68,7 @@ function stringOption(input: {
     name: input.name,
     description: input.description,
     required: input.required,
+    autocomplete: input.autocomplete,
     choices: input.choices,
   };
 }
@@ -161,6 +164,7 @@ export const DISCORD_APPLICATION_COMMANDS: readonly DiscordApplicationCommandDef
         name: "model",
         description: "모델 이름 또는 main 기본값을 상속할 default",
         required: true,
+        autocomplete: true,
       }),
     ],
   },

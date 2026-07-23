@@ -142,7 +142,12 @@ describe("bot entrypoint", () => {
     expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
       { login, once, on },
       expect.any(Function),
-      { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object), locale: "ko" },
+      {
+        isManagedChannel: expect.any(Function),
+        modelAutocomplete: expect.any(Function),
+        answerCopyStore: expect.any(Object),
+        locale: "ko",
+      },
     );
     expect(login).toHaveBeenCalledWith("discord-token");
   }, 15_000);
@@ -219,7 +224,12 @@ describe("bot entrypoint", () => {
       expect(attachDiscordInteractionHandler).toHaveBeenCalledWith(
         { login, once, on },
         expect.any(Function),
-        { isManagedChannel: expect.any(Function), answerCopyStore: expect.any(Object), locale: "en" },
+        {
+          isManagedChannel: expect.any(Function),
+          modelAutocomplete: expect.any(Function),
+          answerCopyStore: expect.any(Object),
+          locale: "en",
+        },
       );
       expect(login).toHaveBeenCalledWith("discord-token");
 

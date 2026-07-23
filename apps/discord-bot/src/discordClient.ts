@@ -15,6 +15,7 @@ import {
   type ConnectorLocale,
 } from "../../../packages/core/src/index.js";
 import type { AnswerCopyStore } from "./answerCopyStore.js";
+import type { ModelAutocompleteChoice } from "./modelAutocomplete.js";
 import {
   DISCORD_APPLICATION_COMMANDS,
   registerDiscordApplicationCommands,
@@ -43,6 +44,10 @@ interface DiscordInteractionEventClient {
 
 interface DiscordInteractionHandlerOptions {
   isManagedChannel?(channelId: string): boolean | Promise<boolean>;
+  modelAutocomplete?(
+    channelId: string,
+    query: string,
+  ): ModelAutocompleteChoice[] | Promise<ModelAutocompleteChoice[]>;
   answerCopyStore?: AnswerCopyStore;
   locale?: ConnectorLocale;
 }
@@ -525,6 +530,30 @@ function isChatInputCommandInteraction(interaction: unknown): interaction is {
   );
 }
 
+function isAutocompleteInteraction(interaction: unknown): interaction is {
+  isAutocomplete(): boolean;
+  commandName: string;
+  channelId: string;
+  options: {
+    getFocused(required?: boolean): string | { name: string; value: string | number };
+  };
+  respond(choices: ModelAutocompleteChoice[]): Promise<unknown>;
+} {
+  return (
+    typeof interaction === "object" &&
+    interaction !== null &&
+    "isAutocomplete" in interaction &&
+    typeof (interaction as { isAutocomplete?: unknown }).isAutocomplete === "function" &&
+    "commandName" in interaction &&
+    typeof (interaction as { commandName?: unknown }).commandName === "string" &&
+    "options" in interaction &&
+    typeof (interaction as { options?: unknown }).options === "object" &&
+    (interaction as { options?: unknown }).options !== null &&
+    "respond" in interaction &&
+    typeof (interaction as { respond?: unknown }).respond === "function"
+  );
+}
+
 function codexPromptModal() {
   return {
     title: "Codex에게 요청",
@@ -843,6 +872,34 @@ export function attachDiscordInteractionHandler(
   const locale = options.locale ?? "ko";
 
   client.on("interactionCreate", (interaction) => {
+    if (isAutocompleteInteraction(interaction) && interaction.isAutocomplete()) {
+      void (async () => {
+        if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {
+          return;
+        }
+
+        const focused = interaction.options.getFocused(true);
+        if (
+          interaction.commandName.toLowerCase() !== "model" ||
+          typeof focused === "string" ||
+          focused.name !== "model"
+        ) {
+          await interaction.respond([]);
+          return;
+        }
+
+        const choices = await options.modelAutocomplete?.(
+          interaction.channelId,
+          String(focused.value),
+        ) ?? [];
+        await interaction.respond(choices.slice(0, 25));
+      })().catch((error) => {
+        console.error("discord-bot failed to handle model autocomplete", error);
+        void interaction.respond([]).catch(() => undefined);
+      });
+      return;
+    }
+
     if (isChatInputCommandInteraction(interaction) && interaction.isChatInputCommand()) {
       void (async () => {
         if (options.isManagedChannel && !(await shouldHandleInteractionChannel(interaction.channelId, options))) {

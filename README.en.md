@@ -96,7 +96,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/chat-new` | Create a Discord thread and agent session |
 | `/status` | Show activity, last progress, queue, and model settings |
 | `/settings` | Show the effective model and effort |
-| `/model` | Change a parent default or current thread model |
+| `/model` | Choose a parent default or thread model from channel-aware suggestions; custom input remains supported |
 | `/effort` | Change a parent default or current thread effort |
 | `/steer` | Explicitly steer an active Codex task |
 | `/queue` | Reserve the next turn or inspect the queue |
