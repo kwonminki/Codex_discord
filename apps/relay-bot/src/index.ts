@@ -5,7 +5,10 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  type AnyThreadChannel,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
+  type GuildBasedChannel,
   type Message,
 } from "discord.js";
 import {
@@ -28,18 +31,27 @@ const MAX_RELAY_TRANSFER_FILES = MAX_RELAY_FILES - 1;
 const MAX_PROMPT_CONTENT = 1_850;
 const DEFAULT_MAX_ROUNDS = 6;
 const DEFAULT_TIMEOUT_MINUTES = 120;
+const THREAD_AUTOCOMPLETE_LIMIT = 25;
+const THREAD_CACHE_TTL_MS = 30_000;
 
-const RELAY_COMMANDS = [
+export const RELAY_COMMANDS = [
   {
     name: "agent-chat",
     description: "현재 agent thread와 다른 agent thread 사이의 relay 대화를 시작합니다.",
     options: [
       {
         type: 7,
-        name: "peer",
-        description: "대화할 상대 agent thread",
+        name: "parent",
+        description: "상대 agent thread가 들어 있는 부모 채널",
         required: true,
-        channel_types: [ChannelType.PublicThread, ChannelType.PrivateThread],
+        channel_types: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
+      },
+      {
+        type: 3,
+        name: "peer",
+        description: "상대 thread 검색 또는 thread ID/링크",
+        required: true,
+        autocomplete: true,
       },
       {
         type: 3,
@@ -73,7 +85,77 @@ const RELAY_COMMANDS = [
   },
 ] as const;
 
-function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] {
+export interface RelayThreadChoiceCandidate {
+  id: string;
+  name: string;
+  parentName: string;
+  archived: boolean;
+}
+
+export function parseRelayThreadId(value: string): string | null {
+  const trimmed = value.trim();
+  const mention = trimmed.match(/^<#(\d+)>$/);
+  if (mention) {
+    return mention[1] ?? null;
+  }
+  const url = trimmed.match(/^https?:\/\/(?:\w+\.)?discord(?:app)?\.com\/channels\/\d+\/(\d+)(?:\/\d+)?\/?$/i);
+  if (url) {
+    return url[1] ?? null;
+  }
+  return /^\d+$/.test(trimmed) ? trimmed : null;
+}
+
+export function relayThreadAutocompleteChoices(
+  candidates: RelayThreadChoiceCandidate[],
+  query: string,
+): Array<{ name: string; value: string }> {
+  const terms = query.normalize("NFKC").toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()]
+    .filter((candidate) => {
+      const searchable = `${candidate.parentName} ${candidate.name} ${candidate.id}`
+        .normalize("NFKC")
+        .toLocaleLowerCase();
+      return terms.every((term) => searchable.includes(term));
+    })
+    .sort((left, right) => {
+      if (left.archived !== right.archived) {
+        return left.archived ? 1 : -1;
+      }
+      return BigInt(right.id) > BigInt(left.id) ? 1 : -1;
+    })
+    .slice(0, THREAD_AUTOCOMPLETE_LIMIT)
+    .map((candidate) => ({
+      name: `${candidate.parentName} / ${candidate.name}${candidate.archived ? " (archived)" : ""}`.slice(0, 100),
+      value: candidate.id,
+    }));
+}
+
+async function fetchRelayThreadCandidates(parent: GuildBasedChannel): Promise<RelayThreadChoiceCandidate[]> {
+  if (parent.type !== ChannelType.GuildText && parent.type !== ChannelType.GuildAnnouncement) {
+    return [];
+  }
+
+  const emptyThreads = { threads: new Map<string, AnyThreadChannel>() };
+  const [active, archivedPublic, archivedPrivate] = await Promise.all([
+    parent.threads.fetchActive(false).catch(() => emptyThreads),
+    parent.threads.fetchArchived({ type: "public", limit: 100 }, false).catch(() => emptyThreads),
+    parent.threads.fetchArchived({ type: "private", limit: 100 }, false).catch(() => emptyThreads),
+  ]);
+  const threads = [
+    ...active.threads.values(),
+    ...archivedPublic.threads.values(),
+    ...archivedPrivate.threads.values(),
+  ];
+
+  return threads.map((thread) => ({
+    id: thread.id,
+    name: thread.name,
+    parentName: parent.name,
+    archived: Boolean(thread.archived),
+  }));
+}
+
+function interactionRoleIds(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string[] {
   const member = interaction.member;
   if (!member) {
     return [];
@@ -87,15 +169,12 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction): string[] 
   return [];
 }
 
-function hasOperatorRole(interaction: ChatInputCommandInteraction, operatorRoleIds: string[]): boolean {
+function hasOperatorRole(
+  interaction: ChatInputCommandInteraction | AutocompleteInteraction,
+  operatorRoleIds: string[],
+): boolean {
   const roles = new Set(interactionRoleIds(interaction));
   return operatorRoleIds.some((roleId) => roles.has(roleId));
-}
-
-function isThreadChannelType(type: ChannelType): boolean {
-  return type === ChannelType.PublicThread ||
-    type === ChannelType.PrivateThread ||
-    type === ChannelType.AnnouncementThread;
 }
 
 function fitPrompt(content: string, files: RelayTransferFile[]): {
@@ -248,6 +327,9 @@ export async function startRelayBot(): Promise<void> {
         if (!channel?.isTextBased() || !("send" in channel)) {
           throw new Error(`Discord thread cannot receive relay messages: ${input.threadId}`);
         }
+        if (channel.isThread() && channel.archived) {
+          await channel.setArchived(false, "Agent relay turn delivery");
+        }
         const fitted = fitPrompt(input.content, input.files);
         const message = await channel.send({
           content: fitted.content,
@@ -260,6 +342,9 @@ export async function startRelayBot(): Promise<void> {
         const channel = await client.channels.fetch(threadId);
         if (!channel?.isTextBased() || !("send" in channel)) {
           throw new Error(`Discord thread cannot receive relay completion: ${threadId}`);
+        }
+        if (channel.isThread() && channel.archived) {
+          await channel.setArchived(false, "Agent relay completion delivery");
         }
         const summary = conversation.lastResponse.trim() || "최종 텍스트 답변이 없습니다.";
         const truncatedSummary = summary.slice(0, 3_900);
@@ -288,6 +373,10 @@ export async function startRelayBot(): Promise<void> {
     },
   });
   let controlResultQueue: Promise<void> = Promise.resolve();
+  const threadChoiceCache = new Map<string, {
+    expiresAt: number;
+    candidates: RelayThreadChoiceCandidate[];
+  }>();
 
   function enqueueControlResult(message: Message): Promise<void> {
     const next = controlResultQueue.then(() => processControlResult({
@@ -308,6 +397,42 @@ export async function startRelayBot(): Promise<void> {
   }
 
   client.on("interactionCreate", (interaction) => {
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName !== "agent-chat") {
+        return;
+      }
+      void (async () => {
+        if (interaction.guildId !== guildId || !hasOperatorRole(interaction, operatorRoleIds)) {
+          await interaction.respond([]);
+          return;
+        }
+        const parentOption = interaction.options.get("parent");
+        const parentId = typeof parentOption?.value === "string" ? parentOption.value : null;
+        if (!parentId || !interaction.guild) {
+          await interaction.respond([]);
+          return;
+        }
+
+        let cached = threadChoiceCache.get(parentId);
+        if (!cached || cached.expiresAt <= Date.now()) {
+          const parent = await interaction.guild.channels.fetch(parentId);
+          cached = {
+            expiresAt: Date.now() + THREAD_CACHE_TTL_MS,
+            candidates: parent ? await fetchRelayThreadCandidates(parent) : [],
+          };
+          threadChoiceCache.set(parentId, cached);
+        }
+        await interaction.respond(relayThreadAutocompleteChoices(
+          cached.candidates,
+          interaction.options.getFocused(),
+        ));
+      })().catch(async (error) => {
+        console.error("relay-bot thread autocomplete failed", error);
+        await interaction.respond([]).catch(() => undefined);
+      });
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) {
       return;
     }
@@ -318,14 +443,24 @@ export async function startRelayBot(): Promise<void> {
       await interaction.deferReply();
 
       if (interaction.commandName === "agent-chat") {
-        const peer = interaction.options.getChannel("peer", true);
+        const parent = interaction.options.getChannel("parent", true);
+        const peerId = parseRelayThreadId(interaction.options.getString("peer", true));
         const goal = interaction.options.getString("goal", true).trim();
         const maxRounds = interaction.options.getInteger("max_rounds") ?? DEFAULT_MAX_ROUNDS;
         const timeoutMinutes = interaction.options.getInteger("timeout_minutes") ?? DEFAULT_TIMEOUT_MINUTES;
         if (!goal) {
           throw new Error("대화 목표가 비어 있습니다.");
         }
-        if (!interaction.channel?.isThread() || !isThreadChannelType(peer.type)) {
+        if (!peerId) {
+          throw new Error("상대 thread를 검색 선택하거나 thread ID/링크를 입력하세요.");
+        }
+        const peer = await client.channels.fetch(peerId);
+        if (
+          !interaction.channel?.isThread() ||
+          !peer ||
+          !peer.isThread() ||
+          peer.parentId !== parent.id
+        ) {
           throw new Error("/agent-chat은 서로 다른 두 agent thread 사이에서만 시작할 수 있습니다.");
         }
         const conversation = await coordinator.start({

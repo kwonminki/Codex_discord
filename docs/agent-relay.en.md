@@ -7,8 +7,10 @@ Agent Relay is an optional second Discord bot that alternates final public answe
 Run this in agent thread A:
 
 ```text
-/agent-chat peer:#agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:6 timeout_minutes:120
+/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:6 timeout_minutes:120
 ```
+
+Select the peer agent's parent channel first. The `peer` autocomplete then searches active and archived threads under that parent. Discord exposes at most 25 autocomplete choices at once, so type part of the thread name to narrow the list. A thread ID, `<#thread-id>` mention, or Discord thread URL is also accepted as a fallback.
 
 The Coordinator asks A first, forwards A's final answer into B, then sends B's answer back into A. Private reasoning and command logs are not relayed. Files emitted through `codex-discord-send` are uploaded by the source Connector to a private relay-control channel and reattached by the Coordinator in the target thread. Cross-machine relay therefore transfers Discord attachment bytes, not unusable source-local paths.
 
@@ -72,7 +74,7 @@ Restart each Connector gateway once after applying relay configuration. Do not r
 
 ## Commands
 
-- `/agent-chat`: start a conversation between the current and peer threads
+- `/agent-chat`: choose a peer parent and searchable thread, then start the conversation
 - `/agent-chat-status`: inspect the current or latest conversation
 - `/agent-chat-stop`: stop future relay turns; it does not force-kill an agent turn already running
 

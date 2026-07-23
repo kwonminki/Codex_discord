@@ -7,8 +7,10 @@ Agent Relay는 별도 Discord Coordinator Bot이 두 agent session thread의 최
 Agent thread A에서 실행합니다.
 
 ```text
-/agent-chat peer:#agent-thread-b goal:두 구현을 비교하고 합의된 개선안을 만들어줘 max_rounds:6 timeout_minutes:120
+/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:두 구현을 비교하고 합의된 개선안을 만들어줘 max_rounds:6 timeout_minutes:120
 ```
+
+`parent`에서 상대 agent의 부모 채널을 먼저 선택하면 `peer` autocomplete가 그 채널의 활성·archived thread를 검색합니다. Discord autocomplete는 한 번에 25개까지만 표시하므로 thread 이름 일부를 입력해 좁힐 수 있습니다. 목록에서 찾기 어려우면 thread ID, `<#thread-id>` mention 또는 Discord thread 링크를 직접 입력할 수 있습니다.
 
 Coordinator는 A에 첫 요청을 보내고, A의 최종 답변을 B의 입력으로 전달한 뒤 B의 답변을 다시 A로 전달합니다. 비공개 추론과 명령 로그는 전달하지 않습니다. Agent가 `codex-discord-send`로 올린 파일은 source Connector가 relay-control 채널에 업로드하고 Coordinator가 target thread에 다시 첨부합니다. 다른 컴퓨터에는 source의 로컬 경로가 아니라 Discord 첨부 bytes가 전달됩니다.
 
@@ -72,7 +74,7 @@ macOS에서는 기존 `scripts/start-mac-direct.sh relay`를 호출하는 별도
 
 ## 명령
 
-- `/agent-chat`: 현재 thread와 peer thread의 대화 시작
+- `/agent-chat`: 상대 부모 채널과 thread를 검색 선택해 대화 시작
 - `/agent-chat-status`: 현재 또는 최근 대화 상태 확인
 - `/agent-chat-stop`: 이후 turn 전달 중지. 이미 실행 중인 agent turn 자체는 즉시 kill하지 않음
 
