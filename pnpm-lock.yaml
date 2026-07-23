@@ -69,6 +69,15 @@ importers:
         specifier: ^8.18.1
         version: 8.20.0
 
+  apps/relay-bot:
+    dependencies:
+      discord.js:
+        specifier: ^14.18.0
+        version: 14.26.3
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+
   packages/codex-adapter: {}
 
   packages/core: {}
