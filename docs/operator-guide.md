@@ -180,11 +180,11 @@ For Discord-only bot maintenance, use the admin `유지보수` panel: open `봇 
 
 ## Release Announcements
 
-Release announcements are event-driven and do not run inside any connector process. The GitHub Actions workflow at `.github/workflows/release-announcement.yml` runs on pushes to `master`, ignores ordinary commits, and sends version commits directly to one Discord channel through a webhook. This avoids polling, leader election, and duplicate announcements when the same bot application runs on multiple computers.
+Release announcements are event-driven and do not run inside any connector process. The GitHub Actions workflow at `.github/workflows/release-announcement.yml` runs only when an annotated `v*` tag is pushed, peels that tag to its exact commit, and sends one notice to Discord through a webhook. Ordinary `master` commits are ignored. This avoids polling, leader election, and duplicate commit/tag announcements when the same bot application runs on multiple computers.
 
 This is an optional, once-per-GitHub-repository setup, not a per-computer connector setting. A user who only clones the upstream repository does not need to configure it. For a fork or independently maintained repository, create a Discord webhook for the announcement channel and store its URL as the GitHub Actions repository secret `DISCORD_RELEASE_WEBHOOK_URL`. An installation agent can perform both operations when the existing bot has `Manage Webhooks` in the target channel and the agent has authenticated write access to the GitHub repository. Otherwise, create the webhook in Discord and add the repository secret in GitHub Settings manually. Never put the webhook URL in a connector `.env` file.
 
-A release commit must start with a supported version on its first line:
+A release commit should start with the same version as its annotated tag:
 
 ```text
 v1.2.0: Media survey improvements
@@ -193,9 +193,9 @@ v1.2.0: Media survey improvements
 - Keep completion notifications quiet until the final result
 ```
 
-The subject becomes the announcement title and the remaining commit body becomes the feature description. Supported examples include `v1.0`, `v1.2.3: Summary`, and `v2.0-beta.1 Release candidate`. Never commit the Discord webhook URL.
+The subject becomes the announcement title and the remaining commit body becomes the feature description. Create an annotated tag such as `git tag -a v1.3.0 -m "v1.3.0 Automatic server updates"`, verify `git rev-list -n 1 v1.3.0`, then push the tag. Supported tags include `v1.0`, `v1.2.3`, and `v2.0-beta.1`. Never commit the Discord webhook URL.
 
-When the optional Coordinator is configured with `releaseChannelId`, it recognizes the release marker in the webhook embed and replies with a localized fleet-update button. A click sends a short-lived discovery marker through the private relay control channel. Every online Connector finds or creates one managed `디스코드봇업데이트` thread under its selected agent parent channel and reports that thread. The Coordinator deduplicates by `computerId` and sends one hidden maintenance prompt to that dedicated thread, never to an active user session. Codex is the default; set `direct.maintenanceAgent` or `CONNECT_MAINTENANCE_AGENT=claude` when Claude Code should maintain that installation.
+When the optional Coordinator is configured with `releaseChannelId`, it recognizes the release marker in the webhook embed and replies with a localized fleet-update button. A click sends a short-lived discovery marker through the private relay control channel. Every online Connector finds or creates one localized managed update thread under its selected agent parent channel and reports that thread. The Coordinator deduplicates by `computerId` and sends one hidden maintenance prompt to that dedicated thread, never to an active user session. Codex is the default; set `direct.maintenanceAgent` or `CONNECT_MAINTENANCE_AGENT=claude` when Claude Code should maintain that installation.
 
 Discovery is live and does not use a static channel list or periodic polling. Offline Connectors are omitted and can be updated later. Keep every Connector `computerId` unique, give the Coordinator access to both the release and private control channels, and load the trusted Coordinator ID on every Connector gateway. Update prompts require a clean fast-forward, exact release commit verification, frozen lockfile installation, separate gateway/worker handling, and graceful worker drain when jobs are active.
 

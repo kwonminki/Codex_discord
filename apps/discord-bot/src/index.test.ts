@@ -239,7 +239,7 @@ describe("bot entrypoint", () => {
       ).resolves.toMatchObject({
         computerId: "local-dev",
         computerDisplayName: "Local Dev",
-        connectorVersion: "1.2.0",
+        connectorVersion: "1.3.0",
         preferredAgent: "codex",
         channels: {
           codex: "channel-1",

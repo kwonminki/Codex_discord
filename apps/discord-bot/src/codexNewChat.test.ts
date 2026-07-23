@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CONNECTOR_MAINTENANCE_THREAD_NAME,
+  connectorMaintenanceThreadName,
   createForkedDiscordSessionThread,
   createNewCodexChatChannel,
   discardPendingDiscordSessionThread,
@@ -13,6 +14,13 @@ import {
 import { createDirectSyncStateStore } from "./directState.js";
 
 describe("ensureConnectorMaintenanceThread", () => {
+  it("localizes the dedicated thread name for every supported locale", () => {
+    expect(connectorMaintenanceThreadName("ko")).toBe("디스코드봇업데이트");
+    expect(connectorMaintenanceThreadName("en")).toBe("Discord Bot Updates");
+    expect(connectorMaintenanceThreadName("zh")).toBe("Discord 机器人更新");
+    expect(connectorMaintenanceThreadName("ja")).toBe("Discord Bot アップデート");
+  });
+
   it("creates one dedicated thread and reuses it on later discovery requests", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "maintenance-thread-"));
 

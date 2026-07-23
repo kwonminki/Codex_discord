@@ -49,7 +49,7 @@ Coordinator runtime secret은 `.connect/relay-config.json`에 저장합니다.
 }
 ```
 
-`locale`은 Connector와 같은 `ko`, `en`, `zh`, `ja` 중 하나로 설정합니다. `RELAY_LOCALE` 환경 변수로도 override할 수 있습니다. Relay slash command 설명, 버튼, 상태와 결과 UI가 이 언어로 표시됩니다. GitHub release 공지를 쓸 때만 `releaseChannelId`를 추가하면 공지 아래에 등록 서버 업데이트 버튼이 붙습니다. 파일은 `0600`, 상위 `.connect`와 state directory는 `0700`으로 보호합니다. Token을 Git이나 Discord 메시지에 올리지 않습니다.
+`locale`은 Connector와 같은 `ko`, `en`, `zh`, `ja` 중 하나로 설정합니다. `RELAY_LOCALE` 환경 변수로도 override할 수 있습니다. Relay slash command 설명, 버튼, 상태와 결과 UI가 이 언어로 표시됩니다. GitHub release 공지를 쓸 때만 `releaseChannelId`를 추가하면 annotated `v*` tag 공지 아래에 등록 서버 업데이트 버튼이 붙고, 각 Connector는 locale별 전용 업데이트 스레드를 생성하거나 재사용합니다. 파일은 `0600`, 상위 `.connect`와 state directory는 `0700`으로 보호합니다. Token을 Git이나 Discord 메시지에 올리지 않습니다.
 
 Relay에 참여할 모든 컴퓨터의 `.connect/config.json` Direct 설정에 같은 Coordinator Bot user ID와 control channel을 추가합니다.
 

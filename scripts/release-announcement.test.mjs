@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 import {
   announceVersionCommits,
   buildDiscordReleasePayload,
+  collectReleases,
   collectVersionCommits,
   formatReleaseFooter,
+  parseVersionTag,
   parseVersionCommit,
 } from "./release-announcement.mjs";
 
@@ -48,6 +50,25 @@ describe("release announcement", () => {
       }).map((release) => release.version),
       ["1.0", "2.0-beta.1"],
     );
+  });
+
+  it("uses an annotated version tag and its peeled commit SHA as the release", () => {
+    const releaseTag = {
+      tagName: "v1.3.0",
+      sha: "53b7f8ba2a0e73cd6b1c8df11355fc74c6919772",
+      repositoryUrl: "https://github.com/kwonminki/ai-agent-discord-connector",
+      commitMessage: "v1.3.0 Automatic fleet updates\n\n- Dedicated update threads\n- One-click deployment",
+    };
+
+    assert.deepEqual(parseVersionTag(releaseTag), {
+      sha: releaseTag.sha,
+      url: "https://github.com/kwonminki/ai-agent-discord-connector/tree/v1.3.0",
+      version: "1.3.0",
+      title: "Automatic fleet updates",
+      details: "- Dedicated update threads\n- One-click deployment",
+    });
+    assert.deepEqual(collectReleases({ commits: [] }, releaseTag), [parseVersionTag(releaseTag)]);
+    assert.equal(parseVersionTag({ ...releaseTag, tagName: "latest" }), null);
   });
 
   it("builds a quiet embed with a GitHub link", () => {
@@ -102,6 +123,32 @@ describe("release announcement", () => {
       "AI Agent Discord Connector v1.0",
       "AI Agent Discord Connector v1.1",
     ]);
+  });
+
+  it("posts exactly one announcement for a version tag", async () => {
+    const payloads = [];
+    const result = await announceVersionCommits({
+      eventPayload: {},
+      releaseTag: {
+        tagName: "v1.3.0",
+        sha: "53b7f8ba2a0e73cd6b1c8df11355fc74c6919772",
+        repositoryUrl: "https://github.com/kwonminki/ai-agent-discord-connector",
+        commitMessage: "v1.3.0 Automatic fleet updates",
+      },
+      webhookUrl: "https://discord.example/webhook",
+      fetchImpl: async (_url, options) => {
+        payloads.push(JSON.parse(options.body));
+        return { ok: true, status: 204, text: async () => "" };
+      },
+    });
+
+    assert.deepEqual(result, { announcedVersions: ["1.3.0"] });
+    assert.equal(payloads.length, 1);
+    assert.equal(payloads[0].embeds[0].footer.text, [
+      "AI Agent Release",
+      "v1.3.0",
+      "53b7f8ba2a0e73cd6b1c8df11355fc74c6919772",
+    ].join(" | "));
   });
 
   it("fails version pushes when the secret is missing", async () => {

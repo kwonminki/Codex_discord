@@ -996,7 +996,7 @@ pnpm test
 
 ## GitHub 버전 공지 설정
 
-버전 공지는 connector process가 아니라 `.github/workflows/release-announcement.yml`의 GitHub Actions가 담당합니다. `master` push에 포함된 커밋 중 첫 줄이 `v1.0`, `v1.2.3: 제목`, `v2.0-beta.1 Release candidate` 같은 형식인 커밋만 Discord webhook으로 전송합니다. 따라서 여러 컴퓨터에서 같은 bot application을 실행해도 polling이나 leader 선출이 필요하지 않습니다.
+버전 공지는 connector process가 아니라 `.github/workflows/release-announcement.yml`의 GitHub Actions가 담당합니다. `v1.0`, `v1.2.3`, `v2.0-beta.1` 같은 annotated tag가 push될 때만 해당 tag가 가리키는 commit을 Discord webhook으로 전송합니다. 일반 `master` commit은 공지하지 않으므로 커밋과 tag push가 중복 알림을 만들지 않습니다. 따라서 여러 컴퓨터에서 같은 bot application을 실행해도 polling이나 leader 선출이 필요하지 않습니다.
 
 이 기능은 선택 사항이며 **컴퓨터가 아니라 GitHub 저장소마다 한 번만** 설정합니다. 단순 upstream clone에는 설정하지 않습니다. 사용자가 자신의 fork 또는 독립 저장소에서 공지를 원한다고 명시했을 때만 진행합니다.
 
@@ -1016,14 +1016,15 @@ pnpm test
 4. 먼저 동일 이름의 기존 webhook을 확인하고, 재사용 가능 여부가 불명확하면 중복 생성 전에 사용자에게 확인합니다.
 5. 응답의 webhook ID와 token으로 만든 URL을 shell history, 임시 파일, `.env`, 로그, 채팅에 남기지 않습니다.
 6. URL을 표준 입력으로 전달해 대상 저장소의 repository Actions secret `DISCORD_RELEASE_WEBHOOK_URL`을 설정합니다. 예: `printf '%s' "$WEBHOOK_URL" | gh secret set DISCORD_RELEASE_WEBHOOK_URL --repo OWNER/REPOSITORY`.
-7. `gh secret list --repo OWNER/REPOSITORY`로 secret **이름만** 확인하고, workflow 파일과 target branch를 확인합니다. secret 값은 GitHub에서도 다시 읽어 보여주지 않습니다.
+7. `gh secret list --repo OWNER/REPOSITORY`로 secret **이름만** 확인하고 workflow 파일을 확인합니다. 릴리스 커밋의 `package.json` 버전과 annotated tag가 일치하며 tag가 정확히 그 commit을 가리키는지 검증합니다. secret 값은 GitHub에서도 다시 읽어 보여주지 않습니다.
 8. Coordinator를 사용하는 설치라면 `.connect/relay-config.json`의 `releaseChannelId`를 같은 공지 channel ID로 설정하고 Coordinator service만 재시작합니다.
-9. 모든 Connector가 같은 private control channel과 Coordinator bot user ID를 신뢰하는지, `computerId`가 서로 다른지 확인합니다. 서버별 대표 유지보수 agent는 `direct.maintenanceAgent` 또는 `CONNECT_MAINTENANCE_AGENT`로 하나만 선택합니다. 최초 discovery에서 선택한 agent 부모 채널 아래에 `디스코드봇업데이트` 전용 스레드가 자동 생성되고 이후 재사용되는지 확인합니다.
-10. 테스트용 가짜 버전 공지는 사용자가 요청한 경우에만 보냅니다. 일반 커밋은 workflow가 실행되어도 Discord 전송을 건너뜁니다.
+9. 모든 Connector가 같은 private control channel과 Coordinator bot user ID를 신뢰하는지, `computerId`가 서로 다른지 확인합니다. 서버별 대표 유지보수 agent는 `direct.maintenanceAgent` 또는 `CONNECT_MAINTENANCE_AGENT`로 하나만 선택합니다. 최초 discovery에서 선택한 agent 부모 채널 아래에 locale별 전용 업데이트 스레드가 자동 생성되고 이후 재사용되는지 확인합니다.
+10. 릴리스할 때 버전 커밋을 push한 뒤 같은 commit에 annotated tag를 만들고 push합니다. 예: `git tag -a v1.3.0 -m "v1.3.0 Automatic server updates"` 후 `git push origin v1.3.0`.
+11. 테스트용 가짜 tag나 버전 공지는 사용자가 요청한 경우에만 보냅니다.
 
 하나의 repository secret에는 webhook URL 하나만 저장할 수 있습니다. 여러 fork가 같은 Discord webhook을 각각 등록하면 각 저장소의 버전 push가 별도 공지를 만들 수 있으므로, 실제 릴리스를 발행하는 저장소 하나에만 설정하는 것을 권장합니다.
 
-원클릭 업데이트 버튼을 누르면 Coordinator가 private control channel에 일회성 discovery를 보내고, 현재 온라인인 Connector만 응답합니다. 각 Connector는 선택된 agent 부모 채널 아래에서 `디스코드봇업데이트` 스레드를 상태와 Discord 양쪽에서 확인해 재사용하고, 없거나 삭제됐을 때만 다시 만듭니다. Coordinator는 `computerId`별로 이 전용 스레드 하나에만 요청하며 기존 사용자 작업 스레드로 fallback하지 않습니다. static channel 목록과 주기 polling을 추가하지 않습니다. 업데이트 prompt는 exact release commit, clean/ff-only Git, lockfile 설치, gateway/worker 분리, active job의 graceful drain을 요구합니다. 오프라인 서버와 아직 전용 스레드를 등록하지 못한 구버전 Connector는 안전하게 건너뜁니다.
+원클릭 업데이트 버튼을 누르면 Coordinator가 private control channel에 일회성 discovery를 보내고, 현재 온라인인 Connector만 응답합니다. 각 Connector는 선택된 agent 부모 채널 아래에서 locale별 전용 업데이트 스레드를 상태와 Discord 양쪽에서 확인해 재사용하고, 없거나 삭제됐을 때만 다시 만듭니다. Coordinator는 `computerId`별로 이 전용 스레드 하나에만 요청하며 기존 사용자 작업 스레드로 fallback하지 않습니다. static channel 목록과 주기 polling을 추가하지 않습니다. 업데이트 prompt는 tag에서 peel한 exact release commit, clean/ff-only Git, lockfile 설치, gateway/worker 분리, active job의 graceful drain을 요구합니다. 오프라인 서버와 아직 전용 스레드를 등록하지 못한 구버전 Connector는 안전하게 건너뜁니다.
 
 ### Discord 채널과 알림 권장 설정
 

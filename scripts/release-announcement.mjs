@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const VERSION_COMMIT_PATTERN =
@@ -33,6 +34,47 @@ export function parseVersionCommit(commit) {
 export function collectVersionCommits(eventPayload) {
   const commits = Array.isArray(eventPayload?.commits) ? eventPayload.commits : [];
   return commits.map(parseVersionCommit).filter(Boolean);
+}
+
+export function parseVersionTag(input) {
+  const tagName = input?.tagName?.trim();
+  const match = tagName?.match(
+    /^v(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?)$/i,
+  );
+  if (
+    !match ||
+    typeof input?.sha !== "string" ||
+    !/^[0-9a-f]{40}$/i.test(input.sha) ||
+    typeof input?.repositoryUrl !== "string" ||
+    !input.repositoryUrl.trim()
+  ) {
+    return null;
+  }
+
+  const message = typeof input.commitMessage === "string" ? input.commitMessage : "";
+  const [subject = "", ...bodyLines] = message.split(/\r?\n/);
+  const parsedSubject = subject.trim().match(VERSION_COMMIT_PATTERN);
+  const title =
+    parsedSubject?.[2]?.trim() ||
+    (parsedSubject ? null : subject.trim()) ||
+    null;
+  const details = bodyLines.join("\n").trim().replaceAll("\\n", "\n") || null;
+
+  return {
+    sha: input.sha.toLowerCase(),
+    url: `${input.repositoryUrl.replace(/\/+$/, "")}/tree/${encodeURIComponent(tagName)}`,
+    version: match[1],
+    title,
+    details,
+  };
+}
+
+export function collectReleases(eventPayload, releaseTag) {
+  if (releaseTag) {
+    const release = parseVersionTag(releaseTag);
+    return release ? [release] : [];
+  }
+  return collectVersionCommits(eventPayload);
 }
 
 function truncate(value, maxLength = MAX_DESCRIPTION_LENGTH) {
@@ -74,7 +116,7 @@ export function buildDiscordReleasePayload(release) {
 }
 
 export async function announceVersionCommits(input) {
-  const releases = collectVersionCommits(input.eventPayload);
+  const releases = collectReleases(input.eventPayload, input.releaseTag);
 
   if (releases.length === 0) {
     input.log?.("No version commit found; Discord announcement skipped.");
@@ -116,8 +158,22 @@ async function main() {
   }
 
   const eventPayload = JSON.parse(await readFile(eventPath, "utf8"));
+  const tagName = process.env.RELEASE_TAG?.trim();
+  const sha = process.env.RELEASE_SHA?.trim();
+  const repositoryUrl = process.env.REPOSITORY_URL?.trim();
+  const releaseTag = tagName && sha && repositoryUrl
+    ? {
+        tagName,
+        sha,
+        repositoryUrl,
+        commitMessage: execFileSync("git", ["show", "-s", "--format=%B", sha], {
+          encoding: "utf8",
+        }).trim(),
+      }
+    : undefined;
   await announceVersionCommits({
     eventPayload,
+    releaseTag,
     webhookUrl: process.env.DISCORD_RELEASE_WEBHOOK_URL,
     log: console.log,
   });

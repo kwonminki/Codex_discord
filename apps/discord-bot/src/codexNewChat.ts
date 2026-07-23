@@ -1,7 +1,11 @@
 import path from "node:path";
 import os from "node:os";
 import { mkdir } from "node:fs/promises";
-import type { ChannelMode, SessionOrigin } from "../../../packages/core/src/index.js";
+import type {
+  ChannelMode,
+  ConnectorLocale,
+  SessionOrigin,
+} from "../../../packages/core/src/index.js";
 import type { ControlApiClient } from "./controlApiClient.js";
 import type {
   DiscordSessionDeliveryMode,
@@ -55,6 +59,16 @@ export interface ForkDiscordSessionThreadInput {
 }
 
 export const CONNECTOR_MAINTENANCE_THREAD_NAME = "디스코드봇업데이트";
+const CONNECTOR_MAINTENANCE_THREAD_NAMES: Readonly<Record<ConnectorLocale, string>> = {
+  ko: CONNECTOR_MAINTENANCE_THREAD_NAME,
+  en: "Discord Bot Updates",
+  zh: "Discord 机器人更新",
+  ja: "Discord Bot アップデート",
+};
+
+export function connectorMaintenanceThreadName(locale: ConnectorLocale): string {
+  return CONNECTOR_MAINTENANCE_THREAD_NAMES[locale];
+}
 
 export interface EnsureConnectorMaintenanceThreadInput {
   guild: DiscordGuildSurface;
@@ -65,6 +79,7 @@ export interface EnsureConnectorMaintenanceThreadInput {
   preferredAgent: "codex" | "claude";
   codexParentChannelId: string;
   claudeParentChannelId?: string | null;
+  locale?: ConnectorLocale;
 }
 
 export interface ConnectorMaintenanceThreadResult {
@@ -102,11 +117,12 @@ async function registerMaintenanceThread(input: {
   channelId: string;
   parentChannelId: string;
   channelMode: Extract<ChannelMode, "session-linked" | "claude-code">;
+  threadName: string;
 }): Promise<void> {
   const displayName = workspaceDisplayName(input.workspaceRoot);
   const nextChannel: SyncedSessionChannelState = {
     codexSessionId: null,
-    threadName: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    threadName: input.threadName,
     updatedAt: new Date().toISOString(),
     cwd: input.workspaceRoot,
     workspaceRoot: input.workspaceRoot,
@@ -117,7 +133,7 @@ async function registerMaintenanceThread(input: {
     discordDeliveryMode: "thread",
     channelPurpose: "maintenance",
     channelMode: input.channelMode,
-    channelName: sanitizeName(CONNECTOR_MAINTENANCE_THREAD_NAME),
+    channelName: sanitizeName(input.threadName),
     computerId: input.computerId,
     workspaceId: workspaceId(input.computerId, input.workspaceRoot),
   };
@@ -159,6 +175,7 @@ export async function ensureConnectorMaintenanceThread(
   const parentChannelId = useClaude
     ? input.claudeParentChannelId!.trim()
     : input.codexParentChannelId.trim();
+  const threadName = connectorMaintenanceThreadName(input.locale ?? "ko");
   const state = await input.stateStore.read();
   const existing = state.sessionChannels.find(
     (channel) =>
@@ -166,7 +183,7 @@ export async function ensureConnectorMaintenanceThread(
       channel.discordParentChannelId === parentChannelId &&
       channel.channelMode === channelMode &&
       (channel.channelPurpose === "maintenance" ||
-        channel.threadName === CONNECTOR_MAINTENANCE_THREAD_NAME),
+        Object.values(CONNECTOR_MAINTENANCE_THREAD_NAMES).includes(channel.threadName)),
   );
 
   if (existing) {
@@ -200,7 +217,7 @@ export async function ensureConnectorMaintenanceThread(
   }
 
   const discovered = await input.guild.findThreadByName?.({
-    name: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    name: threadName,
     parentChannelId,
   });
   if (discovered) {
@@ -212,6 +229,7 @@ export async function ensureConnectorMaintenanceThread(
       channelId: discovered.id,
       parentChannelId,
       channelMode,
+      threadName,
     });
     return {
       agent,
@@ -222,7 +240,7 @@ export async function ensureConnectorMaintenanceThread(
   }
 
   const created = await input.guild.createThread({
-    name: CONNECTOR_MAINTENANCE_THREAD_NAME,
+    name: threadName,
     parentChannelId,
     autoArchiveDuration: 10_080,
     reason: "AI Agent Discord Connector release maintenance",
@@ -235,6 +253,7 @@ export async function ensureConnectorMaintenanceThread(
     channelId: created.id,
     parentChannelId,
     channelMode,
+    threadName,
   });
 
   return {

@@ -10,14 +10,14 @@
 
 A personal bridge for using **AI agents such as Codex and Claude Code running on macOS, Windows, or Ubuntu through Discord threads and letting those agents converse with one another**.
 
-## v1.2 Release
+## v1.3 Release
 
-> ### NEW · Live Agent Control
-> **Intervene in active Codex and Claude Code work with an ordinary Discord message.**
+> ### NEW · One-click automatic server updates
+> **When a new version tag is published, update every connected computer from one button in the Discord release notice.**
 >
-> A message sent in a working thread now steers the active turn immediately. Only `/queue prompt:<request>` schedules a separate next turn. Codex and Claude Code share the same behavior, including `/steer`, `/interrupt`, and `/status`.
+> Pushing an annotated tag such as `v1.3.0` automatically posts the feature notes and an **Update registered servers** button. A click discovers online Connectors, selects exactly one Codex or Claude Code agent per computer, and applies the exact tagged commit through a localized dedicated update thread.
 >
-> v1.2 also improves long-answer and Agent Relay delivery, model autocomplete and free-form choices, media surveys, and the independent Worker that keeps jobs alive across gateway restarts. [Explore Agent Relay](docs/agent-relay.en.md)
+> Active user threads stay untouched and running Worker jobs are preserved through graceful drain. Offline computers are safely skipped, with no static server list or periodic polling. v1.2 live steering, durable queues, independent Workers, and [Agent Relay](docs/agent-relay.en.md) remain included.
 
 Send an ordinary Discord message and the agent works on the connected computer, then returns important progress and the final answer to Discord. Images, video, audio, and general files can move in both directions.
 
@@ -113,7 +113,7 @@ When a separate Coordinator Bot is enabled, `/agent-chat` links the current thre
 
 ### One-click server updates
 
-With the Coordinator and GitHub release announcements enabled, each version notice gets an **Update registered servers** button. On discovery, every online Connector finds or creates one dedicated `디스코드봇업데이트` thread under its selected agent parent channel. The Coordinator sends the update only to that thread for each `computerId`, leaving active user sessions untouched. A server configured for both Codex and Claude Code still receives only one update request; the installation agent chooses the appropriate maintenance agent.
+With the Coordinator and GitHub release announcements enabled, pushing an annotated `v*` tag automatically posts a version notice with an **Update registered servers** button. On discovery, every online Connector finds or creates one localized dedicated update thread (`Discord Bot Updates` in English) under its selected agent parent channel. The Coordinator applies the exact tagged commit only through that thread for each `computerId`, leaving active user sessions untouched. A server configured for both Codex and Claude Code still receives only one update request.
 
 ## Files and media
 

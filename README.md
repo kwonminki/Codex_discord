@@ -10,14 +10,14 @@
 
 Mac, Windows, Ubuntu 서버에서 실행되는 **Codex와 Claude Code 같은 AI agent를 Discord 스레드로 사용하고, 서로 대화시킬 수 있는 개인용 브리지**입니다.
 
-## v1.2 Release
+## v1.3 Release
 
-> ### NEW · Live Agent Control
-> **Codex와 Claude Code 작업에 Discord 메시지로 바로 개입할 수 있습니다.**
+> ### NEW · 원클릭 자동 서버 업데이트
+> **새 버전 태그가 올라오면 Discord 공지에서 버튼 하나로 연결된 컴퓨터를 업데이트할 수 있습니다.**
 >
-> 실행 중인 스레드에 일반 메시지를 보내면 현재 turn에 즉시 steering되고, `/queue prompt:<요청>`으로만 별도 다음 turn을 예약합니다. Codex와 Claude Code 모두 같은 방식으로 제어하며 `/steer`, `/interrupt`, `/status`도 지원합니다.
+> `v1.3.0` 같은 annotated tag가 GitHub에 push되면 release 채널에 기능 설명과 **등록 서버 업데이트** 버튼이 자동으로 나타납니다. 버튼을 누르면 온라인 Connector를 실시간 탐색하고, 컴퓨터마다 Codex 또는 Claude Code 하나를 선택해 언어별 전용 업데이트 스레드에서 exact release commit을 적용합니다.
 >
-> v1.2에는 긴 답변과 Agent Relay 전달 안정화, 모델 자동완성과 자유 입력, 미디어 설문 개선, gateway 재시작 중에도 작업을 유지하는 독립 Worker 구조 개선도 포함됩니다. [Agent Relay 자세히 보기](docs/agent-relay.ko.md)
+> 사용자 작업 스레드는 건드리지 않고 실행 중인 Worker 작업은 graceful drain으로 보존합니다. 오프라인 컴퓨터는 안전하게 건너뛰며 정적 서버 목록이나 주기 polling도 필요 없습니다. v1.2의 실시간 steering, durable queue, 독립 Worker와 [Agent Relay](docs/agent-relay.ko.md) 기능도 그대로 포함됩니다.
 
 Discord에서 평소처럼 메시지를 보내면 agent가 연결된 컴퓨터에서 작업하고, 중요한 진행 상황과 최종 답변을 Discord로 돌려줍니다. 이미지, 영상, 오디오, 일반 파일도 양방향으로 주고받을 수 있습니다.
 
@@ -113,7 +113,7 @@ Codex 또는 Claude Code가 작업 중일 때 같은 스레드에 보낸 일반 
 
 ### 원클릭 서버 업데이트
 
-Coordinator와 GitHub release 공지를 활성화하면 버전 공지 아래에 **등록 서버 업데이트** 버튼이 표시됩니다. 버튼을 누를 때 각 온라인 Connector는 선택된 agent의 부모 채널 아래에 `디스코드봇업데이트` 전용 스레드를 찾거나 한 번만 생성합니다. Coordinator는 `computerId`별 전용 스레드 하나에만 안전 업데이트를 요청하므로 사용자가 작업 중인 세션을 침범하지 않습니다. Codex와 Claude Code를 모두 쓰는 서버에도 요청은 한 번만 전송되며, 설치 에이전트가 서버 구성에 맞는 대표 agent를 정합니다.
+Coordinator와 GitHub release 공지를 활성화하면 `v*` annotated tag가 push될 때 버전 공지와 **등록 서버 업데이트** 버튼이 자동으로 표시됩니다. 버튼을 누르면 각 온라인 Connector가 선택된 agent의 부모 채널 아래에 언어별 전용 업데이트 스레드(한국어: `디스코드봇업데이트`)를 찾거나 한 번만 생성합니다. Coordinator는 `computerId`별 전용 스레드 하나에만 exact tagged commit의 안전 업데이트를 요청하므로 사용자가 작업 중인 세션을 침범하지 않습니다. Codex와 Claude Code를 모두 쓰는 서버에도 요청은 한 번만 전송됩니다.
 
 ## 파일과 미디어
 

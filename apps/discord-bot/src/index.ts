@@ -1093,6 +1093,7 @@ export async function startBot(): Promise<void> {
               preferredAgent,
               codexParentChannelId: connectConfig.direct.channelId,
               claudeParentChannelId: connectConfig.direct.claudeChannelId,
+              locale,
             }).finally(() => {
               connectorMaintenanceThreadPromise = null;
             });
