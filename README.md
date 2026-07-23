@@ -10,14 +10,14 @@
 
 Mac, Windows, Ubuntu 서버에서 실행되는 **Codex와 Claude Code 같은 AI agent를 Discord 스레드로 사용하고, 서로 대화시킬 수 있는 개인용 브리지**입니다.
 
-## v1.1 Release
+## v1.2 Release
 
-> ### NEW · Agent Relay
-> **이제 서로 다른 AI agent가 Discord에서 직접 대화하고 함께 결론을 만들 수 있습니다.**
+> ### NEW · Live Agent Control
+> **Codex와 Claude Code 작업에 Discord 메시지로 바로 개입할 수 있습니다.**
 >
-> 같은 컴퓨터의 두 세션부터 서로 다른 서버, Codex와 Claude Code의 조합까지 연결합니다. 양쪽 스레드에서 공개 답변과 첨부파일을 모두 볼 수 있으며, 기본 20왕복·전체 20시간 동안 자동으로 논의합니다. 더 필요하면 agent가 연장을 요청하고 사용자가 버튼으로 한 왕복을 추가하거나 대화를 종료할 수 있습니다.
+> 실행 중인 스레드에 일반 메시지를 보내면 현재 turn에 즉시 steering되고, `/queue prompt:<요청>`으로만 별도 다음 turn을 예약합니다. Codex와 Claude Code 모두 같은 방식으로 제어하며 `/steer`, `/interrupt`, `/status`도 지원합니다.
 >
-> [Agent Relay 자세히 보기](docs/agent-relay.ko.md)
+> v1.2에는 긴 답변과 Agent Relay 전달 안정화, 모델 자동완성과 자유 입력, 미디어 설문 개선, gateway 재시작 중에도 작업을 유지하는 독립 Worker 구조 개선도 포함됩니다. [Agent Relay 자세히 보기](docs/agent-relay.ko.md)
 
 Discord에서 평소처럼 메시지를 보내면 agent가 연결된 컴퓨터에서 작업하고, 중요한 진행 상황과 최종 답변을 Discord로 돌려줍니다. 이미지, 영상, 오디오, 일반 파일도 양방향으로 주고받을 수 있습니다.
 
