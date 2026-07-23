@@ -32,7 +32,7 @@ const MAX_PROMPT_CONTENT = 1_850;
 const DEFAULT_MAX_ROUNDS = 6;
 const DEFAULT_TIMEOUT_MINUTES = 120;
 const THREAD_AUTOCOMPLETE_LIMIT = 25;
-const THREAD_CACHE_TTL_MS = 30_000;
+const THREAD_CACHE_TTL_MS = 2_000;
 
 export const RELAY_COMMANDS = [
   {
@@ -377,6 +377,23 @@ export async function startRelayBot(): Promise<void> {
     expiresAt: number;
     candidates: RelayThreadChoiceCandidate[];
   }>();
+
+  function invalidateThreadChoices(parentId: string | null | undefined): void {
+    if (parentId) {
+      threadChoiceCache.delete(parentId);
+    }
+  }
+
+  client.on(Events.ThreadCreate, (thread) => {
+    invalidateThreadChoices(thread.parentId);
+  });
+  client.on(Events.ThreadDelete, (thread) => {
+    invalidateThreadChoices(thread.parentId);
+  });
+  client.on(Events.ThreadUpdate, (previous, current) => {
+    invalidateThreadChoices(previous.parentId);
+    invalidateThreadChoices(current.parentId);
+  });
 
   function enqueueControlResult(message: Message): Promise<void> {
     const next = controlResultQueue.then(() => processControlResult({
