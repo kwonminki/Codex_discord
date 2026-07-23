@@ -7,14 +7,14 @@ Agent Relay is an optional second Discord bot that alternates final public answe
 Run this in agent thread A:
 
 ```text
-/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:6 timeout_minutes:120
+/agent-chat parent:#agent-parent-b peer:agent-thread-b goal:Compare both implementations and agree on an improvement plan max_rounds:20 timeout_minutes:120
 ```
 
 Select the peer agent's parent channel first. The `peer` autocomplete then searches active and archived threads under that parent. Discord exposes at most 25 autocomplete choices at once, so type part of the thread name to narrow the list. A thread ID, `<#thread-id>` mention, or Discord thread URL is also accepted as a fallback.
 
 The Coordinator sends A's first execution request through the private relay-control channel, forwards A's final answer into B, then sends B's answer back into A. Execution rules and the full input prompt are not exposed in the work thread. Only the agent's final public answer and attachments are copied into the peer thread; progress and tool events are not used as the next agent's input. Files emitted through `codex-discord-send` are uploaded by the source Connector to the relay-control channel and reattached to both the target thread and the next private request. Cross-machine relay therefore transfers Discord attachment bytes, not unusable source-local paths.
 
-Two consecutive `done` decisions from different agents complete the conversation. `max_rounds`, the overall timeout, `blocked`, a failed turn, or `/agent-chat-stop` also terminate it. The Coordinator mentions the Operator role once in the original A thread. Existing approval and user-question flows still mention the Operator immediately and wait for a response.
+Two consecutive `done` decisions from different agents complete the conversation. One round trip means one answer from A and one from B, and every agent prompt shows the current round trip and individual agent turn. An `extend` decision pauses the conversation and asks the Operator for another round trip. Clicking **왕복 1회 추가** (`Add one round trip`) on the final notice adds two agent turns and resumes with the other agent. `max_rounds`, the overall timeout, `blocked`, a failed turn, or `/agent-chat-stop` also terminate it. The Coordinator mentions the Operator role once in the original A thread. Existing approval and user-question flows still mention the Operator immediately and wait for a response.
 
 ## Discord setup
 
@@ -60,7 +60,7 @@ Add the same Coordinator bot user ID and control channel to every participating 
 }
 ```
 
-Each Connector accepts bot-authored requests only from that exact ID and only in agent session threads. Shell-admin channels and all other bot messages remain blocked.
+Each Connector accepts only exact marker requests sent by that bot ID in the private control channel, then executes them against the referenced locally owned agent thread. Ordinary bot messages in work threads, shell-admin channels, and all other bot messages remain blocked.
 
 ## Run
 
@@ -74,13 +74,14 @@ Restart each Connector gateway once after applying relay configuration. Do not r
 
 ## Commands
 
-- `/agent-chat`: choose a peer parent and searchable thread, then start the conversation
+- `/agent-chat`: choose a peer parent and searchable thread, then start the conversation; use `max_rounds` for the initial round-trip limit
 - `/agent-chat-status`: inspect the current or latest conversation
 - `/agent-chat-stop`: stop future relay turns; it does not force-kill an agent turn already running
 
 ## Limits and cautions
 
-- Defaults are 6 round trips and 120 minutes, configurable per command.
+- Defaults are 20 round trips and 120 minutes, configurable per command. One round trip is one A answer plus one B answer, or two individual agent turns.
+- Only an Operator can click **왕복 1회 추가** (`Add one round trip`) on an `extend` notice. Each successful click grants two agent turns, and duplicate clicks on the same request are rejected.
 - Up to 9 source result files, 10MiB each, cross to the peer in one turn. A long peer response may use the tenth attachment as text.
 - Avoid using either session from Desktop, an IDE, or an ordinary Discord request during relay. Human messages do not steer a relay turn and wait in a separate queue, but the underlying session context is shared.
 - Never implement relay by accepting every bot message. Preserve every boundary check: exact Coordinator bot ID, private control channel ID, exact request marker, target agent-thread mode, and machine-readable result callbacks. Public notices and peer-answer copies posted by the Coordinator in work threads are not execution requests.

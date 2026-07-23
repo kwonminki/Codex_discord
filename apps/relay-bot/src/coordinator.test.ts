@@ -10,7 +10,7 @@ import { createRelayConversationStore } from "./store.js";
 function result(input: {
   requestMessageId: string;
   sourceThreadId: string;
-  status?: "continue" | "done" | "blocked";
+  status?: "continue" | "done" | "extend" | "blocked";
   text: string;
 }): AgentRelayTurnResult {
   return {
@@ -68,6 +68,8 @@ describe("relay coordinator", () => {
       expect(sent[0]?.publicContent).toBeNull();
       expect(sent[0]?.prompt).toContain("```codex-discord-send");
       expect(sent[0]?.prompt).not.toContain("비공개 추론이나 도구 로그");
+      expect(sent[0]?.prompt).toContain("현재 왕복: 1/3");
+      expect(sent[0]?.prompt).toContain("현재 agent turn: 1/6");
 
       const file = { name: "result.txt", data: Buffer.from("result") };
       const afterA = await coordinator.handleTurnResult(result({
@@ -78,6 +80,7 @@ describe("relay coordinator", () => {
       expect(afterA?.pendingRequestMessageId).toBe("message-2");
       expect(sent[1]).toMatchObject({ threadId: "thread-b", files: [file] });
       expect(sent[1]?.prompt).toContain("A의 분석");
+      expect(sent[1]?.prompt).toContain("현재 agent turn: 2/6");
       expect(sent[1]?.publicContent).toContain("A의 분석");
       expect(sent[1]?.publicContent).not.toContain("agent-relay");
 
@@ -100,6 +103,112 @@ describe("relay coordinator", () => {
       expect(completed?.status).toBe("completed");
       expect(completed?.lastResponse).toBe("최종 합의");
       expect(notices).toEqual(["completed"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("pauses for an extension request and resumes one full round from the button action", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agent-relay-extension-"));
+    const sent: Array<{
+      threadId: string;
+      prompt: string;
+      publicContent: string | null;
+      files: RelayTransferFile[];
+    }> = [];
+    const notices: string[] = [];
+    const coordinator = createRelayCoordinator({
+      store: createRelayConversationStore(root),
+      now: () => Date.parse("2026-07-23T00:00:00.000Z"),
+      transport: {
+        async sendPrompt(input) {
+          sent.push(input);
+          return { messageId: `message-${sent.length}` };
+        },
+        async sendFinalNotice(input) {
+          notices.push(input.conversation.status);
+        },
+      },
+    });
+
+    try {
+      const started = await coordinator.start({
+        guildId: "guild-1",
+        originThreadId: "thread-a",
+        peerThreadId: "thread-b",
+        operatorUserId: "user-1",
+        operatorRoleIds: ["role-1"],
+        goal: "한 번 더 검토",
+        maxRounds: 1,
+        timeoutMs: 60_000,
+      });
+      await coordinator.handleTurnResult(result({
+        requestMessageId: "message-1",
+        sourceThreadId: "thread-a",
+        text: "A의 첫 답변",
+      }), []);
+      expect(sent[1]?.prompt).toContain("현재 agent turn: 2/2");
+      expect(sent[1]?.prompt).toContain("마지막 turn");
+
+      const waiting = await coordinator.handleTurnResult(result({
+        requestMessageId: "message-2",
+        sourceThreadId: "thread-b",
+        status: "extend",
+        text: "B가 추가 비교를 요청함",
+      }), []);
+      expect(waiting).toMatchObject({
+        status: "extension-requested",
+        maxRounds: 1,
+        turnCount: 2,
+        pendingRequestMessageId: null,
+      });
+      expect(notices).toEqual(["extension-requested"]);
+      await expect(coordinator.start({
+        guildId: "guild-1",
+        originThreadId: "thread-a",
+        peerThreadId: "thread-c",
+        operatorUserId: "user-1",
+        operatorRoleIds: ["role-1"],
+        goal: "겹치면 안 됨",
+        maxRounds: 1,
+        timeoutMs: 60_000,
+      })).rejects.toThrow("이미 실행 중");
+
+      const extensionOutcomes = await Promise.allSettled([
+        coordinator.grantExtension(started.id, 1),
+        coordinator.grantExtension(started.id, 1),
+      ]);
+      expect(extensionOutcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      expect(extensionOutcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+      const resumed = extensionOutcomes.find(
+        (outcome): outcome is PromiseFulfilledResult<Awaited<ReturnType<typeof coordinator.grantExtension>>> =>
+          outcome.status === "fulfilled",
+      )?.value;
+      expect(resumed).toMatchObject({
+        status: "running",
+        maxRounds: 2,
+        turnCount: 3,
+        pendingRequestMessageId: "message-3",
+        currentThreadId: "thread-a",
+      });
+      expect(sent[2]?.prompt).toContain("사용자가 왕복 1회를 추가했습니다");
+      expect(sent[2]?.prompt).toContain("현재 agent turn: 3/4");
+      expect(sent[2]?.publicContent).toContain("B가 추가 비교를 요청함");
+
+      await coordinator.handleTurnResult(result({
+        requestMessageId: "message-3",
+        sourceThreadId: "thread-a",
+        status: "done",
+        text: "A의 최종 확인",
+      }), []);
+      const completed = await coordinator.handleTurnResult(result({
+        requestMessageId: "message-4",
+        sourceThreadId: "thread-b",
+        status: "done",
+        text: "B의 최종 확인",
+      }), []);
+      expect(completed?.status).toBe("completed");
+      expect(notices).toEqual(["extension-requested", "completed"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

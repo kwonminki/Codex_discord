@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_MAX_ROUNDS,
   RELAY_COMMANDS,
+  parseRelayExtensionButtonId,
   parseRelayThreadId,
+  relayExtensionActionRows,
   relayThreadAutocompleteChoices,
 } from "./index.js";
 
@@ -14,6 +17,23 @@ describe("relay bot thread selection", () => {
       expect.objectContaining({ name: "peer", type: 3, required: true, autocomplete: true }),
       expect.objectContaining({ name: "goal", type: 3, required: true }),
     ]);
+    expect(command?.options?.find((option) => option.name === "max_rounds"))
+      .toEqual(expect.objectContaining({ min_value: 1, max_value: 20 }));
+    expect(DEFAULT_MAX_ROUNDS).toBe(20);
+  });
+
+  it("builds a one-round extension button with an exact conversation ID", () => {
+    const conversationId = "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0";
+    const customId = `agent-relay:extend:${conversationId}`;
+    expect(parseRelayExtensionButtonId(customId)).toBe(conversationId);
+    expect(parseRelayExtensionButtonId("agent-relay:extend:not-a-uuid")).toBeNull();
+    expect(relayExtensionActionRows(conversationId)[0]?.toJSON()).toMatchObject({
+      components: [expect.objectContaining({
+        custom_id: customId,
+        label: "왕복 1회 추가",
+        disabled: false,
+      })],
+    });
   });
 
   it("accepts autocomplete IDs, thread mentions, and Discord links", () => {

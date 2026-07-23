@@ -7,7 +7,7 @@ export const AGENT_RELAY_REQUEST_PREFIX = "agent-relay-request:";
 export const AGENT_RELAY_RESULT_PREFIX = "agent-relay-result:";
 
 export const agentRelayDecisionSchema = z.object({
-  status: z.enum(["continue", "done", "blocked"]),
+  status: z.enum(["continue", "done", "extend", "blocked"]),
   summary: z.string().transform((value) => value.slice(0, 500)).optional(),
 }).passthrough();
 

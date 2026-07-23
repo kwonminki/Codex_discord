@@ -4,6 +4,7 @@ import type {
   RelayConversationStatus,
   RelayConversationStore,
 } from "./store.js";
+const EXTENSION_GRACE_MS = 30 * 60_000;
 
 export interface RelayTransferFile {
   name: string;
@@ -34,7 +35,22 @@ function otherThread(conversation: RelayConversation, threadId: string): string 
     : conversation.originThreadId;
 }
 
-function protocolInstructions(): string {
+function turnProgress(conversation: RelayConversation): string[] {
+  const agentTurn = conversation.turnCount + 1;
+  const maximumAgentTurns = conversation.maxRounds * 2;
+  const round = Math.ceil(agentTurn / 2);
+  return [
+    "진행 정보",
+    `현재 왕복: ${round}/${conversation.maxRounds}`,
+    `현재 agent turn: ${agentTurn}/${maximumAgentTurns}`,
+    "Agent A와 B가 각각 한 번 답하면 왕복 1회로 계산합니다.",
+    agentTurn >= maximumAgentTurns
+      ? "이번 답변은 현재 허용된 마지막 turn입니다. 논의가 더 필요하면 status를 extend로 요청하세요."
+      : `이번 답변 뒤 남는 agent turn: ${maximumAgentTurns - agentTurn}`,
+  ];
+}
+
+function protocolInstructions(conversation: RelayConversation): string {
   return [
     "당신은 다른 AI agent와 Discord relay 대화를 진행 중입니다.",
     "상대의 주장과 자료를 검토하고, 반론·보완·합의안을 구체적으로 작성하세요.",
@@ -54,8 +70,13 @@ function protocolInstructions(): string {
     "```agent-relay",
     '{"status":"continue","summary":"계속 논의해야 하는 이유"}',
     "```",
-    "합의가 충분하면 status를 done, 사람의 개입이 필요하면 blocked로 바꾸세요.",
+    "합의가 충분하면 status를 done으로 바꾸세요.",
+    "추가 왕복이 필요하면 status를 extend로 바꾸고 summary에 이유를 쓰세요. 사용자에게 버튼으로 승인을 요청합니다.",
+    "extend를 요청하는 답변에는 새 파일을 첨부하지 말고, 승인 후 이어지는 turn에서 전달하세요.",
+    "사람의 판단이나 별도 입력이 필요하면 status를 blocked로 바꾸세요.",
     "이 제어 블록은 상대에게 보이지 않고 Coordinator가 처리합니다.",
+    "",
+    ...turnProgress(conversation),
   ].join("\n");
 }
 
@@ -81,7 +102,7 @@ function initialPrompt(conversation: RelayConversation): string {
     "대화 목표",
     conversation.goal,
     "",
-    protocolInstructions(),
+    protocolInstructions(conversation),
     "",
     "먼저 문제를 분석하고 상대 Agent B가 검토할 수 있는 첫 입장을 제시하세요.",
   ].join("\n");
@@ -93,6 +114,7 @@ function peerPrompt(input: {
   sourceAgentLabel: string;
   response: string;
   proposesCompletion: boolean;
+  extensionGranted?: boolean;
   fileCount: number;
 }): string {
   const sourceLabel = participantLabel(input.conversation, input.sourceThreadId);
@@ -105,14 +127,16 @@ function peerPrompt(input: {
     "상대 답변",
     input.response || "(상대가 텍스트 답변을 남기지 않았습니다.)",
     "",
-    input.proposesCompletion
+    input.extensionGranted
+      ? "사용자가 왕복 1회를 추가했습니다. 상대의 마지막 답변을 바탕으로 논의를 계속하세요."
+      : input.proposesCompletion
       ? "상대가 종료를 제안했습니다. 충분히 합의됐다면 done으로 확인하고, 빠진 내용이 있으면 continue로 논의를 이어가세요."
       : "상대의 내용을 검토하고 논의를 이어가세요.",
     "",
     "대화 목표",
     input.conversation.goal,
     "",
-    protocolInstructions(),
+    protocolInstructions(input.conversation),
   ].filter((line): line is string => line !== null).join("\n");
 }
 
@@ -121,6 +145,8 @@ function finalStatusDetail(status: RelayConversationStatus, fallback: string): s
   switch (status) {
     case "completed":
       return "두 에이전트가 종료에 동의했습니다.";
+    case "extension-requested":
+      return safeFallback || "에이전트가 추가 왕복을 요청했습니다.";
     case "max-rounds":
       return "설정된 최대 라운드에 도달했습니다.";
     case "timed-out":
@@ -247,6 +273,7 @@ export function createRelayCoordinator(input: {
       }
 
       const currentDone = result.decision?.status === "done";
+      const extensionRequested = result.decision?.status === "extend";
       const bothDone = currentDone && Boolean(
         conversation.lastDoneThreadId && conversation.lastDoneThreadId !== result.sourceThreadId,
       );
@@ -259,6 +286,14 @@ export function createRelayCoordinator(input: {
 
       if (bothDone) {
         return finish(updated, "completed", "", result.finalMessage);
+      }
+      if (extensionRequested) {
+        return finish(
+          updated,
+          "extension-requested",
+          result.decision?.summary ?? "에이전트가 추가 왕복을 요청했습니다.",
+          result.finalMessage,
+        );
       }
       if (updated.turnCount >= updated.maxRounds * 2) {
         return finish(updated, "max-rounds", "", result.finalMessage);
@@ -297,6 +332,47 @@ export function createRelayCoordinator(input: {
     async stop(threadId: string): Promise<RelayConversation | null> {
       const conversation = await input.store.findActiveByThread(threadId);
       return conversation ? finish(conversation, "stopped", "") : null;
+    },
+
+    async grantExtension(conversationId: string, additionalRounds = 1): Promise<RelayConversation> {
+      if (!Number.isInteger(additionalRounds) || additionalRounds < 1) {
+        throw new Error("추가 왕복 수는 1 이상이어야 합니다.");
+      }
+      const resumed = await input.store.claimExtension(
+        conversationId,
+        additionalRounds,
+        new Date(now() + EXTENSION_GRACE_MS).toISOString(),
+      );
+      const nextThreadId = otherThread(resumed, resumed.currentThreadId);
+      const nextPrompt = peerPrompt({
+        conversation: resumed,
+        sourceThreadId: resumed.currentThreadId,
+        sourceAgentLabel: resumed.lastAgentLabel ?? "Agent",
+        response: resumed.lastResponse,
+        proposesCompletion: false,
+        extensionGranted: true,
+        fileCount: 0,
+      });
+
+      try {
+        return await dispatch(
+          resumed,
+          nextThreadId,
+          nextPrompt,
+          [],
+          peerPublicMessage({
+            conversation: resumed,
+            sourceThreadId: resumed.currentThreadId,
+            sourceAgentLabel: resumed.lastAgentLabel ?? "Agent",
+            response: resumed.lastResponse,
+            fileCount: 0,
+          }),
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        await finish(resumed, "failed", `추가 왕복을 전달하지 못했습니다: ${detail}`);
+        throw new Error(`추가 왕복을 전달하지 못했습니다: ${detail}`);
+      }
     },
 
     async status(threadId: string): Promise<RelayConversation | null> {

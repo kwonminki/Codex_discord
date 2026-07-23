@@ -24,6 +24,18 @@ describe("agent relay protocol", () => {
     });
   });
 
+  it("recognizes a request for another round", () => {
+    expect(extractAgentRelayDecision([
+      "한 번 더 검토가 필요합니다.",
+      "```agent-relay",
+      '{"status":"extend","summary":"성능 수치를 한 차례 더 비교해야 함"}',
+      "```",
+    ].join("\n"))).toMatchObject({
+      cleanedText: "한 번 더 검토가 필요합니다.",
+      decision: { status: "extend", summary: "성능 수치를 한 차례 더 비교해야 함" },
+    });
+  });
+
   it("round-trips result and file markers", () => {
     expect(parseAgentRelayFilesMarker(formatAgentRelayFilesMarker("message-1", 2, 3))).toEqual({
       requestMessageId: "message-1",

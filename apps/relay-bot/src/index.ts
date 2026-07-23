@@ -1,12 +1,16 @@
 import { pathToFileURL } from "node:url";
 
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   Client,
   Events,
   GatewayIntentBits,
   type AnyThreadChannel,
   type AutocompleteInteraction,
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type GuildBasedChannel,
   type Message,
@@ -31,10 +35,11 @@ const MAX_RELAY_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_RELAY_FILES = 10;
 const MAX_RELAY_TRANSFER_FILES = MAX_RELAY_FILES - 1;
 const MAX_PROMPT_CONTENT = 1_850;
-const DEFAULT_MAX_ROUNDS = 6;
+export const DEFAULT_MAX_ROUNDS = 20;
 const DEFAULT_TIMEOUT_MINUTES = 120;
 const THREAD_AUTOCOMPLETE_LIMIT = 25;
 const THREAD_CACHE_TTL_MS = 2_000;
+const EXTENSION_BUTTON_PREFIX = "agent-relay:extend:";
 
 export const RELAY_COMMANDS = [
   {
@@ -64,7 +69,7 @@ export const RELAY_COMMANDS = [
       {
         type: 4,
         name: "max_rounds",
-        description: "최대 왕복 라운드 수",
+        description: "최대 왕복 횟수 (A와 B가 각각 답하면 1회, 기본 20)",
         min_value: 1,
         max_value: 20,
       },
@@ -92,6 +97,26 @@ export interface RelayThreadChoiceCandidate {
   name: string;
   parentName: string;
   archived: boolean;
+}
+
+export function parseRelayExtensionButtonId(customId: string): string | null {
+  if (!customId.startsWith(EXTENSION_BUTTON_PREFIX)) {
+    return null;
+  }
+  const conversationId = customId.slice(EXTENSION_BUTTON_PREFIX.length);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)
+    ? conversationId.toLowerCase()
+    : null;
+}
+
+export function relayExtensionActionRows(conversationId: string, disabled = false) {
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${EXTENSION_BUTTON_PREFIX}${conversationId}`)
+      .setLabel("왕복 1회 추가")
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(disabled),
+  )];
 }
 
 export function parseRelayThreadId(value: string): string | null {
@@ -157,7 +182,9 @@ async function fetchRelayThreadCandidates(parent: GuildBasedChannel): Promise<Re
   }));
 }
 
-function interactionRoleIds(interaction: ChatInputCommandInteraction | AutocompleteInteraction): string[] {
+function interactionRoleIds(
+  interaction: ChatInputCommandInteraction | AutocompleteInteraction | ButtonInteraction,
+): string[] {
   const member = interaction.member;
   if (!member) {
     return [];
@@ -172,7 +199,7 @@ function interactionRoleIds(interaction: ChatInputCommandInteraction | Autocompl
 }
 
 function hasOperatorRole(
-  interaction: ChatInputCommandInteraction | AutocompleteInteraction,
+  interaction: ChatInputCommandInteraction | AutocompleteInteraction | ButtonInteraction,
   operatorRoleIds: string[],
 ): boolean {
   const roles = new Set(interactionRoleIds(interaction));
@@ -205,6 +232,7 @@ function fitPrompt(content: string, files: RelayTransferFile[]): {
 function statusLabel(status: RelayConversation["status"]): string {
   const labels: Record<RelayConversation["status"], string> = {
     running: "진행 중",
+    "extension-requested": "추가 왕복 요청",
     completed: "합의 완료",
     "max-rounds": "최대 라운드 도달",
     blocked: "사용자 확인 필요",
@@ -221,7 +249,7 @@ function conversationSummary(conversation: RelayConversation): string {
     `A: <#${conversation.originThreadId}>`,
     `B: <#${conversation.peerThreadId}>`,
     `상태: **${statusLabel(conversation.status)}**`,
-    `진행: ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} 라운드 (${conversation.turnCount} turns)`,
+    `진행: 왕복 ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
     `마지막 agent: ${conversation.lastAgentLabel ?? "아직 없음"}`,
     conversation.statusDetail ? `상세: ${conversation.statusDetail}` : null,
   ].filter((line): line is string => Boolean(line)).join("\n");
@@ -387,10 +415,16 @@ export async function startRelayBot(): Promise<void> {
             description: truncatedSummary,
             fields: [
               { name: "대화", value: `A <#${conversation.originThreadId}> ↔ B <#${conversation.peerThreadId}>` },
-              { name: "진행", value: `${conversation.turnCount} turns / 최대 ${conversation.maxRounds * 2}` },
+              {
+                name: "진행",
+                value: `왕복 ${Math.ceil(conversation.turnCount / 2)}/${conversation.maxRounds} · agent turn ${conversation.turnCount}/${conversation.maxRounds * 2}`,
+              },
               { name: "종료 사유", value: conversation.statusDetail ?? statusLabel(conversation.status) },
             ],
           }],
+          components: conversation.status === "extension-requested"
+            ? relayExtensionActionRows(conversation.id)
+            : [],
           files,
         });
       },
@@ -429,7 +463,9 @@ export async function startRelayBot(): Promise<void> {
     return next;
   }
 
-  async function rejectUnauthorized(interaction: ChatInputCommandInteraction): Promise<boolean> {
+  async function rejectUnauthorized(
+    interaction: ChatInputCommandInteraction | ButtonInteraction,
+  ): Promise<boolean> {
     if (interaction.guildId !== guildId || !hasOperatorRole(interaction, operatorRoleIds)) {
       await interaction.reply({ content: "이 명령을 사용할 수 있는 operator role이 없습니다.", ephemeral: true });
       return true;
@@ -470,6 +506,39 @@ export async function startRelayBot(): Promise<void> {
       })().catch(async (error) => {
         console.error("relay-bot thread autocomplete failed", error);
         await interaction.respond([]).catch(() => undefined);
+      });
+      return;
+    }
+
+    if (interaction.isButton()) {
+      const conversationId = parseRelayExtensionButtonId(interaction.customId);
+      if (!conversationId) {
+        return;
+      }
+      void (async () => {
+        if (await rejectUnauthorized(interaction)) {
+          return;
+        }
+        await interaction.deferReply({ ephemeral: true });
+        const conversation = await coordinator.grantExtension(conversationId, 1);
+        await interaction.message.edit({
+          components: relayExtensionActionRows(conversationId, true),
+        }).catch(() => undefined);
+        await interaction.editReply([
+          "왕복 1회를 추가하고 대화를 재개했습니다.",
+          conversationSummary(conversation),
+        ].join("\n"));
+      })().catch(async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("relay-bot extension interaction failed", error);
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(`추가 왕복을 부여하지 못했습니다: ${message}`).catch(() => undefined);
+        } else {
+          await interaction.reply({
+            content: `추가 왕복을 부여하지 못했습니다: ${message}`,
+            ephemeral: true,
+          }).catch(() => undefined);
+        }
       });
       return;
     }

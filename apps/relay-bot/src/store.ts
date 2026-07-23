@@ -4,8 +4,11 @@ import path from "node:path";
 
 import { z } from "zod";
 
+export const MAX_RELAY_ROUNDS = 100;
+
 export const relayConversationStatusSchema = z.enum([
   "running",
+  "extension-requested",
   "completed",
   "max-rounds",
   "blocked",
@@ -25,7 +28,7 @@ export const relayConversationSchema = z.object({
   operatorUserId: z.string().min(1),
   operatorRoleIds: z.array(z.string()),
   goal: z.string().min(1),
-  maxRounds: z.number().int().min(1).max(20),
+  maxRounds: z.number().int().min(1).max(MAX_RELAY_ROUNDS),
   timeoutAt: z.string().datetime({ offset: true }),
   status: relayConversationStatusSchema,
   currentThreadId: z.string().min(1),
@@ -47,6 +50,10 @@ const relayConversationFileSchema = z.object({
   version: z.literal(1),
   conversations: z.array(relayConversationSchema),
 });
+
+function occupiesRelayThreads(conversation: RelayConversation): boolean {
+  return conversation.status === "running" || conversation.status === "extension-requested";
+}
 
 async function ensurePrivateDirectory(directoryPath: string): Promise<void> {
   await mkdir(directoryPath, { recursive: true, mode: 0o700 });
@@ -123,7 +130,7 @@ export function createRelayConversationStore(rootPath = defaultRelayConversation
       return mutate((conversations) => {
         const threadIds = new Set([input.originThreadId, input.peerThreadId]);
         const overlapping = conversations.find((conversation) =>
-          conversation.status === "running" &&
+          occupiesRelayThreads(conversation) &&
           (threadIds.has(conversation.originThreadId) || threadIds.has(conversation.peerThreadId)));
         if (overlapping) {
           throw new Error(`Agent relay thread is already active in conversation ${overlapping.id}.`);
@@ -160,8 +167,42 @@ export function createRelayConversationStore(rootPath = defaultRelayConversation
     },
     async findActiveByThread(threadId: string): Promise<RelayConversation | null> {
       return (await this.list()).find((conversation) =>
-        conversation.status === "running" &&
+        occupiesRelayThreads(conversation) &&
         (conversation.originThreadId === threadId || conversation.peerThreadId === threadId)) ?? null;
+    },
+    async claimExtension(
+      conversationId: string,
+      additionalRounds: number,
+      minimumTimeoutAt: string,
+    ): Promise<RelayConversation> {
+      return mutate((conversations) => {
+        const index = conversations.findIndex((conversation) => conversation.id === conversationId);
+        const conversation = conversations[index];
+        if (!conversation || conversation.status !== "extension-requested") {
+          throw new Error("이 대화는 현재 추가 왕복 승인을 기다리고 있지 않습니다.");
+        }
+        const nextMaxRounds = conversation.maxRounds + additionalRounds;
+        if (nextMaxRounds > MAX_RELAY_ROUNDS) {
+          throw new Error(`대화당 최대 ${MAX_RELAY_ROUNDS} 왕복을 넘길 수 없습니다.`);
+        }
+        const updated = relayConversationSchema.parse({
+          ...conversation,
+          status: "running",
+          statusDetail: null,
+          maxRounds: nextMaxRounds,
+          pendingRequestMessageId: null,
+          lastDoneThreadId: null,
+          completedAt: null,
+          timeoutAt: new Date(Math.max(
+            Date.parse(conversation.timeoutAt),
+            Date.parse(minimumTimeoutAt),
+          )).toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        const next = [...conversations];
+        next[index] = updated;
+        return { conversations: next, result: updated };
+      });
     },
     async findLatestByThread(threadId: string): Promise<RelayConversation | null> {
       return (await this.list())

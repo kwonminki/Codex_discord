@@ -184,7 +184,7 @@ Do not claim that an existing bot token can create another Discord application. 
 5. Store the exact Coordinator bot user ID and the same control channel ID in every participating Connector. Execute only when that bot sends an exact relay request marker and prompt attachment in the private control channel; ordinary bot messages in work threads are never requests. Never trust every bot author with a wildcard.
 6. Run **one Coordinator service per Discord guild** on one computer. Connector gateways and Direct Workers continue to run on their respective computers.
 7. Use a separate LaunchAgent on macOS, systemd unit on Ubuntu, or `install-windows-tasks.ps1 -IncludeRelay` on Windows.
-8. Test `/agent-chat` across two sessions, including A -> B -> A, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.
+8. Test `/agent-chat` across two sessions, including A -> B -> A, visible turn counters, an `extend` request and **Add one round trip** button, one file, `/agent-chat-status`, `/agent-chat-stop`, and the final Operator mention.
 
 An approval or user question during a relay turn uses the existing Connector mention flow and waits for the person. A final `codex-discord-survey` pauses the conversation as `blocked`. Coordinator restarts recover durable state and recent private control results; verify that an already dispatched target turn is not deliberately replayed. Follow [Agent Relay Guide](agent-relay.en.md) for the complete configuration and limits.
 

@@ -93,7 +93,7 @@ Use `/fork` inside a session thread to copy its conversation context into a new 
 | `/howtouse` | Teach the current agent Discord file and survey output |
 | `/where` | Show the computer, working directory, and session ID |
 
-When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. It alternates final public answers and Discord attachments between the two agents, then mentions the Operator role once when both agents agree to finish or a configured round/time limit is reached. Use `/agent-chat-status` to inspect it and `/agent-chat-stop` to stop future relay turns.
+When a separate Coordinator Bot is enabled, `/agent-chat` links the current thread to another agent thread. The default limit is 20 round trips, where one A answer plus one B answer counts as one round trip. It alternates final public answers and Discord attachments, and an Operator can grant one more round trip with the **왕복 1회 추가** (`Add one round trip`) button when an agent returns `extend`. The Operator role is mentioned when both agents agree to finish or a configured round/time limit is reached. Use `/agent-chat-status` to inspect it and `/agent-chat-stop` to stop future relay turns.
 
 ## Files and media
 
