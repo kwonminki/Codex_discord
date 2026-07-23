@@ -21,6 +21,7 @@ export interface RelayLocaleText {
   peerRequired: string;
   distinctThreadsRequired: string;
   conversationStarted: string;
+  stopHint: string;
   conversationStopped: string;
   noActiveConversation: string;
   commandFailed: string;
@@ -60,6 +61,7 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     peerRequired: "상대 thread를 검색 선택하거나 thread ID/링크를 입력하세요.",
     distinctThreadsRequired: "/agent-chat은 서로 다른 두 agent thread 사이에서만 시작할 수 있습니다.",
     conversationStarted: "Agent relay 대화를 시작했습니다.",
+    stopHint: "사람이 중간에 멈추려면 두 스레드 중 어느 쪽에서든 `/agent-chat-stop`을 실행하세요.",
     conversationStopped: "Agent relay 대화를 중지했습니다.",
     noActiveConversation: "현재 thread에는 실행 중인 agent relay 대화가 없습니다.",
     commandFailed: "Agent relay 명령이 실패했습니다",
@@ -106,6 +108,7 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     peerRequired: "Select a peer thread or enter its thread ID/link.",
     distinctThreadsRequired: "/agent-chat requires two different agent threads.",
     conversationStarted: "Started the Agent Relay conversation.",
+    stopHint: "To stop it manually, run `/agent-chat-stop` in either thread.",
     conversationStopped: "Stopped the Agent Relay conversation.",
     noActiveConversation: "This thread has no active Agent Relay conversation.",
     commandFailed: "Agent Relay command failed",
@@ -152,6 +155,7 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     peerRequired: "请选择对方线程，或输入线程 ID/链接。",
     distinctThreadsRequired: "/agent-chat 只能在两个不同的 agent 线程之间启动。",
     conversationStarted: "已启动 Agent Relay 对话。",
+    stopHint: "如需人工中途停止，请在任一线程中运行 `/agent-chat-stop`。",
     conversationStopped: "已停止 Agent Relay 对话。",
     noActiveConversation: "当前线程没有正在运行的 Agent Relay 对话。",
     commandFailed: "Agent Relay 命令失败",
@@ -198,6 +202,7 @@ const relayLocales: Readonly<Record<ConnectorLocale, RelayLocaleText>> = {
     peerRequired: "相手スレッドを選択するか、スレッド ID/リンクを入力してください。",
     distinctThreadsRequired: "/agent-chat は異なる2つの agent スレッド間でのみ開始できます。",
     conversationStarted: "Agent Relay 会話を開始しました。",
+    stopHint: "途中で停止する場合は、どちらかのスレッドで `/agent-chat-stop` を実行してください。",
     conversationStopped: "Agent Relay 会話を停止しました。",
     noActiveConversation: "現在のスレッドには実行中の Agent Relay 会話がありません。",
     commandFailed: "Agent Relay コマンドに失敗しました",

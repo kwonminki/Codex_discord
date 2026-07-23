@@ -623,7 +623,12 @@ export async function startRelayBot(): Promise<void> {
           timeoutMs: timeoutMinutes * 60_000,
         });
         await interaction.editReply({
-          content: `${text.conversationStarted}\n${conversationSummary(conversation, locale)}`,
+          content: [
+            text.conversationStarted,
+            conversationSummary(conversation, locale),
+            "",
+            text.stopHint,
+          ].join("\n"),
           allowedMentions: { parse: [] },
         });
         return;

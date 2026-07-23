@@ -12,6 +12,7 @@ import {
   relayExtensionActionRows,
   relayThreadAutocompleteChoices,
 } from "./index.js";
+import { relayLocaleText } from "./i18n.js";
 
 describe("relay bot thread selection", () => {
   it("registers parent selection followed by searchable thread autocomplete", () => {
@@ -56,14 +57,15 @@ describe("relay bot thread selection", () => {
   it("localizes relay commands and extension buttons for every supported locale", () => {
     const conversationId = "d90bcf0b-e471-4f9f-a2cf-c279d14d53d0";
     const expected = {
-      ko: ["현재 agent thread와 다른 agent thread 사이의 relay 대화를 시작합니다.", "왕복 1회 추가", "연장 거절 · 대화 종료"],
-      en: ["Start a relay conversation between this agent thread and another agent thread.", "Add one round trip", "Reject extension and stop"],
-      zh: ["在当前 agent 线程与另一个 agent 线程之间启动中继对话。", "增加 1 次往返", "拒绝延长并结束"],
-      ja: ["現在の agent スレッドと別の agent スレッドの間で relay 会話を開始します。", "往復を1回追加", "延長を拒否して終了"],
+      ko: ["현재 agent thread와 다른 agent thread 사이의 relay 대화를 시작합니다.", "왕복 1회 추가", "연장 거절 · 대화 종료", "사람이 중간에 멈추려면 두 스레드 중 어느 쪽에서든 `/agent-chat-stop`을 실행하세요."],
+      en: ["Start a relay conversation between this agent thread and another agent thread.", "Add one round trip", "Reject extension and stop", "To stop it manually, run `/agent-chat-stop` in either thread."],
+      zh: ["在当前 agent 线程与另一个 agent 线程之间启动中继对话。", "增加 1 次往返", "拒绝延长并结束", "如需人工中途停止，请在任一线程中运行 `/agent-chat-stop`。"],
+      ja: ["現在の agent スレッドと別の agent スレッドの間で relay 会話を開始します。", "往復を1回追加", "延長を拒否して終了", "途中で停止する場合は、どちらかのスレッドで `/agent-chat-stop` を実行してください。"],
     } as const;
 
-    for (const [locale, [commandDescription, extendLabel, rejectLabel]] of Object.entries(expected)) {
+    for (const [locale, [commandDescription, extendLabel, rejectLabel, stopHint]] of Object.entries(expected)) {
       expect(relayCommands(locale as keyof typeof expected)[0]?.description).toBe(commandDescription);
+      expect(relayLocaleText(locale as keyof typeof expected).stopHint).toBe(stopHint);
       const components = relayExtensionActionRows(
         conversationId,
         false,
